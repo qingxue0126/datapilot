@@ -12,6 +12,10 @@ type QueryResult = {
 };
 type HistoryItem = { id: string; question: string; createdAt: string; rowCount: number; executionMs: number; result: QueryResult };
 type DataSource = { id: string; name: string; engine: string; host: string; database: string; tables: number; rows: string; status: "connected" | "offline"; color: string };
+type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
+type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; rowCount: number; executionMs: number };
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
 const suggestions = ["今年各月份的销售额趋势如何？", "华东区销售额最高的 5 个产品", "各地区的订单量和平均客单价"];
 const initialResult: QueryResult = {
@@ -29,7 +33,7 @@ const initialResult: QueryResult = {
 };
 
 const initialSources: DataSource[] = [
-  { id: "ecommerce", name: "电商业务库", engine: "SQLite", host: "内置演示数据", database: "commerce.db", tables: 6, rows: "2.4 万", status: "connected", color: "#2f8b68" },
+  { id: "finance", name: "finance_db", engine: "MySQL 8", host: "SSH 隧道 · 127.0.0.1:3307", database: "finance_db", tables: 0, rows: "—", status: "offline", color: "#2f8b68" },
   { id: "crm", name: "客户关系库", engine: "PostgreSQL", host: "crm.internal:5432", database: "customer_360", tables: 12, rows: "18.7 万", status: "connected", color: "#4778a8" },
   { id: "warehouse", name: "经营数据仓库", engine: "MySQL", host: "dw.internal:3306", database: "business_dw", tables: 24, rows: "128 万", status: "offline", color: "#bf8547" },
 ];
@@ -53,9 +57,14 @@ export default function Home() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historySearch, setHistorySearch] = useState("");
   const [sources, setSources] = useState<DataSource[]>(initialSources);
-  const [activeSourceId, setActiveSourceId] = useState("ecommerce");
+  const [activeSourceId, setActiveSourceId] = useState("finance");
   const [testingSource, setTestingSource] = useState<string | null>(null);
   const [showAddSource, setShowAddSource] = useState(false);
+  const [serverSchema, setServerSchema] = useState<SchemaTable[]>([]);
+  const [connectionNotice, setConnectionNotice] = useState("");
+  const [sqlText, setSqlText] = useState("SELECT * FROM information_schema.tables WHERE table_schema = DATABASE() LIMIT 20");
+  const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
+  const [sqlRunning, setSqlRunning] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("datapilot-history");
@@ -71,8 +80,8 @@ export default function Home() {
     if (!query || loading) return;
     setQuestion(query); setLoading(true); setError(""); setView("chat");
     try {
-      const response = await fetch("/api/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: query, sourceId: activeSourceId }) });
-      if (!response.ok) throw new Error("查询暂时不可用，请稍后再试");
+      const response = await fetch(`${API_BASE}/api/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: query, sourceId: activeSourceId }) });
+      if (!response.ok) { const problem = await response.json().catch(() => ({})); throw new Error(problem.error || "查询暂时不可用，请稍后再试"); }
       const data: QueryResult = await response.json();
       setResult(data);
       const entry: HistoryItem = { id: `${Date.now()}`, question: query, createdAt: new Date().toISOString(), rowCount: data.rowCount, executionMs: data.executionMs, result: data };
@@ -83,12 +92,38 @@ export default function Home() {
 
   function submit(event: FormEvent) { event.preventDefault(); void ask(); }
   function newChat() { setQuestion(""); setResult(initialResult); setView("chat"); }
-  function testConnection(id: string) {
+  async function testConnection(id: string) {
     setTestingSource(id);
-    window.setTimeout(() => {
-      setSources((items) => items.map((source) => source.id === id ? { ...source, status: "connected" } : source));
-      setTestingSource(null);
-    }, 850);
+    setConnectionNotice("");
+    try {
+      if (id !== "finance") throw new Error("该数据源尚未配置服务端连接");
+      const response = await fetch(`${API_BASE}/api/database/test`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "连接失败");
+      setSources((items) => items.map((source) => source.id === id ? { ...source, status: "connected", tables: data.tables } : source));
+      setConnectionNotice(`连接成功 · MySQL ${data.version} · ${data.tables} 张表 · ${data.latencyMs} ms`);
+      await loadSchema();
+    } catch (connectionError) { setConnectionNotice(connectionError instanceof Error ? connectionError.message : "连接失败"); }
+    finally { setTestingSource(null); }
+  }
+
+  async function loadSchema() {
+    const response = await fetch(`${API_BASE}/api/database/schema`);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "读取 Schema 失败");
+    setServerSchema(data.tables || []);
+  }
+
+  async function runSql() {
+    if (!sqlText.trim() || sqlRunning) return;
+    setSqlRunning(true); setConnectionNotice("");
+    try {
+      const response = await fetch(`${API_BASE}/api/database/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sql: sqlText }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "SQL 执行失败");
+      setSqlResult(data);
+    } catch (sqlError) { setConnectionNotice(sqlError instanceof Error ? sqlError.message : "SQL 执行失败"); }
+    finally { setSqlRunning(false); }
   }
 
   const activeSource = sources.find((source) => source.id === activeSourceId) ?? sources[0];
@@ -132,8 +167,10 @@ export default function Home() {
 
         {view === "sources" && <div className="module-content sources-page">
           <div className="module-heading"><div><span className="eyebrow">DATA CONNECTIONS</span><h2>连接你的业务数据</h2><p>选择查询使用的数据源，查看可用表与字段。</p></div><button className="primary-action" onClick={() => setShowAddSource(true)}>＋ 添加数据源</button></div>
-          <div className="source-grid">{sources.map((source) => <article className={`db-card ${activeSourceId === source.id ? "selected" : ""}`} key={source.id} onClick={() => setActiveSourceId(source.id)}><div className="db-card-top"><span className="db-icon" style={{ background: source.color }}>{source.engine.slice(0, 2).toUpperCase()}</span><span className={`source-status ${source.status}`}>{source.status === "connected" ? "已连接" : "离线"}</span></div><h3>{source.name}</h3><p>{source.engine} · {source.database}</p><div className="db-stats"><span><strong>{source.tables}</strong> 张表</span><span><strong>{source.rows}</strong> 行数据</span></div><div className="db-actions"><button onClick={(event) => { event.stopPropagation(); testConnection(source.id); }}>{testingSource === source.id ? "测试中…" : "测试连接"}</button><button onClick={(event) => { event.stopPropagation(); setActiveSourceId(source.id); setView("chat"); }} disabled={source.status === "offline"}>用于查询</button></div></article>)}</div>
-          <section className="schema-panel"><div className="schema-head"><div><h3>{activeSource.name} · 数据结构</h3><p>{activeSource.host} / {activeSource.database}</p></div><span className="schema-sync">最后同步：刚刚</span></div><div className="schema-list">{schemaTables.slice(0, activeSource.tables > 10 ? 6 : activeSource.tables).map((table) => <div className="schema-row" key={table.name}><span className="table-symbol">▦</span><div><strong>{table.name}</strong><small>{table.label} · {table.fields}</small></div><span>{table.rows} 行</span></div>)}</div></section>
+          <div className="source-grid">{sources.map((source) => <article className={`db-card ${activeSourceId === source.id ? "selected" : ""}`} key={source.id} onClick={() => setActiveSourceId(source.id)}><div className="db-card-top"><span className="db-icon" style={{ background: source.color }}>{source.engine.slice(0, 2).toUpperCase()}</span><span className={`source-status ${source.status}`}>{source.status === "connected" ? "已连接" : "离线"}</span></div><h3>{source.name}</h3><p>{source.engine} · {source.database}</p><div className="db-stats"><span><strong>{source.tables}</strong> 张表</span><span><strong>{source.rows}</strong> 行数据</span></div><div className="db-actions"><button onClick={(event) => { event.stopPropagation(); void testConnection(source.id); }}>{testingSource === source.id ? "测试中…" : "测试连接"}</button><button onClick={(event) => { event.stopPropagation(); setActiveSourceId(source.id); setView("chat"); }} disabled={source.status === "offline"}>用于查询</button></div></article>)}</div>
+          {connectionNotice && <div className={`connection-notice ${connectionNotice.startsWith("连接成功") ? "success" : ""}`}>{connectionNotice}</div>}
+          <section className="schema-panel"><div className="schema-head"><div><h3>{activeSource.name} · 数据结构</h3><p>{activeSource.host} / {activeSource.database}</p></div><button className="schema-refresh" onClick={() => void loadSchema().catch((loadError) => setConnectionNotice(loadError.message))}>↻ 刷新 Schema</button></div><div className="schema-list">{(serverSchema.length ? serverSchema : schemaTables).slice(0, 12).map((table) => <div className="schema-row" key={table.name}><span className="table-symbol">▦</span><div><strong>{table.name}</strong><small>{"columns" in table ? table.columns.map((column) => `${column.name} ${column.type}`).join(", ") : `${table.label} · ${table.fields}`}</small></div><span>{table.rows.toLocaleString()} 行</span></div>)}</div></section>
+          <section className="sql-console"><div className="schema-head"><div><h3>SQL 控制台</h3><p>仅允许 SELECT、SHOW、DESCRIBE 和 EXPLAIN，最多返回 200 行</p></div><span className="schema-sync">MySQL 8</span></div><textarea value={sqlText} onChange={(event) => setSqlText(event.target.value)} spellCheck={false} /><div className="sql-console-actions"><button onClick={() => void runSql()} disabled={sqlRunning}>{sqlRunning ? "执行中…" : "▶ 执行 SQL"}</button></div>{sqlResult && <div className="sql-result"><div className="table-toolbar"><h4>执行结果 <span>{sqlResult.rowCount} 行 · {sqlResult.executionMs} ms</span></h4></div><div className="table-scroll"><table><thead><tr>{sqlResult.columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr></thead><tbody>{sqlResult.rows.map((row, index) => <tr key={index}>{sqlResult.columns.map((column) => <td key={column.key}>{String(row[column.key] ?? "")}</td>)}</tr>)}</tbody></table></div></div>}</section>
         </div>}
 
         {view === "history" && <div className="module-content history-page">
