@@ -1,4 +1,4 @@
-import mysql, { type Connection, type RowDataPacket } from "mysql2/promise";
+import mysql, { type Connection, type ResultSetHeader, type RowDataPacket } from "mysql2/promise";
 import { Client, type ConnectConfig } from "ssh2";
 
 export type DatabaseConfig = {
@@ -67,10 +67,10 @@ async function connect(config: DatabaseConfig): Promise<{ connection: Connection
   } catch (error) { tunnel.end(); throw error; }
 }
 
-export async function withDatabase<T>(config: DatabaseConfig, operation: (connection: Connection) => Promise<T>): Promise<T> {
+export async function withDatabase<T>(config: DatabaseConfig, operation: (connection: Connection) => Promise<T>, readOnly = true): Promise<T> {
   const { connection, tunnel } = await connect(config);
   try {
-    await connection.query("SET SESSION TRANSACTION READ ONLY");
+    if (readOnly) await connection.query("SET SESSION TRANSACTION READ ONLY");
     return await operation(connection);
   } finally {
     await connection.end().catch(() => undefined);
@@ -106,25 +106,38 @@ export async function getSchema(config: DatabaseConfig): Promise<SchemaTable[]> 
   });
 }
 
-export function validateReadOnlySql(input: string) {
+export function prepareSql(input: string) {
   const sql = input.trim().replace(/;\s*$/, "");
   if (!sql) throw new Error("SQL 不能为空");
   if (sql.includes(";")) throw new Error("每次只能执行一条 SQL");
-  if (!/^(select|with|show|describe|desc|explain)\b/i.test(sql)) throw new Error("仅允许只读查询（SELECT / SHOW / DESCRIBE / EXPLAIN）");
-  if (/\b(insert|update|delete|drop|alter|truncate|create|grant|revoke|replace|call|execute|load_file|outfile|dumpfile|sleep|benchmark)\b/i.test(sql)) throw new Error("SQL 包含不允许的操作");
+  if (/--|#|\/\*/.test(sql)) throw new Error("SQL 中不允许包含注释");
+  const operation = sql.match(/^([a-z]+)/i)?.[1]?.toUpperCase() || "";
+  const allowed = ["SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "INSERT", "UPDATE", "DELETE"];
+  if (!allowed.includes(operation)) throw new Error("仅支持查询以及 INSERT、UPDATE、DELETE 数据操作");
+  if (/\b(drop|alter|truncate|create|grant|revoke|replace|call|execute|load_file|outfile|dumpfile|sleep|benchmark)\b/i.test(sql)) throw new Error("SQL 包含不允许的高风险操作");
+  if (["UPDATE", "DELETE"].includes(operation) && !/\bwhere\b/i.test(sql)) throw new Error(`${operation} 必须包含 WHERE 条件`);
   const maxRows = Math.min(1000, Math.max(1, Number(process.env.QUERY_MAX_ROWS || 200)));
-  if (/^(select|with)\b/i.test(sql) && !/\blimit\s+\d+/i.test(sql)) return `${sql}\nLIMIT ${maxRows}`;
-  return sql;
+  const normalizedSql = /^(select|with)\b/i.test(sql) && !/\blimit\s+\d+/i.test(sql) ? `${sql}\nLIMIT ${maxRows}` : sql;
+  return { sql: normalizedSql, operation, isWrite: ["INSERT", "UPDATE", "DELETE"].includes(operation) };
 }
 
-export async function executeReadOnly(config: DatabaseConfig, input: string) {
-  const sql = validateReadOnlySql(input);
+export async function executeSql(config: DatabaseConfig, input: string, confirmed = false) {
+  const prepared = prepareSql(input);
+  if (prepared.isWrite && !confirmed) return { sql: prepared.sql, operation: prepared.operation, requiresConfirmation: true, rows: [], columns: [], rowCount: 0, executionMs: 0 };
   const started = Date.now();
   return withDatabase(config, async (connection) => {
-    const [rows, fields] = await connection.query(sql);
+    if (prepared.isWrite) {
+      await connection.beginTransaction();
+      try {
+        const [result] = await connection.query<ResultSetHeader>(prepared.sql);
+        await connection.commit();
+        return { sql: prepared.sql, operation: prepared.operation, requiresConfirmation: false, affectedRows: result.affectedRows, insertId: result.insertId ? Number(result.insertId) : undefined, rows: [], columns: [], rowCount: 0, executionMs: Date.now() - started };
+      } catch (error) { await connection.rollback(); throw error; }
+    }
+    const [rows, fields] = await connection.query(prepared.sql);
     const data = Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
-    return { sql, rows: data.map(normalizeRow), columns: fields?.map((field) => ({ key: field.name, label: field.name })) ?? [], rowCount: data.length, executionMs: Date.now() - started };
-  });
+    return { sql: prepared.sql, operation: prepared.operation, requiresConfirmation: false, rows: data.map(normalizeRow), columns: fields?.map((field) => ({ key: field.name, label: field.name })) ?? [], rowCount: data.length, executionMs: Date.now() - started };
+  }, !prepared.isWrite);
 }
 
 function requiredText(value: unknown, label: string) { if (typeof value !== "string" || !value.trim()) throw new Error(`请输入${label}`); return value.trim(); }

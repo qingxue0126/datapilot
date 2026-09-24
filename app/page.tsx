@@ -2,12 +2,13 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
-type View = "chat" | "sources" | "history";
-type QueryResult = { question: string; summary: string; sql: string; columns: { key: string; label: string }[]; rows: Record<string, string | number>[]; chart?: { label: string; value: number }[]; executionMs: number; rowCount: number };
+type View = "chat" | "sources" | "database" | "history";
+type QueryResult = { question: string; summary: string; sql: string; columns: { key: string; label: string }[]; rows: Record<string, string | number>[]; chart?: { label: string; value: number }[]; executionMs: number; rowCount: number; requiresConfirmation?: boolean; operation?: string };
 type HistoryItem = { id: string; question: string; createdAt: string; rowCount: number; executionMs: number; result: QueryResult };
 type DataSource = { id: string; connectionId: string; name: string; engine: string; host: string; database: string; tables: number; status: "connected" | "offline"; sshEnabled: boolean };
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
 type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; rowCount: number; executionMs: number };
+type PendingSql = { sql: string; operation: string; origin: "natural" | "console" };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 const suggestions = ["本月收入和支出分别是多少？", "按月展示今年的利润趋势", "金额最高的 10 笔交易是什么？"];
@@ -32,6 +33,8 @@ export default function Home() {
   const [sqlText, setSqlText] = useState("SHOW TABLES");
   const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
   const [sqlRunning, setSqlRunning] = useState(false);
+  const [pendingSql, setPendingSql] = useState<PendingSql | null>(null);
+  const [dbMode, setDbMode] = useState<"natural" | "sql">("natural");
 
   useEffect(() => {
     const saved = localStorage.getItem("datapilot-history");
@@ -41,7 +44,7 @@ export default function Home() {
   const activeSource = sources.find((source) => source.id === activeSourceId);
   const filteredHistory = useMemo(() => history.filter((item) => item.question.toLowerCase().includes(historySearch.toLowerCase())), [history, historySearch]);
   const maxChart = Math.max(...(result?.chart?.map((item) => item.value) ?? [1]));
-  const viewTitles: Record<View, [string, string]> = { chat: ["数据问答", "用自然语言探索你的业务数据"], sources: ["数据源", "由客户管理数据库连接与业务表结构"], history: ["查询历史", "查看、检索并复用过去的分析"] };
+  const viewTitles: Record<View, [string, string]> = { chat: ["数据问答", "用自然语言探索你的业务数据"], sources: ["数据源", "由客户管理数据库连接与业务表结构"], database: [activeSource?.name || "数据库工作台", "浏览数据结构并通过自然语言或 SQL 操作数据"], history: ["查询历史", "查看、检索并复用过去的分析"] };
 
   function saveHistory(items: HistoryItem[]) { setHistory(items); localStorage.setItem("datapilot-history", JSON.stringify(items.slice(0, 50))); }
 
@@ -49,11 +52,15 @@ export default function Home() {
     const query = (text ?? question).trim();
     if (!activeSource) { setError("请先添加并连接一个数据源"); setView("sources"); return; }
     if (!query || loading) return;
-    setQuestion(query); setLoading(true); setError(""); setView("chat");
+    setQuestion(query); setLoading(true); setError(""); if (view !== "database") setView("chat");
     try {
       const response = await fetch(`${API_BASE}/api/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: query, connectionId: activeSource.connectionId }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "查询失败");
+      if (data.requiresConfirmation) {
+        setPendingSql({ sql: data.sql, operation: data.operation, origin: "natural" });
+        setResult(data); return;
+      }
       setResult(data);
       const entry: HistoryItem = { id: crypto.randomUUID(), question: query, createdAt: new Date().toISOString(), rowCount: data.rowCount, executionMs: data.executionMs, result: data };
       saveHistory([entry, ...history.filter((item) => item.question !== query)]);
@@ -115,6 +122,7 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "SQL 执行失败");
       setSqlResult(data);
+      if (data.requiresConfirmation) { setPendingSql({ sql: data.sql, operation: data.operation, origin: "console" }); setSqlResult(null); }
     } catch (sqlError) { setConnectionNotice(sqlError instanceof Error ? sqlError.message : "SQL 执行失败"); }
     finally { setSqlRunning(false); }
   }
@@ -122,6 +130,25 @@ export default function Home() {
   async function removeSource(source: DataSource) {
     await fetch(`${API_BASE}/api/connections/${source.connectionId}`, { method: "DELETE" }).catch(() => undefined);
     const remaining = sources.filter((item) => item.id !== source.id); setSources(remaining); setActiveSourceId(remaining[0]?.id || ""); setServerSchema([]); setSqlResult(null);
+  }
+
+  async function confirmWrite() {
+    if (!pendingSql || !activeSource) return;
+    setSqlRunning(true); setConnectionNotice("");
+    try {
+      const response = await fetch(`${API_BASE}/api/database/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sql: pendingSql.sql, connectionId: activeSource.connectionId, confirm: true }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "数据操作失败");
+      setSqlResult({ ...data, rows: [], columns: [], rowCount: 0 });
+      setConnectionNotice(`执行成功 · ${data.operation} 影响 ${data.affectedRows ?? 0} 行${data.insertId ? ` · 新记录 ID ${data.insertId}` : ""}`);
+      setPendingSql(null); await loadSchema();
+    } catch (writeError) { setConnectionNotice(writeError instanceof Error ? writeError.message : "数据操作失败"); }
+    finally { setSqlRunning(false); }
+  }
+
+  function openDatabase(source: DataSource) {
+    setActiveSourceId(source.id); setView("database"); setServerSchema([]); setSqlResult(null); setPendingSql(null);
+    void loadSchema(source.connectionId).catch((e) => setConnectionNotice(e.message));
   }
 
   return <main className="app-shell">
@@ -133,7 +160,7 @@ export default function Home() {
         <button className={`nav-item ${view === "sources" ? "active" : ""}`} onClick={() => setView("sources")}><span>▦</span>数据源</button>
         <button className={`nav-item ${view === "history" ? "active" : ""}`} onClick={() => setView("history")}><span>◷</span>查询历史{history.length > 0 && <em>{history.length}</em>}</button>
       </nav>
-      <button className="source-card" onClick={() => setView("sources")}><span className="source-title"><span className={`status-dot ${activeSource?.status || "offline"}`} />{activeSource?.name || "未连接数据源"}</span><span className="source-meta">{activeSource ? `${activeSource.engine} · 已连接` : "点击添加客户数据库"}</span>{activeSource && <span className="source-stats"><span>{activeSource.tables} 张表</span><span>{activeSource.sshEnabled ? "SSH 隧道" : "直连"}</span></span>}</button>
+      <button className="source-card" onClick={() => activeSource ? openDatabase(activeSource) : setView("sources")}><span className="source-title"><span className={`status-dot ${activeSource?.status || "offline"}`} />{activeSource?.name || "未连接数据源"}<b>›</b></span><span className="source-meta">{activeSource ? `${activeSource.engine} · 点击进入` : "点击添加客户数据库"}</span>{activeSource && <span className="source-stats"><span>{activeSource.tables} 张表</span><span>{activeSource.sshEnabled ? "SSH 隧道" : "直连"}</span></span>}</button>
       <div className="sidebar-bottom"><button className="plain-button">⚙ <span>工作区设置</span></button><div className="profile"><span className="avatar">陈</span><span><strong>陈宇</strong><small>数据分析团队</small></span><span className="more">•••</span></div></div>
     </aside>
 
@@ -151,10 +178,11 @@ export default function Home() {
 
       {view === "sources" && <div className="module-content sources-page">
         <div className="module-heading"><div><span className="eyebrow">DATA CONNECTIONS</span><h2>连接客户的业务数据</h2><p>连接凭据只保存在当前服务内存中，不写入浏览器或环境变量。</p></div><button className="primary-action" onClick={() => { setConnectionNotice(""); setShowAddSource(true); }}>＋ 添加数据源</button></div>
-        {sources.length === 0 ? <div className="empty-state source-empty"><span>＋</span><h3>添加第一个数据源</h3><p>支持 MySQL 8 直连，也支持通过 SSH 私钥建立安全隧道。</p><button onClick={() => setShowAddSource(true)}>配置连接</button></div> : <div className="source-grid">{sources.map((source) => <article className={`db-card ${activeSourceId === source.id ? "selected" : ""}`} key={source.id} onClick={() => { setActiveSourceId(source.id); setServerSchema([]); void loadSchema(source.connectionId).catch((e) => setConnectionNotice(e.message)); }}><div className="db-card-top"><span className="db-icon">MY</span><span className={`source-status ${source.status}`}>{source.status === "connected" ? "已连接" : "离线"}</span></div><h3>{source.name}</h3><p>{source.host} / {source.database}</p><div className="db-stats"><span><strong>{source.tables}</strong> 张表</span><span><strong>{source.sshEnabled ? "SSH" : "TCP"}</strong> 连接方式</span></div><div className="db-actions"><button onClick={(event) => { event.stopPropagation(); void testConnection(source); }}>{testingSource === source.id ? "测试中…" : "测试连接"}</button><button onClick={(event) => { event.stopPropagation(); void removeSource(source); }}>移除</button></div></article>)}</div>}
+        {sources.length === 0 ? <div className="empty-state source-empty"><span>＋</span><h3>添加第一个数据源</h3><p>支持 MySQL 8 直连，也支持通过 SSH 私钥建立安全隧道。</p><button onClick={() => setShowAddSource(true)}>配置连接</button></div> : <div className="source-grid">{sources.map((source) => <article className={`db-card ${activeSourceId === source.id ? "selected" : ""}`} key={source.id} onClick={() => openDatabase(source)}><div className="db-card-top"><span className="db-icon">MY</span><span className={`source-status ${source.status}`}>{source.status === "connected" ? "已连接" : "离线"}</span></div><h3>{source.name}</h3><p>{source.host} / {source.database}</p><div className="db-stats"><span><strong>{source.tables}</strong> 张表</span><span><strong>{source.sshEnabled ? "SSH" : "TCP"}</strong> 连接方式</span></div><div className="db-open">进入数据库工作台 →</div><div className="db-actions"><button onClick={(event) => { event.stopPropagation(); void testConnection(source); }}>{testingSource === source.id ? "测试中…" : "测试连接"}</button><button onClick={(event) => { event.stopPropagation(); void removeSource(source); }}>移除</button></div></article>)}</div>}
         {connectionNotice && <div className={`connection-notice ${connectionNotice.startsWith("连接成功") ? "success" : ""}`}>{connectionNotice}</div>}
-        {activeSource && <><section className="schema-panel"><div className="schema-head"><div><h3>{activeSource.name} · 数据结构</h3><p>{activeSource.host} / {activeSource.database}</p></div><button className="schema-refresh" onClick={() => void loadSchema().catch((e) => setConnectionNotice(e.message))}>↻ 刷新 Schema</button></div>{serverSchema.length ? <div className="schema-list">{serverSchema.map((table) => <div className="schema-row" key={table.name}><span className="table-symbol">▦</span><div><strong>{table.name}</strong><small>{table.columns.map((column) => `${column.name} ${column.type}`).join(", ")}</small></div><span>{table.rows.toLocaleString()} 行</span></div>)}</div> : <div className="schema-loading">选择“刷新 Schema”读取真实表结构</div>}</section><section className="sql-console"><div className="schema-head"><div><h3>SQL 控制台</h3><p>仅允许 SELECT、SHOW、DESCRIBE 和 EXPLAIN，最多返回 200 行</p></div><span className="schema-sync">{activeSource.engine}</span></div><textarea value={sqlText} onChange={(event) => setSqlText(event.target.value)} spellCheck={false} /><div className="sql-console-actions"><button onClick={() => void runSql()} disabled={sqlRunning}>{sqlRunning ? "执行中…" : "▶ 执行 SQL"}</button></div>{sqlResult && <SqlResultTable result={sqlResult} />}</section></>}
       </div>}
+
+      {view === "database" && activeSource && <div className="database-workbench"><aside className="db-explorer"><div className="explorer-head"><button onClick={() => setView("sources")}>← 数据源</button><h3>{activeSource.database}</h3><p>{activeSource.host}</p></div><div className="explorer-label"><span>数据表</span><button onClick={() => void loadSchema().catch((e) => setConnectionNotice(e.message))}>↻</button></div>{serverSchema.length ? <div className="table-tree">{serverSchema.map((table) => <button key={table.name} onClick={() => { setSqlText(`SELECT * FROM \`${table.name}\` LIMIT 100`); setDbMode("sql"); }}><span>▦</span><div><strong>{table.name}</strong><small>{table.rows.toLocaleString()} 行 · {table.columns.length} 列</small></div><em>›</em></button>)}</div> : <div className="explorer-empty">正在读取表结构…</div>}</aside><section className="db-editor"><div className="db-editor-head"><div><span className="source-status connected">已连接</span><h2>{activeSource.name}</h2><p>{activeSource.engine} · {activeSource.sshEnabled ? "SSH 隧道" : "TCP 直连"}</p></div><button onClick={() => void testConnection(activeSource)}>测试连接</button></div><div className="editor-tabs"><button className={dbMode === "natural" ? "active" : ""} onClick={() => setDbMode("natural")}>✦ 自然语言</button><button className={dbMode === "sql" ? "active" : ""} onClick={() => setDbMode("sql")}>⌘ SQL 编辑器</button></div>{connectionNotice && <div className={`connection-notice ${connectionNotice.startsWith("执行成功") || connectionNotice.startsWith("连接成功") ? "success" : ""}`}>{connectionNotice}</div>}{pendingSql && <div className="write-confirm"><div><span>需要确认</span><h3>{pendingSql.operation} 将修改数据库</h3><p>请核对 SQL 和 WHERE 条件。确认后将在事务中执行。</p></div><pre><code>{pendingSql.sql}</code></pre><div><button onClick={() => setPendingSql(null)}>取消</button><button className="danger-confirm" onClick={() => void confirmWrite()} disabled={sqlRunning}>{sqlRunning ? "执行中…" : `确认执行 ${pendingSql.operation}`}</button></div></div>}{dbMode === "natural" ? <div className="natural-panel"><h3>用自然语言操作数据库</h3><p>可以查询、新增、修改或删除数据。写操作会先生成 SQL，确认后才执行。</p><form onSubmit={(event) => { event.preventDefault(); void ask(); }}><textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="例如：把凭证号为 1008 的摘要修改为差旅报销" /><button disabled={!question.trim() || loading}>{loading ? "生成中…" : "生成并运行"}</button></form>{error && <div className="error-message">{error}</div>}{result && !result.requiresConfirmation && <><div className="summary"><span>✦</span><p>{result.summary}</p></div><ResultTable result={result} /></>}</div> : <section className="sql-console workbench-console"><div className="schema-head"><div><h3>SQL 编辑器</h3><p>支持 SELECT、INSERT、UPDATE、DELETE；写操作执行前必须确认</p></div><span className="schema-sync">最多返回 200 行</span></div><textarea value={sqlText} onChange={(event) => setSqlText(event.target.value)} spellCheck={false} /><div className="sql-console-actions"><button onClick={() => void runSql()} disabled={sqlRunning}>{sqlRunning ? "执行中…" : "▶ 执行 SQL"}</button></div>{sqlResult && <SqlResultTable result={sqlResult} />}</section>}</section></div>}
 
       {view === "history" && <div className="module-content history-page"><div className="module-heading"><div><span className="eyebrow">QUERY LIBRARY</span><h2>查询历史</h2><p>找回过去的问题，一键重新分析最新数据。</p></div>{history.length > 0 && <button className="danger-action" onClick={() => saveHistory([])}>清空历史</button>}</div><div className="history-toolbar"><label><span>⌕</span><input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="搜索历史问题…" /></label><span>共 {filteredHistory.length} 条记录</span></div>{filteredHistory.length === 0 ? <div className="empty-state"><span>◷</span><h3>还没有查询历史</h3><p>完成第一次数据问答后，记录会出现在这里。</p><button onClick={() => setView("chat")}>开始提问</button></div> : <div className="history-list">{filteredHistory.map((item) => <article className="history-item" key={item.id}><span className="history-icon">⌁</span><div className="history-main"><h3>{item.question}</h3><p>{formatDate(item.createdAt)} · {item.rowCount} 行结果 · {item.executionMs} ms</p><span>{item.result.summary}</span></div><div className="history-actions"><button onClick={() => { setResult(item.result); setQuestion(item.question); setView("chat"); }}>查看结果</button><button className="rerun" onClick={() => void ask(item.question)}>重新运行 ↗</button><button aria-label="删除记录" onClick={() => saveHistory(history.filter((record) => record.id !== item.id))}>×</button></div></article>)}</div>}</div>}
     </section>

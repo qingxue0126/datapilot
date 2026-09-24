@@ -22,7 +22,7 @@ async function callDeepSeek(messages: { role: "system" | "user"; content: string
 export async function generateSql(question: string, schema: SchemaTable[]) {
   const schemaText = schema.slice(0, 80).map((table) => `${table.name}(${table.columns.map((column) => `${column.name} ${column.type}${column.comment ? ` /*${column.comment}*/` : ""}`).join(", ")})`).join("\n");
   const result = await callDeepSeek([
-    { role: "system", content: "你是资深 MySQL 8 数据分析师。只根据给定 schema 生成一条只读 SQL。禁止编造表或字段；禁止写操作、存储过程、文件函数和延时函数。适当使用中文别名。输出严格 JSON：{\"sql\":\"...\",\"title\":\"简短标题\"}。" },
+    { role: "system", content: "你是资深 MySQL 8 数据库助手。只根据给定 schema 和用户意图生成一条 SQL。查询使用 SELECT；新增、修改、删除分别使用 INSERT、UPDATE、DELETE。禁止编造表或字段，禁止 DDL、存储过程、文件函数和延时函数；UPDATE 和 DELETE 必须包含明确的 WHERE 条件。适当使用中文别名。输出严格 JSON：{\"sql\":\"...\",\"title\":\"简短标题\"}。" },
     { role: "user", content: `数据库结构：\n${schemaText}\n\n用户问题：${question}` },
   ]);
   if (typeof result.sql !== "string") throw new Error("LLM 没有生成 SQL");

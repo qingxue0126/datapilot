@@ -2,7 +2,7 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express from "express";
-import { executeReadOnly, getSchema, testDatabase, validateConfig, type DatabaseConfig } from "./database.js";
+import { executeSql, getSchema, testDatabase, validateConfig, type DatabaseConfig } from "./database.js";
 import { generateSql, summarizeResult } from "./text2sql.js";
 
 const app = express();
@@ -31,7 +31,7 @@ app.get("/api/database/schema", async (request, response) => {
   catch (error) { response.status(400).json({ error: errorMessage(error) }); }
 });
 app.post("/api/database/query", async (request, response) => {
-  try { response.json(await executeReadOnly(getConnection(String(request.body?.connectionId || "")), String(request.body?.sql || ""))); }
+  try { response.json(await executeSql(getConnection(String(request.body?.connectionId || "")), String(request.body?.sql || ""), request.body?.confirm === true)); }
   catch (error) { response.status(400).json({ error: errorMessage(error) }); }
 });
 app.post("/api/query", async (request, response) => {
@@ -43,7 +43,8 @@ app.post("/api/query", async (request, response) => {
     const schema = await getSchema(config);
     if (!schema.length) return response.status(400).json({ error: "当前数据库没有可查询的业务表" });
     const generated = await generateSql(question, schema);
-    const result = await executeReadOnly(config, generated.sql);
+    const result = await executeSql(config, generated.sql, false);
+    if (result.requiresConfirmation) return response.json({ question, summary: `检测到 ${result.operation} 数据操作，请确认 SQL 后执行。`, ...result, executionMs: Date.now() - started });
     const summary = await summarizeResult(question, result.sql, result.rows);
     return response.json({ question, summary, sql: result.sql, columns: result.columns, rows: result.rows, chart: buildChart(result.rows), executionMs: Date.now() - started, rowCount: result.rowCount });
   } catch (error) { return response.status(400).json({ error: errorMessage(error) }); }
