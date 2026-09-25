@@ -11,6 +11,16 @@ type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows:
 type PendingSql = { sql: string; operation: string; origin: "natural" | "console" };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+
+function agentHeaders() {
+  const key = "datapilot-session-id";
+  let sessionId = window.localStorage.getItem(key);
+  if (!sessionId) {
+    sessionId = window.crypto.randomUUID();
+    window.localStorage.setItem(key, sessionId);
+  }
+  return { "Content-Type": "application/json", "X-Session-Id": sessionId };
+}
 const suggestions = ["本月收入和支出分别是多少？", "按月展示今年的利润趋势", "金额最高的 10 笔交易是什么？"];
 
 export default function Home() {
@@ -73,7 +83,7 @@ export default function Home() {
     if (!query || loading) return;
     setQuestion(query); setLoading(true); setError(""); if (view !== "database") setView("chat");
     try {
-      const response = await fetch(`${API_BASE}/api/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: query, connectionId: activeSource.connectionId }) });
+      const response = await fetch(`${API_BASE}/api/query`, { method: "POST", headers: agentHeaders(), body: JSON.stringify({ question: query, connectionId: activeSource.connectionId }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "查询失败");
       if (data.requiresConfirmation) {
@@ -196,7 +206,7 @@ export default function Home() {
       </div>}
 
       {view === "sources" && <div className="module-content sources-page">
-        <div className="module-heading"><div><span className="eyebrow">DATA CONNECTIONS</span><h2>连接客户的业务数据</h2><p>连接凭据只保存在当前服务内存中，不写入浏览器或环境变量。</p></div><button className="primary-action" onClick={() => { setConnectionNotice(""); setShowAddSource(true); }}>＋ 添加数据源</button></div>
+        <div className="module-heading"><div><span className="eyebrow">DATA CONNECTIONS</span><h2>连接客户的业务数据</h2><p>连接凭据由本地服务加密保存，不写入浏览器或环境变量。</p></div><button className="primary-action" onClick={() => { setConnectionNotice(""); setShowAddSource(true); }}>＋ 添加数据源</button></div>
         {sources.length === 0 ? <div className="empty-state source-empty"><span>＋</span><h3>添加第一个数据源</h3><p>支持 MySQL 8 直连，也支持通过 SSH 私钥建立安全隧道。</p><button onClick={() => setShowAddSource(true)}>配置连接</button></div> : <div className="source-grid">{sources.map((source) => <article className={`db-card ${activeSourceId === source.id ? "selected" : ""}`} key={source.id} onClick={() => openDatabase(source)}><div className="db-card-top"><span className="db-icon">MY</span><span className={`source-status ${source.status}`}>{source.status === "connected" ? "已连接" : "离线"}</span></div><h3>{source.name}</h3><p>{source.host} / {source.database}</p><div className="db-stats"><span><strong>{source.tables}</strong> 张表</span><span><strong>{source.sshEnabled ? "SSH" : "TCP"}</strong> 连接方式</span></div><div className="db-open">进入数据库工作台 →</div><div className="db-actions"><button onClick={(event) => { event.stopPropagation(); void testConnection(source); }}>{testingSource === source.id ? "测试中…" : "测试连接"}</button><button onClick={(event) => { event.stopPropagation(); void removeSource(source); }}>移除</button></div></article>)}</div>}
         {connectionNotice && <div className={`connection-notice ${connectionNotice.startsWith("连接成功") ? "success" : ""}`}>{connectionNotice}</div>}
       </div>}

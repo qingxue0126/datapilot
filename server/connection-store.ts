@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import type { DatabaseConfig } from "./database.js";
 
 export type StoredConnection = {
+  tenantId: string;
+  accountSetId: string;
   config: DatabaseConfig;
   createdAt: number;
   details: { version: string; tables: number; latencyMs?: number };
@@ -20,7 +22,13 @@ export function loadConnections() {
     const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), Buffer.from(envelope.iv, "base64"));
     decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
     const plain = Buffer.concat([decipher.update(Buffer.from(envelope.data, "base64")), decipher.final()]).toString("utf8");
-    for (const item of JSON.parse(plain) as { id: string; value: StoredConnection }[]) map.set(item.id, item.value);
+    for (const item of JSON.parse(plain) as { id: string; value: Partial<StoredConnection> & Pick<StoredConnection, "config" | "createdAt" | "details"> }[]) {
+      map.set(item.id, {
+        ...item.value,
+        tenantId: item.value.tenantId || "demo-tenant",
+        accountSetId: item.value.accountSetId || "default-account-set",
+      });
+    }
   } catch (error) {
     console.error("无法读取已保存的数据源：", error instanceof Error ? error.message : "未知错误");
   }
