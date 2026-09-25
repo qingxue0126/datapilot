@@ -28,10 +28,7 @@ export default function Home() {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [history, setHistory] = useState<HistoryItem[]>(() => {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem("datapilot-history") || "[]"); } catch { return []; }
-  });
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historySearch, setHistorySearch] = useState("");
   const [sources, setSources] = useState<DataSource[]>([]);
   const [activeSourceId, setActiveSourceId] = useState("");
@@ -55,6 +52,15 @@ export default function Home() {
   // Initial connection discovery intentionally runs once; later refreshes are explicit user actions.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void restoreConnections(); }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const saved = localStorage.getItem("datapilot-history");
+      if (!saved) return;
+      try { setHistory(JSON.parse(saved)); } catch { localStorage.removeItem("datapilot-history"); }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   async function restoreConnections() {
     try {
