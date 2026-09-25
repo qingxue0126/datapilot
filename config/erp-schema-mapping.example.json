@@ -11,6 +11,26 @@
         "debitAmount": "md",
         "creditAmount": "mc"
       }
+    },
+    "Account": {
+      "table": "code",
+      "fields": {
+        "code": "ccode",
+        "name": "ccode_name"
+      }
     }
-  }
+  },
+  "joins": [
+    {
+      "leftEntity": "VoucherEntry",
+      "rightEntity": "Account",
+      "joinType": "left",
+      "fields": [
+        {
+          "leftField": "accountCode",
+          "rightField": "code"
+        }
+      ]
+    }
+  ]
 }

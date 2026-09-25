@@ -1,7 +1,7 @@
 import type { RequestContext } from "../core/types.js";
 import type { DatabaseConfig } from "../database.js";
 
-export type ToolContext = { request: RequestContext; connection: DatabaseConfig };
+export type ToolContext = { request: RequestContext; datasourceId: string; connection: DatabaseConfig };
 export interface AgentTool<I = unknown, O = unknown> { name: string; description: string; execute(input: I, context: ToolContext): Promise<O>; }
 
 export class ToolRegistry {

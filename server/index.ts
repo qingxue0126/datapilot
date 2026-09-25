@@ -124,8 +124,9 @@ app.post("/api/query", async (request, response) => {
     const context = identity(request);
     const question = String(request.body?.question || "").trim().slice(0, 500);
     if (!question) return response.status(400).json({ error: "请输入问题" });
-    const item = getConnectionItem(String(request.body?.connectionId || ""), context);
-    return response.json(await agent.run({ question, context, connection: item.config }));
+    const datasourceId = String(request.body?.connectionId || "");
+    const item = getConnectionItem(datasourceId, context);
+    return response.json(await agent.run({ question, context, datasourceId, connection: item.config }));
   } catch (error) { return response.status(400).json({ error: errorMessage(error) }); }
 });
 

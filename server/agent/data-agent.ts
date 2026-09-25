@@ -24,11 +24,11 @@ export class DataAgent {
     private readonly erp: ErpQueryService,
   ) {}
 
-  async run(input: { question: string; context: RequestContext; connection: DatabaseConfig }) {
+  async run(input: { question: string; context: RequestContext; datasourceId: string; connection: DatabaseConfig }) {
     const started = Date.now();
     const runId = randomUUID();
     const trace: AgentTraceEvent[] = [];
-    const toolContext = { request: input.context, connection: input.connection };
+    const toolContext = { request: input.context, datasourceId: input.datasourceId, connection: input.connection };
     this.permissions.require(input.context, "agent:query");
 
     const metrics = await this.step(trace, "metric.search", () =>

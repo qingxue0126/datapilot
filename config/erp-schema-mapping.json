@@ -1,4 +1,5 @@
 {
   "erpType": "generic",
-  "mappings": {}
+  "mappings": {},
+  "joins": []
 }

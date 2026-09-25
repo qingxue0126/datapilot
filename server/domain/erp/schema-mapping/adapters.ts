@@ -1,7 +1,7 @@
 import type { SchemaTable } from "../../../database.js";
 import { ERP_ENTITY_DEFINITIONS } from "./entities.js";
 import type {
-  ErpEntityDefinition, ErpEntityName, ErpSchemaMappingConfig, MappingSource,
+  EntityMappingResult, ErpEntityDefinition, ErpEntityName, ErpSchemaMappingConfig, JoinPathDefinition, MappingSource,
   SchemaSearchResult, SemanticEntityMapping, SemanticFieldMapping, StandardFieldDefinition,
 } from "./types.js";
 
@@ -12,14 +12,15 @@ type AdapterProfile = {
 
 export interface ErpAdapter {
   readonly erpType: ErpSchemaMappingConfig["erpType"];
-  map(schema: SchemaTable[], manualConfig?: ErpSchemaMappingConfig): Omit<SchemaSearchResult, "rawSchema">;
+  map(schema: SchemaTable[], manualConfig?: ErpSchemaMappingConfig): EntityMappingResult;
+  joinCandidates(mappings: SemanticEntityMapping[]): JoinPathDefinition[];
 }
 
 export class GenericErpAdapter implements ErpAdapter {
   readonly erpType: ErpSchemaMappingConfig["erpType"] = "generic";
   protected readonly profile: AdapterProfile = {};
 
-  map(schema: SchemaTable[], manualConfig?: ErpSchemaMappingConfig): Omit<SchemaSearchResult, "rawSchema"> {
+  map(schema: SchemaTable[], manualConfig?: ErpSchemaMappingConfig): EntityMappingResult {
     const semanticSchema = ERP_ENTITY_DEFINITIONS
       .map((definition) => mapEntity(definition, schema, this.profile, manualConfig?.mappings[definition.entity]))
       .filter((mapping): mapping is SemanticEntityMapping => Boolean(mapping));
@@ -32,6 +33,8 @@ export class GenericErpAdapter implements ErpAdapter {
       erpType: this.erpType,
     };
   }
+
+  joinCandidates(mappings: SemanticEntityMapping[]) { void mappings; return [] as JoinPathDefinition[]; }
 }
 
 export class YongyouAdapter extends GenericErpAdapter {
@@ -39,11 +42,20 @@ export class YongyouAdapter extends GenericErpAdapter {
   protected override readonly profile: AdapterProfile = {
     tables: { Voucher: ["gl_accvouch"], VoucherEntry: ["gl_accvouch"], Account: ["code"], Customer: ["customer"], Supplier: ["vendor"], Department: ["department"] },
     fields: {
-      Voucher: { id: ["iperiod", "ino_id"], voucherNo: ["ino_id"], voucherDate: ["dbill_date"], status: ["iflag", "cbill"] },
-      VoucherEntry: { voucherId: ["ino_id"], voucherDate: ["dbill_date"], accountCode: ["ccode"], debitAmount: ["md"], creditAmount: ["mc"], customerId: ["ccus_id"], supplierId: ["csup_id"], departmentId: ["cdept_id"] },
+      Voucher: { voucherNo: ["ino_id"], voucherType: ["csign"], fiscalYear: ["iyear"], accountingPeriod: ["iperiod"], voucherDate: ["dbill_date"], status: ["iflag", "cbill"] },
+      VoucherEntry: { voucherId: ["ino_id"], voucherNo: ["ino_id"], voucherType: ["csign"], fiscalYear: ["iyear"], accountingPeriod: ["iperiod"], voucherDate: ["dbill_date"], accountCode: ["ccode"], debitAmount: ["md"], creditAmount: ["mc"], customerId: ["ccus_id"], supplierId: ["csup_id"], departmentId: ["cdept_id"] },
       Account: { code: ["ccode"], name: ["ccode_name"], category: ["cclass"] },
     },
   };
+
+  override joinCandidates(mappings: SemanticEntityMapping[]) {
+    return profileCandidates(mappings, [
+      ["VoucherEntry", "Account", [["accountCode", "code"]]],
+      ["VoucherEntry", "Customer", [["customerId", "code"]]],
+      ["VoucherEntry", "Supplier", [["supplierId", "code"]]],
+      ["VoucherEntry", "Department", [["departmentId", "code"]]],
+    ]);
+  }
 }
 
 export class KingdeeAdapter extends GenericErpAdapter {
@@ -52,9 +64,19 @@ export class KingdeeAdapter extends GenericErpAdapter {
     tables: { Voucher: ["t_gl_voucher"], VoucherEntry: ["t_gl_voucherentry"], Account: ["t_bd_account"], Customer: ["t_bd_customer"], Supplier: ["t_bd_supplier"], Department: ["t_bd_department"] },
     fields: {
       Voucher: { id: ["fid"], voucherNo: ["fvoucherno", "fnumber"], voucherDate: ["fdate"], status: ["fdocumentstatus"], organizationId: ["faccountbookid"] },
-      VoucherEntry: { voucherId: ["fbillid"], accountCode: ["faccountid"], debitAmount: ["fdebit"], creditAmount: ["fcredit"], currency: ["fcurrencyid"], customerId: ["fcustomerid"], supplierId: ["fsupplierid"], departmentId: ["fdeptid"] },
+      VoucherEntry: { voucherId: ["fbillid"], accountId: ["faccountid"], debitAmount: ["fdebit"], creditAmount: ["fcredit"], currency: ["fcurrencyid"], customerId: ["fcustomerid"], supplierId: ["fsupplierid"], departmentId: ["fdeptid"] },
     },
   };
+
+  override joinCandidates(mappings: SemanticEntityMapping[]) {
+    return profileCandidates(mappings, [
+      ["VoucherEntry", "Voucher", [["voucherId", "id"]]],
+      ["VoucherEntry", "Account", [["accountId", "id"]]],
+      ["VoucherEntry", "Customer", [["customerId", "id"]]],
+      ["VoucherEntry", "Supplier", [["supplierId", "id"]]],
+      ["VoucherEntry", "Department", [["departmentId", "id"]]],
+    ]);
+  }
 }
 
 export class QiqiAdapter extends GenericErpAdapter {
@@ -62,6 +84,15 @@ export class QiqiAdapter extends GenericErpAdapter {
   protected override readonly profile: AdapterProfile = {
     tables: { Voucher: ["accounting_voucher"], VoucherEntry: ["accounting_voucher_detail", "voucher_line"], Account: ["account_subject"], Receivable: ["receivable_bill"], Payable: ["payable_bill"] },
   };
+
+  override joinCandidates(mappings: SemanticEntityMapping[]) {
+    return profileCandidates(mappings, [
+      ["VoucherEntry", "Voucher", [["voucherId", "id"]]],
+      ["VoucherEntry", "Account", [["accountCode", "code"]]],
+      ["Receivable", "Customer", [["customerId", "id"]]],
+      ["Payable", "Supplier", [["supplierId", "id"]]],
+    ]);
+  }
 }
 
 export function createErpAdapter(erpType: string): ErpAdapter {
@@ -73,7 +104,28 @@ export function createErpAdapter(erpType: string): ErpAdapter {
 
 export function mapErpSchema(schema: SchemaTable[], config?: ErpSchemaMappingConfig): SchemaSearchResult {
   const adapter = createErpAdapter(config?.erpType || "generic");
-  return { rawSchema: schema, ...adapter.map(schema, config) };
+  return {
+    rawSchema: schema,
+    ...adapter.map(schema, config),
+    joinPaths: [],
+    mappingValidation: { valid: true, errors: [] },
+    mappingSamples: [],
+  };
+}
+
+type ProfileCandidateSpec = [ErpEntityName, ErpEntityName, [string, string][]];
+function profileCandidates(mappings: SemanticEntityMapping[], specs: ProfileCandidateSpec[]): JoinPathDefinition[] {
+  return specs.flatMap(([leftEntity, rightEntity, pairs]) => {
+    const left = mappings.find((item) => item.entity === leftEntity);
+    const right = mappings.find((item) => item.entity === rightEntity);
+    if (!left || !right || left.table.toLowerCase() === right.table.toLowerCase() || !pairs.every(([leftField, rightField]) => left.fields[leftField] && right.fields[rightField])) return [];
+    return [{
+      id: `profile:${leftEntity}:${rightEntity}:${pairs.map((pair) => pair.join("=")).join("+")}`,
+      leftEntity, rightEntity, leftTable: left.table, rightTable: right.table,
+      fields: pairs.map(([leftField, rightField]) => ({ leftField, rightField })),
+      joinType: "left" as const, confidence: 0.9, source: "profile" as const, validated: false,
+    }];
+  });
 }
 
 function mapEntity(

@@ -4,6 +4,7 @@ import type { ModelProvider } from "../../llm/model-provider.js";
 import { ErpQueryService } from "./erp-query-service.js";
 import { searchMetrics, toMetricPrompt } from "./metrics.js";
 import { mapErpSchema } from "./schema-mapping/adapters.js";
+import type { JoinPathDefinition } from "./schema-mapping/types.js";
 
 test("ERP query service propagates an explicit insufficient-definition error", async () => {
   let systemPrompt = "";
@@ -60,3 +61,46 @@ test("ERP query service rejects missing critical semantic fields before calling 
   const metrics = searchMetrics("本月营业收入是多少").map(toMetricPrompt);
   await assert.rejects(service.generateSql({ question: "本月营业收入是多少", schema, metrics, history: [] }), /Schema 映射不足.*debitAmount.*creditAmount/);
 });
+
+test("ERP query service refuses a required multi-entity query without a validated join path", async () => {
+  const model: ModelProvider = { async structured() { throw new Error("model should not be called"); } };
+  const service = new ErpQueryService(model);
+  const schema = ledgerWithAccountSchema();
+  const metrics = searchMetrics("本月营业收入是多少").map(toMetricPrompt);
+  await assert.rejects(service.generateSql({ question: "本月营业收入是多少", schema, metrics, history: [] }), /VoucherEntry 与 Account.*没有经过验证的 Join Path/);
+});
+
+test("ERP query service accepts SQL that uses the full validated join path", async () => {
+  const model: ModelProvider = {
+    async structured<T>() {
+      return { status: "ready", sql: "SELECT SUM(ve.credit_amount - ve.debit_amount) AS revenue FROM voucher_entry ve LEFT JOIN account a ON ve.account_code = a.code", title: "营业收入" } as T;
+    },
+  };
+  const service = new ErpQueryService(model);
+  const schema = ledgerWithAccountSchema();
+  const join: JoinPathDefinition = {
+    id: "test-account", leftEntity: "VoucherEntry", rightEntity: "Account", leftTable: "voucher_entry", rightTable: "account",
+    fields: [{ leftField: "accountCode", rightField: "code" }], joinType: "left", confidence: 0.99, source: "manual", validated: true,
+    validation: { checked: true, matchRate: 1, rightUniqueRate: 1 },
+  };
+  schema.joinPaths = [join];
+  const plan = await service.generateSql({ question: "本月营业收入是多少", schema, metrics: searchMetrics("本月营业收入是多少").map(toMetricPrompt), history: [] });
+  assert.match(plan.sql, /LEFT JOIN account/);
+});
+
+function ledgerWithAccountSchema() {
+  return mapErpSchema([
+    { name: "voucher_entry", rows: 10, columns: [
+      { name: "voucher_id", type: "bigint", nullable: false, key: "", comment: "" },
+      { name: "voucher_date", type: "date", nullable: false, key: "", comment: "" },
+      { name: "account_code", type: "varchar(50)", nullable: false, key: "", comment: "" },
+      { name: "debit_amount", type: "decimal(18,2)", nullable: false, key: "", comment: "" },
+      { name: "credit_amount", type: "decimal(18,2)", nullable: false, key: "", comment: "" },
+    ] },
+    { name: "account", rows: 10, columns: [
+      { name: "id", type: "bigint", nullable: false, key: "PRI", comment: "" },
+      { name: "code", type: "varchar(50)", nullable: false, key: "UNI", comment: "" },
+      { name: "name", type: "varchar(100)", nullable: false, key: "", comment: "" },
+    ] },
+  ]);
+}

@@ -7,6 +7,7 @@ export const ERP_ENTITY_NAMES = [
 
 export type ErpEntityName = typeof ERP_ENTITY_NAMES[number];
 export type MappingSource = "auto" | "manual";
+export type JoinPathSource = "manual" | "database_fk" | "profile" | "inferred";
 
 export type SemanticFieldMapping = {
   column: string;
@@ -33,6 +34,10 @@ export type SchemaSearchResult = {
   mappingSource: MappingSource | "mixed";
   unresolvedFields: string[];
   erpType: string;
+  joinPaths: JoinPathDefinition[];
+  mappingValidation: MappingValidationSummary;
+  mappingSamples: MappingSample[];
+  registryVersion?: number;
 };
 
 export type ManualEntityMapping = {
@@ -44,7 +49,75 @@ export type ErpSchemaMappingConfig = {
   erpType: "generic" | "yongyou" | "kingdee" | "qiqi";
   database?: string;
   mappings: Partial<Record<ErpEntityName, ManualEntityMapping>>;
+  joins?: ManualJoinDefinition[];
 };
+
+export type JoinFieldPair = {
+  leftField: string;
+  rightField: string;
+};
+
+export type JoinPathValidation = {
+  checked: boolean;
+  matchRate?: number;
+  leftUniqueRate?: number;
+  rightUniqueRate?: number;
+  errors?: string[];
+};
+
+export type JoinPathDefinition = {
+  id: string;
+  leftEntity: ErpEntityName;
+  rightEntity: ErpEntityName;
+  leftTable: string;
+  rightTable: string;
+  fields: JoinFieldPair[];
+  joinType: "inner" | "left";
+  confidence: number;
+  source: JoinPathSource;
+  requiredContextFields?: string[];
+  validated: boolean;
+  validation?: JoinPathValidation;
+};
+
+export type ManualJoinDefinition = {
+  id?: string;
+  leftEntity: ErpEntityName;
+  rightEntity: ErpEntityName;
+  fields: JoinFieldPair[];
+  joinType?: "inner" | "left";
+  requiredContextFields?: string[];
+};
+
+export type MappingValidationSummary = {
+  valid: boolean;
+  errors: string[];
+};
+
+export type MappingSample = {
+  entity: ErpEntityName;
+  field: string;
+  table: string;
+  column: string;
+  values: string[];
+};
+
+export type ErpMappingRegistry = {
+  tenantId: string;
+  accountSetId: string;
+  datasourceId: string;
+  database: string;
+  erpType: string;
+  entities: SemanticEntityMapping[];
+  joinPaths: JoinPathDefinition[];
+  schemaFingerprint: string;
+  version: number;
+  updatedAt: string;
+};
+
+export type EntityMappingResult = Pick<SchemaSearchResult,
+  "semanticSchema" | "mappingConfidence" | "mappingSource" | "unresolvedFields" | "erpType"
+>;
 
 export type StandardFieldDefinition = {
   name: string;
