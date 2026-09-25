@@ -1,0 +1,101 @@
+{
+  "generatedAt": "2026-09-25T13:46:04.474Z",
+  "total": 15,
+  "passed": 15,
+  "failed": 0,
+  "passRate": 1,
+  "cases": [
+    {
+      "id": "FUNC-01",
+      "name": "添加 Mock 数据源",
+      "passed": true,
+      "latencyMs": 0.02
+    },
+    {
+      "id": "FUNC-02",
+      "name": "测试数据源连接",
+      "passed": true,
+      "latencyMs": 31.61
+    },
+    {
+      "id": "FUNC-03",
+      "name": "读取 Raw Schema",
+      "passed": true,
+      "latencyMs": 300.83
+    },
+    {
+      "id": "FUNC-04",
+      "name": "Auto Mapping",
+      "passed": true,
+      "latencyMs": 0.08
+    },
+    {
+      "id": "FUNC-05",
+      "name": "查看 Schema Mapping",
+      "passed": true,
+      "latencyMs": 359.79
+    },
+    {
+      "id": "FUNC-06",
+      "name": "Join Candidate Discovery",
+      "passed": true,
+      "latencyMs": 0.03
+    },
+    {
+      "id": "FUNC-07",
+      "name": "保存 Draft",
+      "passed": true,
+      "latencyMs": 356.26
+    },
+    {
+      "id": "FUNC-08",
+      "name": "Validate Mapping",
+      "passed": true,
+      "latencyMs": 372.46
+    },
+    {
+      "id": "FUNC-09",
+      "name": "Publish Mapping",
+      "passed": true,
+      "latencyMs": 385.16
+    },
+    {
+      "id": "FUNC-10",
+      "name": "Published Mapping 查询优先",
+      "passed": true,
+      "latencyMs": 287.1
+    },
+    {
+      "id": "FUNC-11",
+      "name": "查看 Versions",
+      "passed": true,
+      "latencyMs": 23.59
+    },
+    {
+      "id": "FUNC-12",
+      "name": "查看版本 Diff",
+      "passed": true,
+      "latencyMs": 1027.94
+    },
+    {
+      "id": "FUNC-13",
+      "name": "Rollback Mapping",
+      "passed": true,
+      "latencyMs": 354.65
+    },
+    {
+      "id": "FUNC-14",
+      "name": "数据问答、SQL、Trace 与 Explanation",
+      "passed": true,
+      "latencyMs": 1969.17
+    },
+    {
+      "id": "FUNC-15",
+      "name": "Mapping 不足时拒答",
+      "passed": true,
+      "latencyMs": 2833.18
+    }
+  ],
+  "datasourceId": "3705cf91-4f88-46f9-94a3-fb44fa73ce51",
+  "mappingPublishSuccessRate": 1
+}

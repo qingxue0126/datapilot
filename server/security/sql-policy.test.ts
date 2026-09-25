@@ -17,6 +17,7 @@ test("agent SQL policy permits a scoped SELECT", () => {
 test("agent SQL policy rejects writes, unauthorized tables and fields", () => {
   assert.throws(() => assertAgentSql("DELETE FROM voucher WHERE id = 1", policy), /SELECT/);
   assert.throws(() => assertAgentSql("SELECT id FROM users", policy), /users/);
+  assert.throws(() => assertAgentSql("SELECT id FROM finance_db.voucher", policy), /跨数据库/);
   assert.throws(() => assertAgentSql("SELECT bank_account FROM voucher", policy), /bank_account/);
   assert.throws(() => assertAgentSql("SELECT * FROM voucher", policy), /SELECT \*/);
   assert.doesNotThrow(() => assertAgentSql("SELECT COUNT(*) AS count FROM voucher", policy));

@@ -30,11 +30,12 @@ export class DataAgent {
     const trace: AgentTraceEvent[] = [];
     const toolContext = { request: input.context, datasourceId: input.datasourceId, connection: input.connection };
     this.permissions.require(input.context, "agent:query");
+    assertSafeQuestion(input.question);
 
     const metrics = await this.step(trace, "metric.search", () =>
       this.tools.call<{ question: string }, FinanceMetricPrompt[]>("metric.search", { question: input.question }, toolContext));
     const schema = await this.step(trace, "schema.search", () =>
-      this.tools.call<{ question: string }, SchemaSearchResult>("schema.search", { question: input.question }, toolContext));
+      this.tools.call<{ question: string; includeSamples: boolean }, SchemaSearchResult>("schema.search", { question: input.question, includeSamples: true }, toolContext));
     if (!schema.rawSchema.length) throw new Error("当前权限范围内没有可查询的业务表");
 
     const history = this.sessions.history(input.context);
@@ -82,6 +83,14 @@ export class DataAgent {
       throw error;
     }
   }
+}
+
+export function assertSafeQuestion(question: string) {
+  const normalized = question.trim();
+  const writeOrDdl = /\b(drop|delete|update|insert|alter|truncate|create|grant|revoke|replace|call|execute)\b/i;
+  const multiStatementIntent = /;[\s\S]*\b(select|with|drop|delete|update|insert|alter|truncate|create|grant|revoke|replace|call|execute)\b/i;
+  if (writeOrDdl.test(normalized) || multiStatementIntent.test(normalized)) throw new Error("安全拒答：数据问答仅允许只读分析，不接受写操作、DDL 或多语句 SQL 意图");
+  return question;
 }
 
 function buildExplanation(sql: string, metrics: FinanceMetricPrompt[], schema: SchemaSearchResult) {

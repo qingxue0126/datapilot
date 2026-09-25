@@ -1,0 +1,80 @@
+{
+  "seed": 20260925,
+  "asOfDate": "2026-09-25",
+  "database": "datapilot_mock",
+  "rowCounts": {
+    "organization": 5,
+    "department": 20,
+    "account": 180,
+    "customer": 200,
+    "supplier": 150,
+    "voucher": 1800,
+    "voucher_entry": 7200,
+    "receivable": 1500,
+    "payable": 1500,
+    "erp_anomaly_case": 15
+  },
+  "goldenAnswers": {
+    "revenue_2025_09": 1000000,
+    "revenue_2026_08": 1100000,
+    "revenue_2026_09": 1200000,
+    "revenue_yoy_2026_09": 0.2,
+    "revenue_mom_2026_09": 0.090909,
+    "revenue_ytd_2026_09": 8250000,
+    "expense_2026_09": 300000,
+    "sales_department_expense_2026_09": 120000,
+    "receivable_total": 1000000,
+    "customer_a_receivable": 300000,
+    "customer_b_receivable": 200000,
+    "payable_total": 700000,
+    "supplier_a_payable": 180000,
+    "supplier_a_expense_2026_09": 48000
+  },
+  "monthlyRevenue2026": {
+    "2026-01": 700000,
+    "2026-02": 750000,
+    "2026-03": 800000,
+    "2026-04": 850000,
+    "2026-05": 900000,
+    "2026-06": 950000,
+    "2026-07": 1000000,
+    "2026-08": 1100000,
+    "2026-09": 1200000
+  },
+  "revenueByCustomer202609": {
+    "客户A": 240000,
+    "客户B": 192000,
+    "客户C": 168000,
+    "客户D": 144000,
+    "客户E": 120000,
+    "客户F": 96000,
+    "客户G": 84000,
+    "客户H": 60000,
+    "客户I": 48000,
+    "客户J": 48000
+  },
+  "expenseByDepartment202609": {
+    "销售部": 120000,
+    "管理部": 75000,
+    "研发部": 60000,
+    "财务部": 45000
+  },
+  "expectedEntities": ["Voucher", "VoucherEntry", "Account", "Customer", "Supplier", "Receivable", "Payable", "Organization", "Department"],
+  "expectedJoins": [
+    "VoucherEntry->Voucher",
+    "VoucherEntry->Account",
+    "VoucherEntry->Customer",
+    "VoucherEntry->Supplier",
+    "VoucherEntry->Department",
+    "VoucherEntry->Organization",
+    "Receivable->Customer",
+    "Payable->Supplier",
+    "Department->Organization"
+    ,"Customer->Organization"
+    ,"Organization->Organization"
+    ,"Payable->Organization"
+    ,"Receivable->Organization"
+    ,"Supplier->Organization"
+    ,"Voucher->Organization"
+  ]
+}

@@ -14,7 +14,12 @@ export function assertAgentSql(sql: string, policy: PermissionPolicy) {
   }
   parser.astify(normalized, { database: "MySQL" });
 
-  const tables = parser.tableList(normalized, { database: "MySQL" }).map((entry) => entry.split("::").at(-1) || "");
+  const tableEntries = parser.tableList(normalized, { database: "MySQL" });
+  for (const entry of tableEntries) {
+    const [, database] = entry.split("::");
+    if (database && database !== "null") throw new Error(`智能问数不允许跨数据库访问：${database}`);
+  }
+  const tables = tableEntries.map((entry) => entry.split("::").at(-1) || "");
   if (policy.allowedTables !== "*") {
     for (const table of tables) if (!policy.allowedTables.includes(table)) throw new Error(`无权访问表 ${table}`);
   }

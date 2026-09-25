@@ -23,7 +23,7 @@ export const ERP_ENTITY_DEFINITIONS: ErpEntityDefinition[] = [
     signatureFields: ["accountCode", "debitAmount", "creditAmount"],
     fields: [
       field("id", "分录主键", ["id", "entry_id", "detail_id", "fid", "fentryid"], ["分录id", "明细id"]),
-      field("voucherId", "所属凭证标识", ["voucher_id", "voucherid", "ino_id", "bill_id", "fbillid", "id"], ["凭证id", "凭证标识"], true),
+      field("voucherId", "所属凭证标识", ["voucher_id", "voucherid", "ino_id", "bill_id", "fbillid"], ["凭证id", "凭证标识"], true),
       field("voucherNo", "凭证号", ["voucher_no", "voucher_number", "ino_id", "fnumber"], ["凭证号", "凭证编号"]),
       field("voucherType", "凭证类别", ["voucher_type", "voucher_category", "csign", "fvouchergroupid"], ["凭证类别", "凭证字"]),
       field("fiscalYear", "会计年度", ["fiscal_year", "accounting_year", "iyear", "fyear"], ["会计年度", "年度"]),

@@ -1,0 +1,26 @@
+{
+  "erpType": "generic",
+  "database": "datapilot_mock",
+  "mappings": {
+    "Voucher": { "table": "voucher", "fields": { "id": "id", "voucherNo": "voucher_no", "voucherType": "voucher_type", "fiscalYear": "fiscal_year", "accountingPeriod": "accounting_period", "voucherDate": "voucher_date", "postingDate": "posting_date", "status": "status", "organizationId": "organization_id" } },
+    "VoucherEntry": { "table": "voucher_entry", "fields": { "id": "id", "voucherId": "voucher_id", "voucherNo": "voucher_no", "voucherType": "voucher_type", "fiscalYear": "fiscal_year", "accountingPeriod": "accounting_period", "voucherDate": "voucher_date", "accountId": "account_id", "accountCode": "account_code", "debitAmount": "debit_amount", "creditAmount": "credit_amount", "currency": "currency_code", "customerId": "customer_id", "supplierId": "supplier_id", "departmentId": "department_id", "organizationId": "organization_id", "status": "status" } },
+    "Account": { "table": "account", "fields": { "id": "id", "code": "code", "name": "name", "category": "category", "normalDirection": "normal_direction", "parentCode": "parent_code", "status": "status" } },
+    "Customer": { "table": "customer", "fields": { "id": "id", "code": "code", "name": "name", "organizationId": "organization_id", "status": "status" } },
+    "Supplier": { "table": "supplier", "fields": { "id": "id", "code": "code", "name": "name", "organizationId": "organization_id", "status": "status" } },
+    "Receivable": { "table": "receivable", "fields": { "id": "id", "customerId": "customer_id", "voucherId": "voucher_id", "amount": "amount", "balance": "balance", "currency": "currency_code", "dueDate": "due_date", "businessDate": "business_date", "status": "status", "organizationId": "organization_id" } },
+    "Payable": { "table": "payable", "fields": { "id": "id", "supplierId": "supplier_id", "voucherId": "voucher_id", "amount": "amount", "balance": "balance", "currency": "currency_code", "dueDate": "due_date", "businessDate": "business_date", "status": "status", "organizationId": "organization_id" } },
+    "Organization": { "table": "organization", "fields": { "id": "id", "code": "code", "name": "name", "parentId": "parent_id", "status": "status" } },
+    "Department": { "table": "department", "fields": { "id": "id", "code": "code", "name": "name", "organizationId": "organization_id", "parentId": "parent_id", "status": "status" } }
+  },
+  "joins": [
+    { "id": "mock:entry-voucher", "leftEntity": "VoucherEntry", "rightEntity": "Voucher", "fields": [{ "leftField": "voucherId", "rightField": "id" }], "joinType": "left" },
+    { "id": "mock:entry-account", "leftEntity": "VoucherEntry", "rightEntity": "Account", "fields": [{ "leftField": "accountCode", "rightField": "code" }], "joinType": "left" },
+    { "id": "mock:entry-customer", "leftEntity": "VoucherEntry", "rightEntity": "Customer", "fields": [{ "leftField": "customerId", "rightField": "id" }], "joinType": "left" },
+    { "id": "mock:entry-supplier", "leftEntity": "VoucherEntry", "rightEntity": "Supplier", "fields": [{ "leftField": "supplierId", "rightField": "id" }], "joinType": "left" },
+    { "id": "mock:entry-department", "leftEntity": "VoucherEntry", "rightEntity": "Department", "fields": [{ "leftField": "departmentId", "rightField": "id" }], "joinType": "left" },
+    { "id": "mock:entry-organization", "leftEntity": "VoucherEntry", "rightEntity": "Organization", "fields": [{ "leftField": "organizationId", "rightField": "id" }], "joinType": "left" },
+    { "id": "mock:receivable-customer", "leftEntity": "Receivable", "rightEntity": "Customer", "fields": [{ "leftField": "customerId", "rightField": "id" }], "joinType": "left" },
+    { "id": "mock:payable-supplier", "leftEntity": "Payable", "rightEntity": "Supplier", "fields": [{ "leftField": "supplierId", "rightField": "id" }], "joinType": "left" },
+    { "id": "mock:department-organization", "leftEntity": "Department", "rightEntity": "Organization", "fields": [{ "leftField": "organizationId", "rightField": "id" }], "joinType": "left" }
+  ]
+}

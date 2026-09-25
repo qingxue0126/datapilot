@@ -1,8 +1,20 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, dirname, extname, resolve } from "node:path";
 import { ERP_ENTITY_NAMES, type ErpSchemaMappingConfig, type ManualJoinDefinition } from "./types.js";
 
 export async function loadErpSchemaMappingConfig(database?: string, filePath = resolve(process.cwd(), "config", "erp-schema-mapping.json")) {
+  const extension = extname(filePath);
+  const databasePath = database
+    ? resolve(dirname(filePath), `${basename(filePath, extension)}.${safeDatabaseName(database)}${extension}`)
+    : undefined;
+  if (databasePath) {
+    const specific = await readConfig(databasePath, database);
+    if (specific) return specific;
+  }
+  return readConfig(filePath, database);
+}
+
+async function readConfig(filePath: string, database?: string) {
   try {
     const parsed = JSON.parse(await readFile(filePath, "utf8")) as Partial<ErpSchemaMappingConfig>;
     if (!parsed || !["generic", "yongyou", "kingdee", "qiqi"].includes(String(parsed.erpType))) return undefined;
@@ -16,6 +28,8 @@ export async function loadErpSchemaMappingConfig(database?: string, filePath = r
     throw new Error(`ERP Schema Mapping 配置无效：${error instanceof Error ? error.message : "无法读取配置"}`);
   }
 }
+
+function safeDatabaseName(database: string) { return database.replace(/[^a-zA-Z0-9_-]/g, "_"); }
 
 function isManualJoin(value: unknown): value is ManualJoinDefinition {
   if (!value || typeof value !== "object") return false;

@@ -1,0 +1,121 @@
+{
+  "generatedAt": "2026-09-25T13:46:06.404Z",
+  "total": 18,
+  "passed": 18,
+  "failed": 0,
+  "passRate": 1,
+  "cases": [
+    {
+      "id": "SEC-01",
+      "name": "DELETE 写操作",
+      "passed": true,
+      "latencyMs": 0.26
+    },
+    {
+      "id": "SEC-02",
+      "name": "UPDATE 写操作",
+      "passed": true,
+      "latencyMs": 0.01
+    },
+    {
+      "id": "SEC-03",
+      "name": "INSERT 写操作",
+      "passed": true,
+      "latencyMs": 0
+    },
+    {
+      "id": "SEC-04",
+      "name": "DROP DDL",
+      "passed": true,
+      "latencyMs": 0
+    },
+    {
+      "id": "SEC-05",
+      "name": "多语句",
+      "passed": true,
+      "latencyMs": 0
+    },
+    {
+      "id": "SEC-06",
+      "name": "注释注入",
+      "passed": true,
+      "latencyMs": 0
+    },
+    {
+      "id": "SEC-07",
+      "name": "危险函数",
+      "passed": true,
+      "latencyMs": 0.08
+    },
+    {
+      "id": "SEC-08",
+      "name": "敏感字段",
+      "passed": true,
+      "latencyMs": 6.04
+    },
+    {
+      "id": "SEC-09",
+      "name": "越权表",
+      "passed": true,
+      "latencyMs": 0.67
+    },
+    {
+      "id": "SEC-10",
+      "name": "受限场景 SELECT *",
+      "passed": true,
+      "latencyMs": 0.01
+    },
+    {
+      "id": "SEC-11",
+      "name": "安全查询不误拦截",
+      "passed": true,
+      "latencyMs": 0.77
+    },
+    {
+      "id": "SEC-12",
+      "name": "非法字段由数据库拒绝",
+      "passed": true,
+      "latencyMs": 6.76
+    },
+    {
+      "id": "SEC-13",
+      "name": "错误字段 Mapping 拒绝",
+      "passed": true,
+      "latencyMs": 1.05
+    },
+    {
+      "id": "SEC-14",
+      "name": "低 Join 命中率拒绝",
+      "passed": true,
+      "latencyMs": 0.21
+    },
+    {
+      "id": "SEC-15",
+      "name": "右表不唯一 Join 拒绝",
+      "passed": true,
+      "latencyMs": 0.1
+    },
+    {
+      "id": "SEC-16",
+      "name": "Cross-Datasource 访问阻止",
+      "passed": true,
+      "latencyMs": 2.98
+    },
+    {
+      "id": "SEC-17",
+      "name": "Cross-Tenant Registry 隔离",
+      "passed": true,
+      "latencyMs": 8.02
+    },
+    {
+      "id": "SEC-18",
+      "name": "越权发布与回滚阻止",
+      "passed": true,
+      "latencyMs": 0.18
+    }
+  ],
+  "correctBlocks": 17,
+  "missedBlocks": 0,
+  "falsePositives": 0,
+  "interceptionAccuracy": 1
+}

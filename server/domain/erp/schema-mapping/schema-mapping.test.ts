@@ -20,6 +20,15 @@ test("maps a generic English voucher-entry schema", () => {
   assert.ok(entry.confidence >= 0.8);
 });
 
+test("keeps VoucherEntry id separate from voucherId", () => {
+  const result = new GenericErpAdapter().map([
+    table("voucher_entry", [column("id", "", "bigint"), column("voucher_id", "", "bigint"), column("voucher_date", "", "date"), column("account_code"), column("debit_amount", "", "decimal(18,2)"), column("credit_amount", "", "decimal(18,2)")]),
+  ]);
+  const entry = result.semanticSchema.find((item) => item.entity === "VoucherEntry");
+  assert.equal(entry?.fields.id, "id");
+  assert.equal(entry?.fields.voucherId, "voucher_id");
+});
+
 test("maps Yongyou-like GL_accvouch names through the dedicated adapter", () => {
   const result = new YongyouAdapter().map([
     table("GL_accvouch", [column("ino_id"), column("dbill_date", "", "date"), column("ccode"), column("md", "", "decimal(18,2)"), column("mc", "", "decimal(18,2)"), column("ccus_id"), column("csup_id")]),

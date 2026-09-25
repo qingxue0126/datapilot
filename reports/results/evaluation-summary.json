@@ -1,0 +1,135 @@
+{
+  "generatedAt": "2026-09-25T13:48:27.930Z",
+  "database": "datapilot_mock",
+  "rowCounts": {
+    "organization": 5,
+    "department": 20,
+    "account": 180,
+    "customer": 200,
+    "supplier": 150,
+    "voucher": 1800,
+    "voucher_entry": 7200,
+    "receivable": 1500,
+    "payable": 1500,
+    "erp_anomaly_case": 15
+  },
+  "questionCount": 60,
+  "unit": {
+    "total": 46,
+    "passed": 46,
+    "failed": 0,
+    "passRate": 1
+  },
+  "functional": {
+    "total": 15,
+    "passed": 15,
+    "failed": 0,
+    "passRate": 1
+  },
+  "integration": {
+    "total": 13,
+    "passed": 13,
+    "failed": 0,
+    "passRate": 1
+  },
+  "security": {
+    "total": 18,
+    "passed": 18,
+    "failed": 0,
+    "passRate": 1
+  },
+  "regression": {
+    "total": 48,
+    "passed": 46,
+    "failed": 2,
+    "passRate": 0.9583
+  },
+  "mapping": {
+    "entityMappingAccuracy": 1,
+    "fieldMappingAccuracy": 1,
+    "requiredFieldCoverage": 1,
+    "joinValidationAccuracy": 1,
+    "joinCandidatePrecision": 1,
+    "validatedJoinPrecision": 1,
+    "entityHits": 9,
+    "entityTotal": 9,
+    "fieldHits": 74,
+    "fieldTotal": 74,
+    "requiredHits": 29,
+    "requiredTotal": 29,
+    "validatedJoinHits": 15,
+    "validatedJoinTotal": 15,
+    "configuredEntityCount": 9
+  },
+  "text2sql": {
+    "sqlExecutionSuccessRate": 0.9808,
+    "resultAccuracy": 0.9808,
+    "exactNumericAccuracy": 0.9808,
+    "tableAccuracy": 0.9808,
+    "joinAccuracy": 0.9808,
+    "metricAccuracy": 0.9808,
+    "timeFilterAccuracy": 0.9,
+    "groupByAccuracy": 1,
+    "topNAccuracy": 1,
+    "safetyRejectionAccuracy": 1,
+    "totalPassRate": 0.9833
+  },
+  "performance": {
+    "generatedAt": "2026-09-25T13:48:23.667Z",
+    "scope": "single-host baseline; not a 100/500 concurrent-user load test",
+    "sampleCounts": {
+      "schemaSearch": 20,
+      "mappingValidation": 20,
+      "sqlGeneration": 51,
+      "sqlExecution": 30,
+      "endToEnd": 51
+    },
+    "schemaSearch": {
+      "samples": 20,
+      "average": 334.33,
+      "p50": 338.65,
+      "p95": 357.43,
+      "p99": 370.94,
+      "max": 370.94
+    },
+    "mappingValidation": {
+      "samples": 20,
+      "average": 60.11,
+      "p50": 57.93,
+      "p95": 68.07,
+      "p99": 105.38,
+      "max": 105.38
+    },
+    "sqlGeneration": {
+      "samples": 51,
+      "average": 1153.24,
+      "p50": 1126,
+      "p95": 1590,
+      "p99": 2292,
+      "max": 2292
+    },
+    "sqlExecution": {
+      "samples": 30,
+      "average": 5,
+      "p50": 3.46,
+      "p95": 12.68,
+      "p99": 12.87,
+      "max": 12.87
+    },
+    "endToEnd": {
+      "samples": 51,
+      "average": 2183.87,
+      "p50": 2046.44,
+      "p95": 2981.49,
+      "p99": 3421.05,
+      "max": 3421.05
+    }
+  },
+  "total": {
+    "cases": 200,
+    "passed": 197,
+    "failed": 3,
+    "passRate": 0.985
+  },
+  "badCaseCount": 2
+}

@@ -1,0 +1,1843 @@
+{
+  "generatedAt": "2026-09-25T13:48:27.929Z",
+  "entityMappingAccuracy": 1,
+  "fieldMappingAccuracy": 1,
+  "requiredFieldCoverage": 1,
+  "joinValidationAccuracy": 1,
+  "joinCandidatePrecision": 1,
+  "validatedJoinPrecision": 1,
+  "entityHits": 9,
+  "entityTotal": 9,
+  "fieldHits": 74,
+  "fieldTotal": 74,
+  "requiredHits": 29,
+  "requiredTotal": 29,
+  "validatedJoinHits": 15,
+  "validatedJoinTotal": 15,
+  "configuredEntityCount": 9,
+  "autoMappings": [
+    {
+      "entity": "Voucher",
+      "table": "voucher",
+      "confidence": 0.92,
+      "fields": {
+        "id": "id",
+        "voucherNo": "voucher_no",
+        "voucherDate": "voucher_date",
+        "voucherType": "voucher_type",
+        "fiscalYear": "fiscal_year",
+        "accountingPeriod": "accounting_period",
+        "postingDate": "posting_date",
+        "status": "status",
+        "organizationId": "organization_id"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "voucherNo": {
+          "column": "voucher_no",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_no”精确匹配"
+        },
+        "voucherDate": {
+          "column": "voucher_date",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_date”精确匹配"
+        },
+        "voucherType": {
+          "column": "voucher_type",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_type”精确匹配"
+        },
+        "fiscalYear": {
+          "column": "fiscal_year",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“fiscal_year”精确匹配"
+        },
+        "accountingPeriod": {
+          "column": "accounting_period",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“accounting_period”精确匹配"
+        },
+        "postingDate": {
+          "column": "posting_date",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“posting_date”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“organization_id”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“voucher”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "voucherNo→voucher_no：标准别名“voucher_no”精确匹配",
+        "voucherDate→voucher_date：标准别名“voucher_date”精确匹配",
+        "voucherType→voucher_type：标准别名“voucher_type”精确匹配",
+        "fiscalYear→fiscal_year：标准别名“fiscal_year”精确匹配",
+        "accountingPeriod→accounting_period：标准别名“accounting_period”精确匹配",
+        "postingDate→posting_date：标准别名“posting_date”精确匹配"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "VoucherEntry",
+      "table": "voucher_entry",
+      "confidence": 0.97,
+      "fields": {
+        "voucherId": "voucher_id",
+        "voucherDate": "voucher_date",
+        "accountCode": "account_code",
+        "debitAmount": "debit_amount",
+        "creditAmount": "credit_amount",
+        "id": "id",
+        "voucherNo": "voucher_no",
+        "voucherType": "voucher_type",
+        "fiscalYear": "fiscal_year",
+        "accountingPeriod": "accounting_period",
+        "accountId": "account_id",
+        "currency": "currency_code",
+        "customerId": "customer_id",
+        "supplierId": "supplier_id",
+        "departmentId": "department_id",
+        "organizationId": "organization_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "voucherId": {
+          "column": "voucher_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_id”精确匹配"
+        },
+        "voucherDate": {
+          "column": "voucher_date",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_date”精确匹配"
+        },
+        "accountCode": {
+          "column": "account_code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“account_code”精确匹配"
+        },
+        "debitAmount": {
+          "column": "debit_amount",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“debit_amount”精确匹配"
+        },
+        "creditAmount": {
+          "column": "credit_amount",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“credit_amount”精确匹配"
+        },
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "voucherNo": {
+          "column": "voucher_no",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_no”精确匹配"
+        },
+        "voucherType": {
+          "column": "voucher_type",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_type”精确匹配"
+        },
+        "fiscalYear": {
+          "column": "fiscal_year",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“fiscal_year”精确匹配"
+        },
+        "accountingPeriod": {
+          "column": "accounting_period",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“accounting_period”精确匹配"
+        },
+        "accountId": {
+          "column": "account_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“account_id”精确匹配"
+        },
+        "currency": {
+          "column": "currency_code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“currency_code”精确匹配"
+        },
+        "customerId": {
+          "column": "customer_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“customer_id”精确匹配"
+        },
+        "supplierId": {
+          "column": "supplier_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“supplier_id”精确匹配"
+        },
+        "departmentId": {
+          "column": "department_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“department_id”精确匹配"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“organization_id”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“voucher_entry”精确匹配",
+        "voucherId→voucher_id：标准别名“voucher_id”精确匹配",
+        "voucherDate→voucher_date：标准别名“voucher_date”精确匹配",
+        "accountCode→account_code：标准别名“account_code”精确匹配",
+        "debitAmount→debit_amount：标准别名“debit_amount”精确匹配",
+        "creditAmount→credit_amount：标准别名“credit_amount”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "voucherNo→voucher_no：标准别名“voucher_no”精确匹配"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Account",
+      "table": "account",
+      "confidence": 0.92,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "category": "category",
+        "normalDirection": "normal_direction",
+        "parentCode": "parent_code",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“code”精确匹配"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“name”精确匹配"
+        },
+        "category": {
+          "column": "category",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“category”精确匹配"
+        },
+        "normalDirection": {
+          "column": "normal_direction",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“normal_direction”精确匹配"
+        },
+        "parentCode": {
+          "column": "parent_code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“parent_code”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“account”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "code→code：标准别名“code”精确匹配",
+        "name→name：标准别名“name”精确匹配",
+        "category→category：标准别名“category”精确匹配",
+        "normalDirection→normal_direction：标准别名“normal_direction”精确匹配",
+        "parentCode→parent_code：标准别名“parent_code”精确匹配",
+        "status→status：标准别名“status”精确匹配"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Customer",
+      "table": "customer",
+      "confidence": 0.92,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "organizationId": "organization_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“code”精确匹配"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“name”精确匹配"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“organization_id”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“customer”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "code→code：标准别名“code”精确匹配",
+        "name→name：标准别名“name”精确匹配",
+        "organizationId→organization_id：标准别名“organization_id”精确匹配",
+        "status→status：标准别名“status”精确匹配"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Supplier",
+      "table": "supplier",
+      "confidence": 0.92,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "organizationId": "organization_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“code”精确匹配"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“name”精确匹配"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“organization_id”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“supplier”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "code→code：标准别名“code”精确匹配",
+        "name→name：标准别名“name”精确匹配",
+        "organizationId→organization_id：标准别名“organization_id”精确匹配",
+        "status→status：标准别名“status”精确匹配"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Receivable",
+      "table": "receivable",
+      "confidence": 0.97,
+      "fields": {
+        "id": "id",
+        "customerId": "customer_id",
+        "balance": "balance",
+        "voucherId": "voucher_id",
+        "amount": "amount",
+        "currency": "currency_code",
+        "dueDate": "due_date",
+        "businessDate": "business_date",
+        "status": "status",
+        "organizationId": "organization_id"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "customerId": {
+          "column": "customer_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“customer_id”精确匹配"
+        },
+        "balance": {
+          "column": "balance",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“balance”精确匹配"
+        },
+        "voucherId": {
+          "column": "voucher_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_id”精确匹配"
+        },
+        "amount": {
+          "column": "amount",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“amount”精确匹配"
+        },
+        "currency": {
+          "column": "currency_code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“currency_code”精确匹配"
+        },
+        "dueDate": {
+          "column": "due_date",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“due_date”精确匹配"
+        },
+        "businessDate": {
+          "column": "business_date",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“business_date”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“organization_id”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“receivable”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "customerId→customer_id：标准别名“customer_id”精确匹配",
+        "balance→balance：标准别名“balance”精确匹配",
+        "voucherId→voucher_id：标准别名“voucher_id”精确匹配",
+        "amount→amount：标准别名“amount”精确匹配",
+        "currency→currency_code：标准别名“currency_code”精确匹配",
+        "dueDate→due_date：标准别名“due_date”精确匹配"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Payable",
+      "table": "payable",
+      "confidence": 0.97,
+      "fields": {
+        "id": "id",
+        "supplierId": "supplier_id",
+        "balance": "balance",
+        "voucherId": "voucher_id",
+        "amount": "amount",
+        "currency": "currency_code",
+        "dueDate": "due_date",
+        "businessDate": "business_date",
+        "status": "status",
+        "organizationId": "organization_id"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "supplierId": {
+          "column": "supplier_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“supplier_id”精确匹配"
+        },
+        "balance": {
+          "column": "balance",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“balance”精确匹配"
+        },
+        "voucherId": {
+          "column": "voucher_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“voucher_id”精确匹配"
+        },
+        "amount": {
+          "column": "amount",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“amount”精确匹配"
+        },
+        "currency": {
+          "column": "currency_code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“currency_code”精确匹配"
+        },
+        "dueDate": {
+          "column": "due_date",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“due_date”精确匹配"
+        },
+        "businessDate": {
+          "column": "business_date",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“business_date”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“organization_id”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“payable”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "supplierId→supplier_id：标准别名“supplier_id”精确匹配",
+        "balance→balance：标准别名“balance”精确匹配",
+        "voucherId→voucher_id：标准别名“voucher_id”精确匹配",
+        "amount→amount：标准别名“amount”精确匹配",
+        "currency→currency_code：标准别名“currency_code”精确匹配",
+        "dueDate→due_date：标准别名“due_date”精确匹配"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Organization",
+      "table": "organization",
+      "confidence": 0.92,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "parentId": "parent_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“code”精确匹配"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“name”精确匹配"
+        },
+        "parentId": {
+          "column": "parent_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“parent_id”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“organization”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "code→code：标准别名“code”精确匹配",
+        "name→name：标准别名“name”精确匹配",
+        "parentId→parent_id：标准别名“parent_id”精确匹配",
+        "status→status：标准别名“status”精确匹配"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Department",
+      "table": "department",
+      "confidence": 0.92,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "organizationId": "organization_id",
+        "parentId": "parent_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“id”精确匹配"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“code”精确匹配"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“name”精确匹配"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“organization_id”精确匹配"
+        },
+        "parentId": {
+          "column": "parent_id",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“parent_id”精确匹配"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 0.9,
+          "source": "auto",
+          "reason": "标准别名“status”精确匹配"
+        }
+      },
+      "mappingSource": "auto",
+      "matchReasons": [
+        "标准别名“department”精确匹配",
+        "id→id：标准别名“id”精确匹配",
+        "code→code：标准别名“code”精确匹配",
+        "name→name：标准别名“name”精确匹配",
+        "organizationId→organization_id：标准别名“organization_id”精确匹配",
+        "parentId→parent_id：标准别名“parent_id”精确匹配",
+        "status→status：标准别名“status”精确匹配"
+      ],
+      "unresolvedFields": []
+    }
+  ],
+  "entities": [
+    {
+      "entity": "Voucher",
+      "table": "voucher",
+      "confidence": 1,
+      "fields": {
+        "id": "id",
+        "voucherNo": "voucher_no",
+        "voucherDate": "voucher_date",
+        "voucherType": "voucher_type",
+        "fiscalYear": "fiscal_year",
+        "accountingPeriod": "accounting_period",
+        "postingDate": "posting_date",
+        "status": "status",
+        "organizationId": "organization_id"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "voucherNo": {
+          "column": "voucher_no",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "voucherDate": {
+          "column": "voucher_date",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "voucherType": {
+          "column": "voucher_type",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "fiscalYear": {
+          "column": "fiscal_year",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "accountingPeriod": {
+          "column": "accounting_period",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "postingDate": {
+          "column": "posting_date",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "id→id：人工配置指定字段",
+        "voucherNo→voucher_no：人工配置指定字段",
+        "voucherDate→voucher_date：人工配置指定字段",
+        "voucherType→voucher_type：人工配置指定字段",
+        "fiscalYear→fiscal_year：人工配置指定字段",
+        "accountingPeriod→accounting_period：人工配置指定字段",
+        "postingDate→posting_date：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "VoucherEntry",
+      "table": "voucher_entry",
+      "confidence": 1,
+      "fields": {
+        "voucherId": "voucher_id",
+        "voucherDate": "voucher_date",
+        "accountCode": "account_code",
+        "debitAmount": "debit_amount",
+        "creditAmount": "credit_amount",
+        "id": "id",
+        "voucherNo": "voucher_no",
+        "voucherType": "voucher_type",
+        "fiscalYear": "fiscal_year",
+        "accountingPeriod": "accounting_period",
+        "accountId": "account_id",
+        "currency": "currency_code",
+        "customerId": "customer_id",
+        "supplierId": "supplier_id",
+        "departmentId": "department_id",
+        "organizationId": "organization_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "voucherId": {
+          "column": "voucher_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "voucherDate": {
+          "column": "voucher_date",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "accountCode": {
+          "column": "account_code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "debitAmount": {
+          "column": "debit_amount",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "creditAmount": {
+          "column": "credit_amount",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "voucherNo": {
+          "column": "voucher_no",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "voucherType": {
+          "column": "voucher_type",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "fiscalYear": {
+          "column": "fiscal_year",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "accountingPeriod": {
+          "column": "accounting_period",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "accountId": {
+          "column": "account_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "currency": {
+          "column": "currency_code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "customerId": {
+          "column": "customer_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "supplierId": {
+          "column": "supplier_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "departmentId": {
+          "column": "department_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "voucherId→voucher_id：人工配置指定字段",
+        "voucherDate→voucher_date：人工配置指定字段",
+        "accountCode→account_code：人工配置指定字段",
+        "debitAmount→debit_amount：人工配置指定字段",
+        "creditAmount→credit_amount：人工配置指定字段",
+        "id→id：人工配置指定字段",
+        "voucherNo→voucher_no：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Account",
+      "table": "account",
+      "confidence": 1,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "category": "category",
+        "normalDirection": "normal_direction",
+        "parentCode": "parent_code",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "category": {
+          "column": "category",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "normalDirection": {
+          "column": "normal_direction",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "parentCode": {
+          "column": "parent_code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "id→id：人工配置指定字段",
+        "code→code：人工配置指定字段",
+        "name→name：人工配置指定字段",
+        "category→category：人工配置指定字段",
+        "normalDirection→normal_direction：人工配置指定字段",
+        "parentCode→parent_code：人工配置指定字段",
+        "status→status：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Customer",
+      "table": "customer",
+      "confidence": 1,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "organizationId": "organization_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "id→id：人工配置指定字段",
+        "code→code：人工配置指定字段",
+        "name→name：人工配置指定字段",
+        "organizationId→organization_id：人工配置指定字段",
+        "status→status：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Supplier",
+      "table": "supplier",
+      "confidence": 1,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "organizationId": "organization_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "id→id：人工配置指定字段",
+        "code→code：人工配置指定字段",
+        "name→name：人工配置指定字段",
+        "organizationId→organization_id：人工配置指定字段",
+        "status→status：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Receivable",
+      "table": "receivable",
+      "confidence": 1,
+      "fields": {
+        "id": "id",
+        "customerId": "customer_id",
+        "balance": "balance",
+        "voucherId": "voucher_id",
+        "amount": "amount",
+        "currency": "currency_code",
+        "dueDate": "due_date",
+        "businessDate": "business_date",
+        "status": "status",
+        "organizationId": "organization_id"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "customerId": {
+          "column": "customer_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "balance": {
+          "column": "balance",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "voucherId": {
+          "column": "voucher_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "amount": {
+          "column": "amount",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "currency": {
+          "column": "currency_code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "dueDate": {
+          "column": "due_date",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "businessDate": {
+          "column": "business_date",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "id→id：人工配置指定字段",
+        "customerId→customer_id：人工配置指定字段",
+        "balance→balance：人工配置指定字段",
+        "voucherId→voucher_id：人工配置指定字段",
+        "amount→amount：人工配置指定字段",
+        "currency→currency_code：人工配置指定字段",
+        "dueDate→due_date：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Payable",
+      "table": "payable",
+      "confidence": 1,
+      "fields": {
+        "id": "id",
+        "supplierId": "supplier_id",
+        "balance": "balance",
+        "voucherId": "voucher_id",
+        "amount": "amount",
+        "currency": "currency_code",
+        "dueDate": "due_date",
+        "businessDate": "business_date",
+        "status": "status",
+        "organizationId": "organization_id"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "supplierId": {
+          "column": "supplier_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "balance": {
+          "column": "balance",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "voucherId": {
+          "column": "voucher_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "amount": {
+          "column": "amount",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "currency": {
+          "column": "currency_code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "dueDate": {
+          "column": "due_date",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "businessDate": {
+          "column": "business_date",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "id→id：人工配置指定字段",
+        "supplierId→supplier_id：人工配置指定字段",
+        "balance→balance：人工配置指定字段",
+        "voucherId→voucher_id：人工配置指定字段",
+        "amount→amount：人工配置指定字段",
+        "currency→currency_code：人工配置指定字段",
+        "dueDate→due_date：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Organization",
+      "table": "organization",
+      "confidence": 1,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "parentId": "parent_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "parentId": {
+          "column": "parent_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "id→id：人工配置指定字段",
+        "code→code：人工配置指定字段",
+        "name→name：人工配置指定字段",
+        "parentId→parent_id：人工配置指定字段",
+        "status→status：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    },
+    {
+      "entity": "Department",
+      "table": "department",
+      "confidence": 1,
+      "fields": {
+        "id": "id",
+        "code": "code",
+        "name": "name",
+        "organizationId": "organization_id",
+        "parentId": "parent_id",
+        "status": "status"
+      },
+      "fieldMappings": {
+        "id": {
+          "column": "id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "code": {
+          "column": "code",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "name": {
+          "column": "name",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "organizationId": {
+          "column": "organization_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "parentId": {
+          "column": "parent_id",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        },
+        "status": {
+          "column": "status",
+          "confidence": 1,
+          "source": "manual",
+          "reason": "人工配置指定字段"
+        }
+      },
+      "mappingSource": "manual",
+      "matchReasons": [
+        "人工配置指定表",
+        "id→id：人工配置指定字段",
+        "code→code：人工配置指定字段",
+        "name→name：人工配置指定字段",
+        "organizationId→organization_id：人工配置指定字段",
+        "parentId→parent_id：人工配置指定字段",
+        "status→status：人工配置指定字段"
+      ],
+      "unresolvedFields": []
+    }
+  ],
+  "validatedJoins": [
+    {
+      "id": "mock:entry-voucher",
+      "leftEntity": "VoucherEntry",
+      "rightEntity": "Voucher",
+      "leftTable": "voucher_entry",
+      "rightTable": "voucher",
+      "fields": [
+        {
+          "leftField": "voucherId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.25,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "mock:entry-account",
+      "leftEntity": "VoucherEntry",
+      "rightEntity": "Account",
+      "leftTable": "voucher_entry",
+      "rightTable": "account",
+      "fields": [
+        {
+          "leftField": "accountCode",
+          "rightField": "code"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.005,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "mock:entry-customer",
+      "leftEntity": "VoucherEntry",
+      "rightEntity": "Customer",
+      "leftTable": "voucher_entry",
+      "rightTable": "customer",
+      "fields": [
+        {
+          "leftField": "customerId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.005,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "mock:entry-supplier",
+      "leftEntity": "VoucherEntry",
+      "rightEntity": "Supplier",
+      "leftTable": "voucher_entry",
+      "rightTable": "supplier",
+      "fields": [
+        {
+          "leftField": "supplierId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.005,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "mock:entry-department",
+      "leftEntity": "VoucherEntry",
+      "rightEntity": "Department",
+      "leftTable": "voucher_entry",
+      "rightTable": "department",
+      "fields": [
+        {
+          "leftField": "departmentId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.005,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "mock:entry-organization",
+      "leftEntity": "VoucherEntry",
+      "rightEntity": "Organization",
+      "leftTable": "voucher_entry",
+      "rightTable": "organization",
+      "fields": [
+        {
+          "leftField": "organizationId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.005,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "mock:receivable-customer",
+      "leftEntity": "Receivable",
+      "rightEntity": "Customer",
+      "leftTable": "receivable",
+      "rightTable": "customer",
+      "fields": [
+        {
+          "leftField": "customerId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.12,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "mock:payable-supplier",
+      "leftEntity": "Payable",
+      "rightEntity": "Supplier",
+      "leftTable": "payable",
+      "rightTable": "supplier",
+      "fields": [
+        {
+          "leftField": "supplierId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.095,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "mock:department-organization",
+      "leftEntity": "Department",
+      "rightEntity": "Organization",
+      "leftTable": "department",
+      "rightTable": "organization",
+      "fields": [
+        {
+          "leftField": "organizationId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 1,
+      "source": "manual",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.25,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "fk:fk_customer_org:customer:organization",
+      "leftEntity": "Customer",
+      "rightEntity": "Organization",
+      "leftTable": "customer",
+      "rightTable": "organization",
+      "fields": [
+        {
+          "leftField": "organizationId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.98,
+      "source": "database_fk",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.025,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "fk:fk_org_parent:organization:organization",
+      "leftEntity": "Organization",
+      "rightEntity": "Organization",
+      "leftTable": "organization",
+      "rightTable": "organization",
+      "fields": [
+        {
+          "leftField": "parentId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.98,
+      "source": "database_fk",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.25,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "fk:fk_payable_org:payable:organization",
+      "leftEntity": "Payable",
+      "rightEntity": "Organization",
+      "leftTable": "payable",
+      "rightTable": "organization",
+      "fields": [
+        {
+          "leftField": "organizationId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.98,
+      "source": "database_fk",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.005,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "fk:fk_receivable_org:receivable:organization",
+      "leftEntity": "Receivable",
+      "rightEntity": "Organization",
+      "leftTable": "receivable",
+      "rightTable": "organization",
+      "fields": [
+        {
+          "leftField": "organizationId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.98,
+      "source": "database_fk",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.005,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "fk:fk_supplier_org:supplier:organization",
+      "leftEntity": "Supplier",
+      "rightEntity": "Organization",
+      "leftTable": "supplier",
+      "rightTable": "organization",
+      "fields": [
+        {
+          "leftField": "organizationId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.98,
+      "source": "database_fk",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.03333333333333333,
+        "rightUniqueRate": 1
+      }
+    },
+    {
+      "id": "fk:fk_voucher_org:voucher:organization",
+      "leftEntity": "Voucher",
+      "rightEntity": "Organization",
+      "leftTable": "voucher",
+      "rightTable": "organization",
+      "fields": [
+        {
+          "leftField": "organizationId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.98,
+      "source": "database_fk",
+      "validated": true,
+      "validation": {
+        "checked": true,
+        "matchRate": 1,
+        "leftUniqueRate": 0.005,
+        "rightUniqueRate": 1
+      }
+    }
+  ],
+  "rejectedJoins": [
+    {
+      "id": "fk:fk_department_parent:department:department",
+      "leftEntity": "Department",
+      "rightEntity": "Department",
+      "leftTable": "department",
+      "rightTable": "department",
+      "fields": [
+        {
+          "leftField": "parentId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.735,
+      "source": "database_fk",
+      "validated": false,
+      "validation": {
+        "checked": true,
+        "rightUniqueRate": 1,
+        "errors": [
+          "无法取得 Join 命中率样本"
+        ]
+      }
+    },
+    {
+      "id": "fk:fk_payable_voucher:payable:voucher",
+      "leftEntity": "Payable",
+      "rightEntity": "Voucher",
+      "leftTable": "payable",
+      "rightTable": "voucher",
+      "fields": [
+        {
+          "leftField": "voucherId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.735,
+      "source": "database_fk",
+      "validated": false,
+      "validation": {
+        "checked": true,
+        "rightUniqueRate": 1,
+        "errors": [
+          "无法取得 Join 命中率样本"
+        ]
+      }
+    },
+    {
+      "id": "fk:fk_receivable_voucher:receivable:voucher",
+      "leftEntity": "Receivable",
+      "rightEntity": "Voucher",
+      "leftTable": "receivable",
+      "rightTable": "voucher",
+      "fields": [
+        {
+          "leftField": "voucherId",
+          "rightField": "id"
+        }
+      ],
+      "joinType": "left",
+      "confidence": 0.735,
+      "source": "database_fk",
+      "validated": false,
+      "validation": {
+        "checked": true,
+        "rightUniqueRate": 1,
+        "errors": [
+          "无法取得 Join 命中率样本"
+        ]
+      }
+    }
+  ]
+}

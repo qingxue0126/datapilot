@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-09-25T13:48:27.928Z",
+  "total": 2,
+  "categories": [
+    {
+      "classification": "Aggregation Error",
+      "count": 1,
+      "share": 0.5
+    },
+    {
+      "classification": "Regression Error",
+      "count": 1,
+      "share": 0.5
+    }
+  ],
+  "items": [
+    {
+      "group": "text2sql",
+      "id": "EXP-02",
+      "question": "本月费用合计",
+      "classification": "Aggregation Error",
+      "reason": "SQL 生成错误：多个科目 OR 条件必须整体加括号后再与时间、状态和维度条件组合",
+      "impact": "User question does not produce an executable answer",
+      "recommendation": "Strengthen validated Join Path prompting and post-generation join checks"
+    },
+    {
+      "group": "regression",
+      "id": "regression-command",
+      "classification": "Regression Error",
+      "reason": "exit code 1",
+      "impact": "Automated test baseline is not green",
+      "recommendation": "Inspect the captured command output and repair without weakening assertions"
+    }
+  ]
+}

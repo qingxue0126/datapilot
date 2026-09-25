@@ -20,6 +20,10 @@ test("semantic aliases retrieve receivables without using the metric name", () =
   assert.equal(searchMetrics("客户还有多少款尚未收回")[0]?.id, "accounts_receivable");
 });
 
+test("short department expense questions retrieve the period expense metric", () => {
+  assert.equal(searchMetrics("按部门统计费用")[0]?.id, "period_expense");
+});
+
 test("unrelated questions do not inject default finance metrics", () => {
   assert.deepEqual(searchMetrics("显示凭证表前十行"), []);
 });

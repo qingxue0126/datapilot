@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ModelProvider } from "../../llm/model-provider.js";
-import { ErpQueryService } from "./erp-query-service.js";
+import { assertGroupedMetricFilters, ErpQueryService } from "./erp-query-service.js";
 import { searchMetrics, toMetricPrompt } from "./metrics.js";
 import { mapErpSchema } from "./schema-mapping/adapters.js";
 import type { JoinPathDefinition } from "./schema-mapping/types.js";
@@ -86,6 +86,11 @@ test("ERP query service accepts SQL that uses the full validated join path", asy
   schema.joinPaths = [join];
   const plan = await service.generateSql({ question: "本月营业收入是多少", schema, metrics: searchMetrics("本月营业收入是多少").map(toMetricPrompt), history: [] });
   assert.match(plan.sql, /LEFT JOIN account/);
+});
+
+test("metric filter validation rejects ungrouped account OR conditions", () => {
+  assert.throws(() => assertGroupedMetricFilters("SELECT SUM(credit_amount) FROM voucher_entry WHERE account_code LIKE '6001%' OR account_code LIKE '6051%' AND status='POSTED'"), /OR 条件必须整体加括号/);
+  assert.doesNotThrow(() => assertGroupedMetricFilters("SELECT SUM(credit_amount) FROM voucher_entry WHERE (account_code LIKE '6001%' OR account_code LIKE '6051%') AND status='POSTED'"));
 });
 
 function ledgerWithAccountSchema() {

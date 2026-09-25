@@ -167,7 +167,7 @@ export async function collectMappingSamples(mappings: SemanticEntityMapping[], p
   const samples: MappingSample[] = [];
   const interesting = new Set(["status", "currency", "accountCode", "organizationId"]);
   for (const mapping of mappings) for (const [field, column] of Object.entries(mapping.fields)) {
-    if (!interesting.has(field) || samples.length >= 12) continue;
+    if (!interesting.has(field) || samples.length >= 24) continue;
     const values = await probe.sampleValues(mapping.table, column, 20).catch(() => []);
     samples.push({ entity: mapping.entity, field, table: mapping.table, column, values });
   }

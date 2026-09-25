@@ -1,0 +1,101 @@
+{
+  "generatedAt": "2026-09-25T13:46:06.375Z",
+  "total": 13,
+  "passed": 13,
+  "failed": 0,
+  "passRate": 1,
+  "cases": [
+    {
+      "id": "INT-01",
+      "name": "单表行数",
+      "passed": true,
+      "latencyMs": 7.04
+    },
+    {
+      "id": "INT-02",
+      "name": "营业收入聚合",
+      "passed": true,
+      "latencyMs": 9.41
+    },
+    {
+      "id": "INT-03",
+      "name": "期间费用聚合",
+      "passed": true,
+      "latencyMs": 3.64
+    },
+    {
+      "id": "INT-04",
+      "name": "同比基期",
+      "passed": true,
+      "latencyMs": 7.71
+    },
+    {
+      "id": "INT-05",
+      "name": "环比基期",
+      "passed": true,
+      "latencyMs": 11.66
+    },
+    {
+      "id": "INT-06",
+      "name": "今年累计",
+      "passed": true,
+      "latencyMs": 14.63
+    },
+    {
+      "id": "INT-07",
+      "name": "客户收入 Join",
+      "passed": true,
+      "latencyMs": 4
+    },
+    {
+      "id": "INT-08",
+      "name": "部门费用 Join",
+      "passed": true,
+      "latencyMs": 16.89
+    },
+    {
+      "id": "INT-09",
+      "name": "应收客户 Join",
+      "passed": true,
+      "latencyMs": 3.83
+    },
+    {
+      "id": "INT-10",
+      "name": "应付供应商 Join",
+      "passed": true,
+      "latencyMs": 11.18
+    },
+    {
+      "id": "INT-11",
+      "name": "作废与未过账排除",
+      "passed": true,
+      "latencyMs": 2.95
+    },
+    {
+      "id": "INT-12",
+      "name": "多币种本位币",
+      "passed": true,
+      "latencyMs": 6.9
+    },
+    {
+      "id": "INT-13",
+      "name": "端到端 Data Agent",
+      "passed": true,
+      "latencyMs": 1799.04
+    }
+  ],
+  "stages": [
+    "MySQL",
+    "Raw Schema",
+    "ERP Adapter",
+    "Semantic Mapping",
+    "Mapping Registry",
+    "Join Validation",
+    "Finance Metric",
+    "Text2SQL",
+    "SQL Safety",
+    "SQL Execute",
+    "Answer",
+    "Trace / Explanation"
+  ]
+}

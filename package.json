@@ -13,6 +13,9 @@
     "start": "vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "test:server": "tsx --test server/**/*.test.ts",
+    "mock:erp:reset": "tsx scripts/mock-erp/reset.ts",
+    "test:erp-mock": "tsx tests/erp-mock/run-evaluation.ts",
+    "report:erp-mock": "tsx tests/erp-mock/generate-report.ts",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
