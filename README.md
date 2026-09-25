@@ -1,5 +1,7 @@
 <div align="center">
 
+**简体中文** | [English](README_EN.md)
+
 # DataPilot：面向 ERP 财务场景的智能问数系统
 
 **连接企业数据库，用自然语言完成安全、可追溯的财务数据分析。**
