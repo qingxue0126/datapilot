@@ -3,6 +3,7 @@ import test from "node:test";
 import type { ModelProvider } from "../../llm/model-provider.js";
 import { ErpQueryService } from "./erp-query-service.js";
 import { searchMetrics, toMetricPrompt } from "./metrics.js";
+import { mapErpSchema } from "./schema-mapping/adapters.js";
 
 test("ERP query service propagates an explicit insufficient-definition error", async () => {
   let systemPrompt = "";
@@ -19,16 +20,17 @@ test("ERP query service propagates an explicit insufficient-definition error", a
   };
   const service = new ErpQueryService(model);
   const metrics = searchMetrics("主营业务收入同比").map(toMetricPrompt);
-  const schema = [{
+  const rawSchema = [{
     name: "voucher",
     rows: 0,
     columns: [
-      { name: "account_name", type: "varchar(100)", nullable: false, key: "", comment: "" },
+      { name: "account_code", type: "varchar(100)", nullable: false, key: "", comment: "" },
       { name: "debit", type: "decimal(18,2)", nullable: false, key: "", comment: "" },
       { name: "credit", type: "decimal(18,2)", nullable: false, key: "", comment: "" },
       { name: "voucher_date", type: "date", nullable: false, key: "", comment: "" },
     ],
   }];
+  const schema = mapErpSchema(rawSchema);
   await assert.rejects(
     service.generateSql({ question: "主营业务收入同比", schema, metrics, history: [] }),
     /口径信息不足：缺少主营业务科目映射/,
@@ -38,8 +40,23 @@ test("ERP query service propagates an explicit insufficient-definition error", a
 });
 
 test("comparison metrics require an explicit base metric", async () => {
-  const model: ModelProvider = { async structured<T>() { throw new Error("model should not be called") as never; } };
+  const model: ModelProvider = { async structured() { throw new Error("model should not be called"); } };
   const service = new ErpQueryService(model);
   const metrics = searchMetrics("同比").map(toMetricPrompt);
-  await assert.rejects(service.generateSql({ question: "同比", schema: [], metrics, history: [] }), /必须指定.*基础指标/);
+  await assert.rejects(service.generateSql({ question: "同比", schema: mapErpSchema([]), metrics, history: [] }), /必须指定.*基础指标/);
+});
+
+test("ERP query service rejects missing critical semantic fields before calling the model", async () => {
+  const model: ModelProvider = { async structured() { throw new Error("model should not be called"); } };
+  const service = new ErpQueryService(model);
+  const schema = mapErpSchema([{
+    name: "voucher_entry", rows: 0,
+    columns: [
+      { name: "voucher_id", type: "bigint", nullable: false, key: "", comment: "" },
+      { name: "voucher_date", type: "date", nullable: false, key: "", comment: "" },
+      { name: "account_code", type: "varchar(50)", nullable: false, key: "", comment: "" },
+    ],
+  }]);
+  const metrics = searchMetrics("本月营业收入是多少").map(toMetricPrompt);
+  await assert.rejects(service.generateSql({ question: "本月营业收入是多少", schema, metrics, history: [] }), /Schema 映射不足.*debitAmount.*creditAmount/);
 });

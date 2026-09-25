@@ -1,0 +1,16 @@
+{
+  "erpType": "yongyou",
+  "database": "finance_db",
+  "mappings": {
+    "VoucherEntry": {
+      "table": "GL_accvouch",
+      "fields": {
+        "voucherId": "ino_id",
+        "voucherDate": "dbill_date",
+        "accountCode": "ccode",
+        "debitAmount": "md",
+        "creditAmount": "mc"
+      }
+    }
+  }
+}

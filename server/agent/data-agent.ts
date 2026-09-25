@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { AgentTraceEvent, RequestContext } from "../core/types.js";
-import type { DatabaseConfig, SchemaTable } from "../database.js";
+import type { DatabaseConfig } from "../database.js";
 import type { PermissionService } from "../auth/permission-service.js";
 import type { SessionStore } from "../context/session-store.js";
 import type { ErpQueryService } from "../domain/erp/erp-query-service.js";
 import type { FinanceMetricPrompt } from "../domain/erp/metrics.js";
+import type { SchemaSearchResult } from "../domain/erp/schema-mapping/types.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 
 type QueryResult = {
@@ -33,8 +34,8 @@ export class DataAgent {
     const metrics = await this.step(trace, "metric.search", () =>
       this.tools.call<{ question: string }, FinanceMetricPrompt[]>("metric.search", { question: input.question }, toolContext));
     const schema = await this.step(trace, "schema.search", () =>
-      this.tools.call<{ question: string }, SchemaTable[]>("schema.search", { question: input.question }, toolContext));
-    if (!schema.length) throw new Error("当前权限范围内没有可查询的业务表");
+      this.tools.call<{ question: string }, SchemaSearchResult>("schema.search", { question: input.question }, toolContext));
+    if (!schema.rawSchema.length) throw new Error("当前权限范围内没有可查询的业务表");
 
     const history = this.sessions.history(input.context);
     let previousError: string | undefined;
