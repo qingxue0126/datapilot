@@ -4,15 +4,17 @@ import { mapErpSchema } from "../domain/erp/schema-mapping/adapters.js";
 import { createErpAdapter } from "../domain/erp/schema-mapping/adapters.js";
 import { loadErpSchemaMappingConfig } from "../domain/erp/schema-mapping/config.js";
 import { MappingRegistryStore, mappingFingerprint, registryMatchesSchema } from "../domain/erp/schema-mapping/mapping-registry.js";
-import { buildValidatedMapping, withMySqlMappingProbe } from "../domain/erp/schema-mapping/mapping-validation.js";
+import { buildValidatedMapping, collectMappingSamples, withMySqlMappingProbe } from "../domain/erp/schema-mapping/mapping-validation.js";
 import type { SchemaSearchResult } from "../domain/erp/schema-mapping/types.js";
 import type { AgentTool, ToolContext } from "./tool-registry.js";
 
-export class SchemaSearchTool implements AgentTool<{ question: string }, SchemaSearchResult> {
+type SchemaSearchInput = { question: string; includeSamples?: boolean };
+
+export class SchemaSearchTool implements AgentTool<SchemaSearchInput, SchemaSearchResult> {
   name = "schema.search";
   description = "检索当前租户账套中与问题相关且有权限访问的表和字段";
   constructor(private readonly permissions: PermissionService, private readonly registry = new MappingRegistryStore()) {}
-  async execute(input: { question: string }, context: ToolContext) {
+  async execute(input: SchemaSearchInput, context: ToolContext) {
     this.permissions.require(context.request, "database:read");
     const schema = this.permissions.filterSchema(context.request, await getSchema(context.connection));
     const tokens = input.question.toLowerCase().split(/[^\p{L}\p{N}_]+/u).filter(Boolean);
@@ -29,7 +31,19 @@ export class SchemaSearchTool implements AgentTool<{ question: string }, SchemaS
     };
     const cached = this.registry.get(registryKey);
     if (cached && registryMatchesSchema(cached, schema, fingerprint)) {
-      return summarize({ ...mapped, rawSchema, semanticSchema: cached.entities, joinPaths: cached.joinPaths, registryVersion: cached.version });
+      const mappingSamples = input.includeSamples
+        ? await withMySqlMappingProbe(context.connection, (probe) => collectMappingSamples(cached.entities, probe))
+        : [];
+      return summarize({
+        ...mapped,
+        rawSchema,
+        semanticSchema: cached.entities,
+        joinPaths: cached.joinPaths,
+        joinCandidates: cached.joinCandidates || [],
+        mappingValidation: { valid: true, errors: [] },
+        mappingSamples,
+        registryVersion: cached.version,
+      });
     }
     const adapter = createErpAdapter(mapped.erpType);
     const validation = await withMySqlMappingProbe(context.connection, (probe) => buildValidatedMapping({
@@ -39,9 +53,9 @@ export class SchemaSearchTool implements AgentTool<{ question: string }, SchemaS
       adapterCandidates: adapter.joinCandidates(mapped.semanticSchema),
       probe,
     }));
-    const result = summarize({ ...mapped, rawSchema, ...validation });
+    const result = summarize({ ...mapped, rawSchema, ...validation, joinCandidates: validation.rejectedJoinPaths });
     if (!validation.mappingValidation.valid) return result;
-    const saved = this.registry.save({ ...registryKey, entities: mapped.semanticSchema, joinPaths: validation.joinPaths, schemaFingerprint: fingerprint });
+    const saved = this.registry.save({ ...registryKey, entities: mapped.semanticSchema, joinPaths: validation.joinPaths, joinCandidates: validation.rejectedJoinPaths, schemaFingerprint: fingerprint });
     return { ...result, registryVersion: saved.version };
   }
 }

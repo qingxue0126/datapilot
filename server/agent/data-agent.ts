@@ -5,7 +5,7 @@ import type { PermissionService } from "../auth/permission-service.js";
 import type { SessionStore } from "../context/session-store.js";
 import type { ErpQueryService } from "../domain/erp/erp-query-service.js";
 import type { FinanceMetricPrompt } from "../domain/erp/metrics.js";
-import type { SchemaSearchResult } from "../domain/erp/schema-mapping/types.js";
+import type { JoinPathDefinition, SchemaSearchResult, SemanticEntityMapping } from "../domain/erp/schema-mapping/types.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 
 type QueryResult = {
@@ -59,6 +59,7 @@ export class DataAgent {
           rowCount: result.rowCount,
           executionMs: Date.now() - started,
           sessionId: input.context.sessionId,
+          explanation: buildExplanation(result.sql, metrics, schema),
           agent: { runId, attempts: attempt, tools: this.tools.list(), trace },
         };
       } catch (error) {
@@ -81,6 +82,32 @@ export class DataAgent {
       throw error;
     }
   }
+}
+
+function buildExplanation(sql: string, metrics: FinanceMetricPrompt[], schema: SchemaSearchResult) {
+  const mappingsUsed = schema.semanticSchema.filter((mapping) => hasIdentifier(sql, mapping.table));
+  const joinPathsUsed = schema.joinPaths.filter((path) => path.validated && joinAppearsInSql(sql, path, schema.semanticSchema));
+  return {
+    metrics,
+    semanticEntities: mappingsUsed.map((mapping) => mapping.entity),
+    mappingsUsed,
+    joinPathsUsed,
+    mappingValidation: schema.mappingValidation,
+    registryVersion: schema.registryVersion,
+  };
+}
+
+function joinAppearsInSql(sql: string, path: JoinPathDefinition, mappings: SemanticEntityMapping[]) {
+  const left = mappings.find((item) => item.entity === path.leftEntity);
+  const right = mappings.find((item) => item.entity === path.rightEntity);
+  return Boolean(left && right && hasIdentifier(sql, path.leftTable) && hasIdentifier(sql, path.rightTable)
+    && path.fields.every((pair) => hasIdentifier(sql, left.fields[pair.leftField] || "") && hasIdentifier(sql, right.fields[pair.rightField] || "")));
+}
+
+function hasIdentifier(sql: string, identifier: string) {
+  if (!identifier) return false;
+  const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:\\\`${escaped}\\\`|\\b${escaped}\\b)`, "i").test(sql);
 }
 
 function safeError(error: unknown) { return (error instanceof Error ? error.message : "未知错误").slice(0, 300); }

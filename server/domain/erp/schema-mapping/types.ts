@@ -35,6 +35,7 @@ export type SchemaSearchResult = {
   unresolvedFields: string[];
   erpType: string;
   joinPaths: JoinPathDefinition[];
+  joinCandidates?: JoinPathDefinition[];
   mappingValidation: MappingValidationSummary;
   mappingSamples: MappingSample[];
   registryVersion?: number;
@@ -110,6 +111,7 @@ export type ErpMappingRegistry = {
   erpType: string;
   entities: SemanticEntityMapping[];
   joinPaths: JoinPathDefinition[];
+  joinCandidates?: JoinPathDefinition[];
   schemaFingerprint: string;
   version: number;
   updatedAt: string;

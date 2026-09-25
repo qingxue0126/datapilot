@@ -10,6 +10,7 @@ import { InMemorySessionStore } from "./context/session-store.js";
 import type { RequestContext } from "./core/types.js";
 import { executeSql, getSchema, prepareSql, testDatabase, validateConfig } from "./database.js";
 import { ErpQueryService } from "./domain/erp/erp-query-service.js";
+import type { SchemaSearchResult } from "./domain/erp/schema-mapping/types.js";
 import { DeepSeekModelProvider } from "./llm/model-provider.js";
 import { assertAgentSql } from "./security/sql-policy.js";
 import { DatabaseQueryTool } from "./tools/database-query-tool.js";
@@ -100,6 +101,20 @@ app.get("/api/database/schema", async (request, response) => {
     permissions.require(context, "database:read");
     const schema = await getSchema(getConnectionItem(String(request.query.connectionId || ""), context).config);
     response.json({ tables: permissions.filterSchema(context, schema) });
+  } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
+});
+
+/** Read-only ERP semantic mapping snapshot for the datasource detail UI. */
+app.get("/api/datasources/:id/schema-mapping", async (request, response) => {
+  try {
+    const context = identity(request);
+    permissions.require(context, "database:read");
+    const item = getConnectionItem(request.params.id, context);
+    const mapping = await tools.call<{ question: string; includeSamples: boolean }, SchemaSearchResult>("schema.search", {
+      question: "",
+      includeSamples: request.query.samples === "1",
+    }, { request: context, datasourceId: request.params.id, connection: item.config });
+    response.json({ datasource: publicConnection(request.params.id, item), ...mapping });
   } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
 });
 

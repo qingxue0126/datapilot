@@ -163,7 +163,7 @@ export async function validateJoinCandidates(schema: SchemaTable[], mappings: Se
   return results;
 }
 
-async function collectMappingSamples(mappings: SemanticEntityMapping[], probe: MappingProbe) {
+export async function collectMappingSamples(mappings: SemanticEntityMapping[], probe: MappingProbe) {
   const samples: MappingSample[] = [];
   const interesting = new Set(["status", "currency", "accountCode", "organizationId"]);
   for (const mapping of mappings) for (const [field, column] of Object.entries(mapping.fields)) {

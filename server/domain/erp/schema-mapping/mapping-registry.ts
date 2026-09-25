@@ -17,11 +17,12 @@ export class MappingRegistryStore {
 
   get(key: MappingRegistryKey) { return this.records.get(registryKey(key)); }
 
-  save(input: MappingRegistryKey & { entities: SemanticEntityMapping[]; joinPaths: JoinPathDefinition[]; schemaFingerprint: string }) {
+  save(input: MappingRegistryKey & { entities: SemanticEntityMapping[]; joinPaths: JoinPathDefinition[]; joinCandidates?: JoinPathDefinition[]; schemaFingerprint: string }) {
     const key = registryKey(input);
     const previous = this.records.get(key);
     const record: ErpMappingRegistry = {
       ...input,
+      joinCandidates: input.joinCandidates || [],
       version: (previous?.version || 0) + 1,
       updatedAt: new Date().toISOString(),
     };
@@ -55,7 +56,7 @@ export function mappingFingerprint(schema: SchemaTable[], config?: ErpSchemaMapp
 
 export function registryMatchesSchema(record: ErpMappingRegistry, schema: SchemaTable[], fingerprint: string) {
   if (record.schemaFingerprint !== fingerprint) return false;
-  return record.entities.every((mapping) => {
+    return record.entities.every((mapping) => {
     const table = schema.find((item) => same(item.name, mapping.table));
     return Boolean(table && Object.values(mapping.fields).every((column) => table.columns.some((item) => same(item.name, column))));
   }) && record.joinPaths.every((path) => path.validated && path.validation?.checked);
