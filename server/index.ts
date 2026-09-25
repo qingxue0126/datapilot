@@ -3,29 +3,40 @@ import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express from "express";
 import { executeSql, getSchema, testDatabase, validateConfig, type DatabaseConfig } from "./database.js";
+import { loadConnections, saveConnections, type StoredConnection } from "./connection-store.js";
 import { generateSql, summarizeResult } from "./text2sql.js";
 
 const app = express();
 const port = Number(process.env.API_PORT || 3001);
-const connections = new Map<string, { config: DatabaseConfig; createdAt: number }>();
+const connections = loadConnections();
 app.use(cors({ origin: process.env.WEB_ORIGIN || "http://localhost:3000" }));
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/api/health", (_request, response) => response.json({ ok: true, service: "datapilot-api" }));
+app.get("/api/connections", (_request, response) => {
+  response.json({ items: [...connections.entries()].map(([connectionId, item]) => publicConnection(connectionId, item)) });
+});
 app.post("/api/connections", async (request, response) => {
   try {
     const config = validateConfig(request.body);
     const details = await testDatabase(config);
     const connectionId = randomUUID();
-    connections.set(connectionId, { config, createdAt: Date.now() });
+    connections.set(connectionId, { config, createdAt: Date.now(), details: { version: details.version, tables: details.tables, latencyMs: details.latencyMs } });
+    saveConnections(connections);
     response.json({ ok: true, connectionId, name: config.name, engine: config.engine, host: config.host, port: config.port, sshEnabled: !!config.ssh?.enabled, ...details });
   } catch (error) { response.status(400).json({ ok: false, error: errorMessage(error) }); }
 });
 app.post("/api/connections/:id/test", async (request, response) => {
-  try { response.json({ ok: true, ...(await testDatabase(getConnection(request.params.id))) }); }
+  try {
+    const details = await testDatabase(getConnection(request.params.id));
+    const item = connections.get(request.params.id)!;
+    item.details = { version: details.version, tables: details.tables, latencyMs: details.latencyMs };
+    saveConnections(connections);
+    response.json({ ok: true, ...details });
+  }
   catch (error) { response.status(400).json({ ok: false, error: errorMessage(error) }); }
 });
-app.delete("/api/connections/:id", (request, response) => { connections.delete(request.params.id); response.status(204).end(); });
+app.delete("/api/connections/:id", (request, response) => { connections.delete(request.params.id); saveConnections(connections); response.status(204).end(); });
 app.get("/api/database/schema", async (request, response) => {
   try { const tables = await getSchema(getConnection(String(request.query.connectionId || ""))); response.json({ tables }); }
   catch (error) { response.status(400).json({ error: errorMessage(error) }); }
@@ -56,6 +67,9 @@ function getConnection(id: string) {
   const item = connections.get(id);
   if (!item) throw new Error("连接会话不存在，请重新连接数据源");
   return item.config;
+}
+function publicConnection(connectionId: string, item: StoredConnection) {
+  return { connectionId, name: item.config.name, engine: item.config.engine, host: item.config.host, port: item.config.port, database: item.config.database, sshEnabled: !!item.config.ssh?.enabled, version: item.details.version, tables: item.details.tables, createdAt: item.createdAt };
 }
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "未知错误";

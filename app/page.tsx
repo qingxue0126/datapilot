@@ -39,7 +39,26 @@ export default function Home() {
   useEffect(() => {
     const saved = localStorage.getItem("datapilot-history");
     if (saved) { try { setHistory(JSON.parse(saved)); } catch { localStorage.removeItem("datapilot-history"); } }
+    void restoreConnections();
   }, []);
+
+  async function restoreConnections() {
+    try {
+      const response = await fetch(`${API_BASE}/api/connections`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "无法恢复数据源");
+      const restored: DataSource[] = (data.items || []).map((item: Record<string, unknown>) => ({
+        id: String(item.connectionId), connectionId: String(item.connectionId), name: String(item.name),
+        engine: `MySQL ${String(item.version || "8+").split("-")[0]}`,
+        host: `${String(item.host)}:${Number(item.port)}`, database: String(item.database),
+        tables: Number(item.tables || 0), status: "connected" as const, sshEnabled: Boolean(item.sshEnabled),
+      }));
+      setSources(restored);
+      if (restored.length) setActiveSourceId(restored[0].id);
+    } catch (restoreError) {
+      setConnectionNotice(restoreError instanceof Error ? restoreError.message : "无法恢复数据源");
+    }
+  }
 
   const activeSource = sources.find((source) => source.id === activeSourceId);
   const filteredHistory = useMemo(() => history.filter((item) => item.question.toLowerCase().includes(historySearch.toLowerCase())), [history, historySearch]);
@@ -173,7 +192,7 @@ export default function Home() {
         <div className="suggestions">{suggestions.map((item) => <button key={item} onClick={() => void ask(item)} disabled={!activeSource}>{item}<span>↗</span></button>)}</div>
         {error && <div className="error-message">{error}</div>}
         {!activeSource && <div className="empty-state compact"><span>▦</span><h3>还没有数据源</h3><p>由客户填写数据库地址、账号和密码，连接成功后即可开始问数。</p><button onClick={() => { setShowAddSource(true); setView("sources"); }}>添加数据源</button></div>}
-        {result && <section className={`result-card ${loading ? "is-loading" : ""}`} aria-live="polite"><div className="result-head"><div><span className="answer-badge">✓</span><div><h3>分析完成</h3><p>{result.question}</p></div></div><span className="runtime">{result.executionMs} ms</span></div><div className="summary"><span>✦</span><p>{result.summary}</p></div>{result.chart && <div className="chart-wrap"><div className="chart-head"><h4>核心指标</h4></div><div className="bar-chart">{result.chart.map((item) => <div className="bar-column" key={item.label}><span className="bar-value">{item.value}</span><div className="bar" style={{ height: `${Math.max(18, (item.value / maxChart) * 100)}%` }} /><span className="bar-label">{item.label}</span></div>)}</div></div>}<ResultTable result={result} /><div className="sql-block"><button className="sql-toggle" onClick={() => setShowSql((value) => !value)}><span>⌘</span> 生成的 SQL <i>{showSql ? "⌃" : "⌄"}</i></button>{showSql && <div className="code-wrap"><pre><code>{result.sql}</code></pre><button className="copy" onClick={() => void navigator.clipboard.writeText(result.sql)}>复制</button></div>}</div></section>}
+        {result && <section className={`result-card ${loading ? "is-loading" : ""}`} aria-live="polite"><div className="result-head"><div><span className="answer-badge">✓</span><div><h3>分析完成</h3><p>{result.question}</p></div></div><span className="runtime">{result.executionMs} ms</span></div><div className="summary"><span>✦</span><p>{result.summary}</p></div>{result.chart && <div className="chart-wrap"><div className="chart-head"><h4>核心指标</h4></div><div className="bar-chart">{result.chart.map((item, index) => <div className="bar-column" key={`${item.label}-${index}`}><span className="bar-value">{item.value}</span><div className="bar" style={{ height: `${Math.max(18, (item.value / maxChart) * 100)}%` }} /><span className="bar-label">{item.label}</span></div>)}</div></div>}<ResultTable result={result} /><div className="sql-block"><button className="sql-toggle" onClick={() => setShowSql((value) => !value)}><span>⌘</span> 生成的 SQL <i>{showSql ? "⌃" : "⌄"}</i></button>{showSql && <div className="code-wrap"><pre><code>{result.sql}</code></pre><button className="copy" onClick={() => void navigator.clipboard.writeText(result.sql)}>复制</button></div>}</div></section>}
       </div>}
 
       {view === "sources" && <div className="module-content sources-page">
