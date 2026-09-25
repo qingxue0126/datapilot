@@ -77,6 +77,78 @@ table { width: 100%; border-collapse: collapse; font-size: 11px; }th, td { paddi
 .source-modal-wide { width: min(680px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; }.connection-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }.connection-form-grid .span-two { grid-column: 1 / -1; }.source-modal input[type="file"] { padding: 8px; color: #718078; }.source-modal input[type="file"]::file-selector-button { margin-right: 10px; border: 0; border-radius: 5px; padding: 6px 9px; color: #385d4d; background: #e7f1ec; font-size: 9px; cursor: pointer; }.source-modal .ssh-switch { display: flex; grid-template-columns: none; align-items: center; gap: 11px; margin: 3px 0 17px; padding: 13px 14px; border: 1px solid #dbe4df; border-radius: 8px; background: #f7f9f7; cursor: pointer; }.source-modal .ssh-switch input { width: 15px; height: 15px; margin: 0; accent-color: var(--green); }.ssh-switch strong, .ssh-switch small { display: block; }.ssh-switch strong { font-size: 10px; }.ssh-switch small { margin-top: 3px; color: #88948d; font-size: 8px; font-weight: 400; }.ssh-fields { margin-bottom: 15px; padding: 16px 16px 2px; border-radius: 9px; background: #eef4f1; }.modal-notice { margin: 0 0 14px; }.modal-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .database-workbench { min-height: calc(100vh - 76px); display: grid; grid-template-columns: 250px minmax(0, 1fr); background: #f5f7f4; }.db-explorer { border-right: 1px solid #dfe6e1; background: #fbfcfa; }.explorer-head { padding: 22px 17px 17px; border-bottom: 1px solid #e5eae7; }.explorer-head button { border: 0; padding: 0; color: #6d7b74; background: transparent; font-size: 9px; cursor: pointer; }.explorer-head h3 { margin: 15px 0 4px; font-family: var(--font-geist-mono); font-size: 13px; }.explorer-head p { margin: 0; color: #929d97; font-size: 8px; }.explorer-label { display: flex; align-items: center; justify-content: space-between; padding: 14px 17px 8px; color: #78867f; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; }.explorer-label button { border: 0; color: #6f7f77; background: transparent; cursor: pointer; }.table-tree { padding: 0 8px 16px; }.table-tree > button { width: 100%; display: grid; grid-template-columns: 25px 1fr auto; align-items: center; gap: 8px; border: 0; border-radius: 6px; padding: 9px; color: #394b42; background: transparent; text-align: left; cursor: pointer; }.table-tree > button:hover { background: #edf4f0; }.table-tree > button > span { color: #3b8465; }.table-tree strong, .table-tree small { display: block; }.table-tree strong { font-family: var(--font-geist-mono); font-size: 10px; }.table-tree small { margin-top: 3px; color: #939e98; font-size: 8px; }.table-tree em { color: #9ba6a0; font-style: normal; }.explorer-empty { padding: 24px 17px; color: #919d97; font-size: 9px; }
 .db-editor { min-width: 0; padding: 28px clamp(20px, 4vw, 50px) 60px; }.db-editor-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }.db-editor-head > div { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 9px; }.db-editor-head h2 { margin: 0; font-family: Georgia, "Songti SC", serif; font-size: 25px; font-weight: 500; }.db-editor-head p { grid-column: 2; margin: 5px 0 0; color: #859188; font-size: 9px; }.db-editor-head > button { border: 1px solid #d8e1dc; border-radius: 7px; padding: 8px 11px; color: #5a6e64; background: white; font-size: 9px; cursor: pointer; }.editor-tabs { display: flex; gap: 4px; margin-bottom: 16px; padding: 4px; border-radius: 9px; background: #e8eeea; }.editor-tabs button { flex: 1; border: 0; border-radius: 6px; padding: 10px; color: #728078; background: transparent; font-size: 10px; cursor: pointer; }.editor-tabs button.active { color: #245e48; background: white; box-shadow: 0 2px 7px rgba(37,65,52,.08); font-weight: 600; }.workbench-console { margin-top: 0; }.natural-panel { padding: 25px; border: 1px solid var(--line); border-radius: 11px; background: white; }.natural-panel > h3 { margin: 0; font-family: Georgia, "Songti SC", serif; font-size: 18px; font-weight: 500; }.natural-panel > p { margin: 7px 0 18px; color: #829088; font-size: 9px; }.natural-panel form { overflow: hidden; border: 1px solid #d4dfd9; border-radius: 9px; }.natural-panel textarea { width: 100%; min-height: 90px; resize: vertical; border: 0; outline: 0; padding: 15px; color: #35473e; background: white; font-size: 12px; }.natural-panel form button { float: right; margin: 0 10px 10px; border: 0; border-radius: 7px; padding: 8px 13px; color: white; background: var(--green); font-size: 9px; cursor: pointer; }.natural-panel form button:disabled { opacity: .45; }.natural-panel .table-section { margin-left: -25px; margin-right: -25px; margin-bottom: -25px; }.write-confirm { margin-bottom: 16px; overflow: hidden; border: 1px solid #e7cfc9; border-radius: 10px; background: #fff9f7; }.write-confirm > div:first-child { padding: 15px 17px 10px; }.write-confirm span { color: #a75345; font-size: 8px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }.write-confirm h3 { margin: 5px 0; color: #6d352d; font-size: 13px; }.write-confirm p { margin: 0; color: #916e68; font-size: 9px; }.write-confirm pre { margin: 0; overflow-x: auto; padding: 14px 17px; color: #f2d9d4; background: #38231f; font-family: var(--font-geist-mono); font-size: 10px; }.write-confirm > div:last-child { display: flex; justify-content: flex-end; gap: 7px; padding: 11px 15px; }.write-confirm button { border: 1px solid #dccbc7; border-radius: 6px; padding: 7px 10px; color: #73564f; background: white; font-size: 9px; cursor: pointer; }.write-confirm .danger-confirm { border-color: #a84e40; color: white; background: #a84e40; }
+/* Larger type scale for comfortable reading on desktop. */
+.nav-item { font-size: 15px; }
+.new-chat { font-size: 14px; }
+.source-title { font-size: 15px; }
+.source-meta { font-size: 12px; }
+.source-stats span { font-size: 11px; }
+.plain-button { font-size: 13px; }
+.profile strong { font-size: 14px; }
+.profile small { font-size: 11px; }
+.topbar h1 { font-size: 22px; }
+.topbar p, .connection { font-size: 13px; }
+.eyebrow { font-size: 12px; }
+.hero-copy p { font-size: 15px; }
+.query-footer span, .query-footer .source-selector { font-size: 12px; }
+.query-footer .send-button { font-size: 14px; }
+.suggestions button { font-size: 13px; }
+.result-head h3 { font-size: 15px; }
+.result-head p { font-size: 13px; }
+.runtime { font-size: 11px; }
+.summary p { font-size: 15px; }
+.chart-head h4, .table-toolbar h4 { font-size: 13px; }
+.chart-head span, .bar-value, .bar-label { font-size: 11px; }
+table { font-size: 13px; }
+th { font-size: 11px; }
+.table-toolbar button, .sql-toggle { font-size: 12px; }
+.code-wrap pre { font-size: 12px; }
+.copy, .disclaimer { font-size: 11px; }
+.module-heading h2 { font-size: 35px; }
+.module-heading p { font-size: 14px; }
+.primary-action, .danger-action { font-size: 12px; }
+.db-card h3 { font-size: 17px; }
+.db-card > p, .db-open { font-size: 12px; }
+.source-status { font-size: 10px; }
+.db-stats { font-size: 11px; }
+.db-stats strong { font-size: 17px; }
+.db-actions button { font-size: 11px; }
+.schema-head h3 { font-size: 16px; }
+.schema-head p, .schema-sync, .schema-refresh { font-size: 11px; }
+.schema-row strong { font-size: 12px; }
+.schema-row small, .schema-row > span:last-child { font-size: 10px; }
+.schema-loading, .connection-notice { font-size: 12px; }
+.sql-console > textarea { font-size: 13px; }
+.sql-console-actions button { font-size: 12px; }
+.history-toolbar input { font-size: 13px; }
+.history-toolbar > span { font-size: 11px; }
+.history-main h3 { font-size: 14px; }
+.history-main p { font-size: 10px; }
+.history-main > span { font-size: 12px; }
+.history-actions button { font-size: 11px; }
+.empty-state h3 { font-size: 17px; }
+.empty-state p, .empty-state button { font-size: 12px; }
+.modal-head h2 { font-size: 28px; }
+.modal-head p { font-size: 11px; }
+.source-modal label { font-size: 12px; }
+.source-modal input, .source-modal select { font-size: 13px; }
+.modal-actions > button { font-size: 12px; }
+.explorer-head button, .explorer-head p, .explorer-label { font-size: 11px; }
+.explorer-head h3 { font-size: 15px; }
+.table-tree strong { font-size: 12px; }
+.table-tree small, .explorer-empty { font-size: 10px; }
+.db-editor-head h2 { font-size: 29px; }
+.db-editor-head p, .db-editor-head > button { font-size: 11px; }
+.editor-tabs button { font-size: 13px; }
+.natural-panel > h3 { font-size: 21px; }
+.natural-panel > p { font-size: 12px; }
+.natural-panel textarea { font-size: 14px; }
+.natural-panel form button { font-size: 12px; }
+.write-confirm span { font-size: 10px; }
+.write-confirm h3 { font-size: 15px; }
+.write-confirm p, .write-confirm button { font-size: 11px; }
+.write-confirm pre { font-size: 12px; }
+
 @media (max-width: 820px) { .app-shell { display: block; }.sidebar { position: static; width: 100%; height: auto; padding: 16px 20px; flex-direction: row; align-items: center; gap: 14px; }.brand { padding: 0; }.new-chat, .source-card, .sidebar-bottom { display: none; }.sidebar nav { margin: 0 0 0 auto; display: flex; }.nav-item { width: auto; padding: 8px 10px; }.nav-item span, .nav-item em { display: none; }.workspace { width: 100%; }.topbar { padding: 0 24px; }.content, .module-content { width: min(100% - 32px, 760px); padding-top: 42px; }.suggestions { grid-template-columns: 1fr; }.bar-chart { gap: 10px; }.source-grid { grid-template-columns: 1fr; }.schema-list { grid-template-columns: 1fr; }.schema-row:nth-child(odd) { border-right: 0; }.history-item { grid-template-columns: 34px 1fr; }.history-actions { grid-column: 2; } }
 @media (max-width: 900px) { .database-workbench { grid-template-columns: 1fr; }.db-explorer { border-right: 0; border-bottom: 1px solid #dfe6e1; }.table-tree { display: flex; overflow-x: auto; }.table-tree > button { min-width: 180px; }.explorer-head { padding-bottom: 12px; } }
 @media (max-width: 520px) { .sidebar nav .nav-item:not(.active) { display: none; }.topbar { height: 66px; padding: 0 17px; }.connection { display: none; }.content { width: calc(100% - 24px); padding-top: 32px; }.hero-copy h2 { font-size: 29px; }.query-box textarea { font-size: 14px; }.result-head, .summary { margin-left: 14px; margin-right: 14px; }.result-head { padding-left: 0; padding-right: 0; }.chart-wrap { margin-left: 14px; margin-right: 14px; }.bar-value { display: none; }th, td { padding-left: 14px; padding-right: 14px; } }
