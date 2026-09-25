@@ -5,12 +5,15 @@ import type {
   MappingValidationSummary,
   SchemaSearchResult,
   SemanticEntityMapping,
+  MappingRegistryVersion,
+  MappingAuditRecord,
+  MappingVersionDiff,
 } from "../../server/domain/erp/schema-mapping/types";
 
-export type { AgentTraceEvent, JoinPathDefinition, SchemaSearchResult, SemanticEntityMapping };
+export type { AgentTraceEvent, JoinPathDefinition, MappingAuditRecord, MappingRegistryVersion, MappingVersionDiff, SchemaSearchResult, SemanticEntityMapping };
 
 export type DatasourceInsight = Pick<SchemaSearchResult,
-  "erpType" | "semanticSchema" | "mappingConfidence" | "unresolvedFields" | "joinPaths" | "mappingValidation"
+  "erpType" | "semanticSchema" | "mappingConfidence" | "unresolvedFields" | "joinPaths" | "mappingValidation" | "mappingStatus" | "publishedVersion" | "draftVersion"
 >;
 
 export type DataSource = {
@@ -38,7 +41,22 @@ export type SchemaMappingResponse = SchemaSearchResult & {
     version: string;
     tables: number;
   };
+  review: {
+    publishedVersion?: MappingRegistryVersion;
+    draftVersion?: MappingRegistryVersion;
+    capabilities: string[];
+  };
 };
+
+export type MappingDraftPayload = {
+  erpType: string;
+  entities: SemanticEntityMapping[];
+  joinPaths: JoinPathDefinition[];
+  changeSummary?: string;
+};
+
+export type MappingVersionsResponse = { items: MappingRegistryVersion[]; audits: MappingAuditRecord[] };
+export type MappingVersionResponse = { version: MappingRegistryVersion; diff: MappingVersionDiff };
 
 export type QueryExplanation = {
   metrics: FinanceMetricPrompt[];
@@ -47,6 +65,8 @@ export type QueryExplanation = {
   joinPathsUsed: JoinPathDefinition[];
   mappingValidation: MappingValidationSummary;
   registryVersion?: number;
+  mappingStatus?: "unpublished" | "draft" | "published";
+  publishedVersion?: number;
 };
 
 export type QueryResult = {
@@ -64,4 +84,4 @@ export type QueryResult = {
   agent?: { runId: string; attempts: number; trace: AgentTraceEvent[] };
 };
 
-export type DetailTab = "overview" | "mapping" | "joins" | "validation" | "raw";
+export type DetailTab = "overview" | "mapping" | "joins" | "validation" | "versions" | "raw";

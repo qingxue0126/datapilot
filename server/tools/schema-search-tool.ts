@@ -4,7 +4,7 @@ import { mapErpSchema } from "../domain/erp/schema-mapping/adapters.js";
 import { createErpAdapter } from "../domain/erp/schema-mapping/adapters.js";
 import { loadErpSchemaMappingConfig } from "../domain/erp/schema-mapping/config.js";
 import { MappingRegistryStore, mappingFingerprint, registryMatchesSchema } from "../domain/erp/schema-mapping/mapping-registry.js";
-import { buildValidatedMapping, collectMappingSamples, withMySqlMappingProbe } from "../domain/erp/schema-mapping/mapping-validation.js";
+import { buildValidatedMapping, collectMappingSamples, validateMappings, withMySqlMappingProbe } from "../domain/erp/schema-mapping/mapping-validation.js";
 import type { SchemaSearchResult } from "../domain/erp/schema-mapping/types.js";
 import type { AgentTool, ToolContext } from "./tool-registry.js";
 
@@ -29,7 +29,28 @@ export class SchemaSearchTool implements AgentTool<SchemaSearchInput, SchemaSear
       database: context.connection.database,
       erpType: mapped.erpType,
     };
-    const cached = this.registry.get(registryKey);
+    const activeMapping = this.registry.resolveForQuery(registryKey);
+    const published = activeMapping.status === "published" ? activeMapping.record : undefined;
+    const draft = this.registry.getDraft(registryKey);
+    if (published) {
+      const mappingSamples = input.includeSamples
+        ? await withMySqlMappingProbe(context.connection, (probe) => collectMappingSamples(published.entities, probe))
+        : [];
+      return summarize({
+        ...mapped,
+        rawSchema,
+        semanticSchema: published.entities,
+        joinPaths: published.joinPaths,
+        joinCandidates: published.joinCandidates || [],
+        mappingValidation: validateMappings(schema, published.entities),
+        mappingSamples,
+        registryVersion: published.version,
+        publishedVersion: published.version,
+        draftVersion: draft?.version,
+        mappingStatus: "published",
+      });
+    }
+    const cached = activeMapping.status === "unpublished" ? activeMapping.record : undefined;
     if (cached && registryMatchesSchema(cached, schema, fingerprint)) {
       const mappingSamples = input.includeSamples
         ? await withMySqlMappingProbe(context.connection, (probe) => collectMappingSamples(cached.entities, probe))
@@ -43,6 +64,8 @@ export class SchemaSearchTool implements AgentTool<SchemaSearchInput, SchemaSear
         mappingValidation: { valid: true, errors: [] },
         mappingSamples,
         registryVersion: cached.version,
+        draftVersion: draft?.version,
+        mappingStatus: "unpublished",
       });
     }
     const adapter = createErpAdapter(mapped.erpType);
@@ -53,7 +76,7 @@ export class SchemaSearchTool implements AgentTool<SchemaSearchInput, SchemaSear
       adapterCandidates: adapter.joinCandidates(mapped.semanticSchema),
       probe,
     }));
-    const result = summarize({ ...mapped, rawSchema, ...validation, joinCandidates: validation.rejectedJoinPaths });
+    const result = summarize({ ...mapped, rawSchema, ...validation, joinCandidates: validation.rejectedJoinPaths, draftVersion: draft?.version, mappingStatus: "unpublished" });
     if (!validation.mappingValidation.valid) return result;
     const saved = this.registry.save({ ...registryKey, entities: mapped.semanticSchema, joinPaths: validation.joinPaths, joinCandidates: validation.rejectedJoinPaths, schemaFingerprint: fingerprint });
     return { ...result, registryVersion: saved.version };

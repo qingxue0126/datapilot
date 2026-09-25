@@ -8,6 +8,8 @@ export const ERP_ENTITY_NAMES = [
 export type ErpEntityName = typeof ERP_ENTITY_NAMES[number];
 export type MappingSource = "auto" | "manual";
 export type JoinPathSource = "manual" | "database_fk" | "profile" | "inferred";
+export type MappingVersionStatus = "draft" | "published" | "archived";
+export type MappingLifecycleStatus = "unpublished" | "draft" | "published";
 
 export type SemanticFieldMapping = {
   column: string;
@@ -39,6 +41,9 @@ export type SchemaSearchResult = {
   mappingValidation: MappingValidationSummary;
   mappingSamples: MappingSample[];
   registryVersion?: number;
+  mappingStatus?: MappingLifecycleStatus;
+  publishedVersion?: number;
+  draftVersion?: number;
 };
 
 export type ManualEntityMapping = {
@@ -115,6 +120,52 @@ export type ErpMappingRegistry = {
   schemaFingerprint: string;
   version: number;
   updatedAt: string;
+};
+
+export type MappingRegistryVersion = {
+  id: string;
+  tenantId: string;
+  accountSetId: string;
+  datasourceId: string;
+  database: string;
+  erpType: string;
+  version: number;
+  status: MappingVersionStatus;
+  entities: SemanticEntityMapping[];
+  joinPaths: JoinPathDefinition[];
+  joinCandidates?: JoinPathDefinition[];
+  schemaFingerprint: string;
+  validation: MappingValidationSummary;
+  createdAt: string;
+  updatedAt: string;
+  publishedAt?: string;
+  createdBy?: string;
+  publishedBy?: string;
+  changeSummary?: string;
+  rollbackFromVersion?: number;
+};
+
+export type MappingAuditAction = "draft_saved" | "published" | "rolled_back";
+export type MappingAuditRecord = {
+  id: string;
+  tenantId: string;
+  accountSetId: string;
+  datasourceId: string;
+  database: string;
+  erpType: string;
+  version: number;
+  action: MappingAuditAction;
+  timestamp: string;
+  userId: string;
+  changeSummary?: string;
+};
+
+export type MappingVersionDiff = {
+  addedMappings: string[];
+  changedMappings: { field: string; before: string; after: string }[];
+  removedMappings: string[];
+  addedJoins: string[];
+  removedJoins: string[];
 };
 
 export type EntityMappingResult = Pick<SchemaSearchResult,

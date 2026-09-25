@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AgentTracePanel, AnswerExplanation, BusinessErrorCard } from "../components/datapilot/agent-explanation";
 import { DatasourceDetail } from "../components/datapilot/datasource-detail";
 import { DatasourceStatusCard, erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
-import type { DataSource, DetailTab, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
+import type { DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
 
 type View = "chat" | "sources" | "source-detail" | "database" | "history";
 type HistoryItem = { id: string; question: string; createdAt: string; rowCount: number; executionMs: number; result: QueryResult };
@@ -123,6 +123,25 @@ export default function Home() {
     } catch (detailError) { setMapping(null); setMappingError(message(detailError, "读取 ERP Schema Mapping 失败")); } finally { setMappingLoading(false); }
   }
 
+  async function mappingMutation<T>(source: DataSource, path: string, body: unknown) {
+    const response = await fetch(`${API_BASE}/api/datasources/${encodeURIComponent(source.connectionId)}/schema-mapping${path}`, { method: "POST", headers: agentHeaders(), body: JSON.stringify(body) });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || "Mapping 操作失败"); return data as T;
+  }
+  async function saveMappingDraft(draft: MappingDraftPayload) { if (!activeSource) return; await mappingMutation(activeSource, "/draft", draft); await openSourceDetail(activeSource, detailTab, focusedEntity); }
+  async function validateMappingDraft(draft: MappingDraftPayload) { if (!activeSource) return; await mappingMutation(activeSource, "/validate", draft); await openSourceDetail(activeSource, "validation", focusedEntity); }
+  async function publishMapping(erpType: string) { if (!activeSource) return; await mappingMutation(activeSource, "/publish", { erpType }); await openSourceDetail(activeSource, "overview"); }
+  async function loadMappingVersions(erpType: string) {
+    if (!activeSource) return { items: [], audits: [] };
+    const response = await fetch(`${API_BASE}/api/datasources/${encodeURIComponent(activeSource.connectionId)}/schema-mapping/versions?erpType=${encodeURIComponent(erpType)}`, { headers: agentHeaders() });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || "读取 Mapping 版本失败"); return data as MappingVersionsResponse;
+  }
+  async function loadMappingVersion(erpType: string, version: number) {
+    if (!activeSource) throw new Error("数据源不存在");
+    const response = await fetch(`${API_BASE}/api/datasources/${encodeURIComponent(activeSource.connectionId)}/schema-mapping/versions/${version}?erpType=${encodeURIComponent(erpType)}`, { headers: agentHeaders() });
+    const data = await response.json(); if (!response.ok) throw new Error(data.error || "读取 Mapping 版本失败"); return data as MappingVersionResponse;
+  }
+  async function rollbackMapping(erpType: string, version: number) { if (!activeSource) return; await mappingMutation(activeSource, `/rollback/${version}`, { erpType, changeSummary: `从前端回滚到 v${version}` }); await openSourceDetail(activeSource, "versions"); }
+
   async function addConnection(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setConnecting(true); setConnectionNotice("");
     try {
@@ -167,7 +186,7 @@ export default function Home() {
     <section className="workspace"><header className="topbar"><div><h1>{viewTitles[view][0]}</h1><p>{viewTitles[view][1]}</p></div><div className="top-actions"><span className="connection"><i className={activeSource ? "" : "offline"} />{activeSource ? sourceState(activeSource).title : "等待连接"}</span><button aria-label="帮助">?</button></div></header>
       {view === "chat" && <ChatView activeSource={activeSource} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} maxChart={maxChart} openSources={() => setView("sources")} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}
       {view === "sources" && <SourcesView sources={sources} activeSourceId={activeSourceId} testingSource={testingSource} notice={connectionNotice} add={() => { setConnectionNotice(""); setShowAddSource(true); }} open={(source) => void openSourceDetail(source)} test={testConnection} workbench={openDatabase} remove={removeSource} />}
-      {view === "source-detail" && activeSource && <DatasourceDetail source={activeSource} mapping={mapping} loading={mappingLoading} error={mappingError} tab={detailTab} focusedEntity={focusedEntity} onTab={setDetailTab} onBack={() => setView("sources")} onOpenWorkbench={() => openDatabase(activeSource)} onRefresh={() => void openSourceDetail(activeSource, detailTab, focusedEntity)} />}
+      {view === "source-detail" && activeSource && <DatasourceDetail source={activeSource} mapping={mapping} loading={mappingLoading} error={mappingError} tab={detailTab} focusedEntity={focusedEntity} onTab={setDetailTab} onBack={() => setView("sources")} onOpenWorkbench={() => openDatabase(activeSource)} onRefresh={() => void openSourceDetail(activeSource, detailTab, focusedEntity)} onSaveDraft={saveMappingDraft} onValidate={validateMappingDraft} onPublish={publishMapping} onLoadVersions={loadMappingVersions} onLoadVersion={loadMappingVersion} onRollback={rollbackMapping} />}
       {view === "database" && activeSource && <DatabaseWorkbench source={activeSource} schema={serverSchema} mode={dbMode} setMode={setDbMode} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} sqlText={sqlText} setSqlText={setSqlText} sqlResult={sqlResult} sqlRunning={sqlRunning} runSql={() => void runSql()} notice={connectionNotice} pendingSql={pendingSql} cancelPending={() => setPendingSql(null)} confirmWrite={() => void runSql(true)} back={() => void openSourceDetail(activeSource)} setNotice={setConnectionNotice} loadSchema={loadSchema} />}
       {view === "history" && <HistoryView history={history} filtered={filteredHistory} search={historySearch} setSearch={setHistorySearch} clear={() => saveHistory([])} open={(item) => { setResult(item.result); setQuestion(item.question); setView("chat"); }} rerun={(item) => void ask(item.question)} remove={(id) => saveHistory(history.filter((item) => item.id !== id))} start={() => setView("chat")} />}
     </section>

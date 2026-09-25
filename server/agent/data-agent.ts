@@ -94,6 +94,8 @@ function buildExplanation(sql: string, metrics: FinanceMetricPrompt[], schema: S
     joinPathsUsed,
     mappingValidation: schema.mappingValidation,
     registryVersion: schema.registryVersion,
+    mappingStatus: schema.mappingStatus,
+    publishedVersion: schema.publishedVersion,
   };
 }
 

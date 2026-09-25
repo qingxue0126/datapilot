@@ -10,6 +10,8 @@ import { InMemorySessionStore } from "./context/session-store.js";
 import type { RequestContext } from "./core/types.js";
 import { executeSql, getSchema, prepareSql, testDatabase, validateConfig } from "./database.js";
 import { ErpQueryService } from "./domain/erp/erp-query-service.js";
+import { MappingRegistryStore } from "./domain/erp/schema-mapping/mapping-registry.js";
+import { MappingReviewService, type MappingDraftInput } from "./domain/erp/schema-mapping/mapping-review-service.js";
 import type { SchemaSearchResult } from "./domain/erp/schema-mapping/types.js";
 import { DeepSeekModelProvider } from "./llm/model-provider.js";
 import { assertAgentSql } from "./security/sql-policy.js";
@@ -25,9 +27,11 @@ const identities = new EnvironmentIdentityProvider();
 const permissions = new PermissionService();
 const sessions = new InMemorySessionStore();
 const model = new DeepSeekModelProvider();
+const mappingRegistry = new MappingRegistryStore();
+const mappingReview = new MappingReviewService(mappingRegistry, permissions);
 const tools = new ToolRegistry()
   .register(new MetricSearchTool())
-  .register(new SchemaSearchTool(permissions))
+  .register(new SchemaSearchTool(permissions, mappingRegistry))
   .register(new DatabaseQueryTool(permissions));
 const agent = new DataAgent(tools, permissions, sessions, new ErpQueryService(model));
 
@@ -114,7 +118,63 @@ app.get("/api/datasources/:id/schema-mapping", async (request, response) => {
       question: "",
       includeSamples: request.query.samples === "1",
     }, { request: context, datasourceId: request.params.id, connection: item.config });
-    response.json({ datasource: publicConnection(request.params.id, item), ...mapping });
+    const key = mappingReview.key(context, request.params.id, item.config.database, mapping.erpType);
+    response.json({
+      datasource: publicConnection(request.params.id, item), ...mapping,
+      review: {
+        publishedVersion: mappingRegistry.getPublished(key),
+        draftVersion: mappingRegistry.getDraft(key),
+        capabilities: permissions.policy(context).capabilities.filter((item) => item.startsWith("schema_mapping:")),
+      },
+    });
+  } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
+});
+
+app.get("/api/datasources/:id/schema-mapping/versions", async (request, response) => {
+  try {
+    const context = identity(request); permissions.require(context, "schema_mapping:read");
+    const item = getConnectionItem(request.params.id, context); const erpType = String(request.query.erpType || "generic");
+    const key = mappingReview.key(context, request.params.id, item.config.database, erpType);
+    response.json({ items: mappingRegistry.listVersions(key), audits: mappingRegistry.listAudits(key) });
+  } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
+});
+
+app.get("/api/datasources/:id/schema-mapping/versions/:version", async (request, response) => {
+  try {
+    const context = identity(request); permissions.require(context, "schema_mapping:read");
+    const item = getConnectionItem(request.params.id, context); const erpType = String(request.query.erpType || "generic");
+    const key = mappingReview.key(context, request.params.id, item.config.database, erpType); const version = Number(request.params.version);
+    const record = mappingRegistry.getVersion(key, version); if (!record) throw new Error(`Mapping 版本 v${version} 不存在`);
+    response.json({ version: record, diff: mappingRegistry.diff(key, version) });
+  } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
+});
+
+app.post("/api/datasources/:id/schema-mapping/draft", async (request, response) => {
+  try {
+    const context = identity(request); const item = getConnectionItem(request.params.id, context);
+    const draft = request.body as MappingDraftInput;
+    response.json(await mappingReview.saveDraft({ context, datasourceId: request.params.id, connection: item.config, draft }));
+  } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
+});
+
+app.post("/api/datasources/:id/schema-mapping/validate", async (request, response) => {
+  try {
+    const context = identity(request); const item = getConnectionItem(request.params.id, context); const erpType = String(request.body?.erpType || "generic");
+    response.json(await mappingReview.validateDraft({ context, datasourceId: request.params.id, connection: item.config, erpType, draft: request.body?.entities ? request.body as MappingDraftInput : undefined }));
+  } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
+});
+
+app.post("/api/datasources/:id/schema-mapping/publish", async (request, response) => {
+  try {
+    const context = identity(request); const item = getConnectionItem(request.params.id, context); const erpType = String(request.body?.erpType || "generic");
+    response.json(await mappingReview.publish({ context, datasourceId: request.params.id, connection: item.config, erpType }));
+  } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
+});
+
+app.post("/api/datasources/:id/schema-mapping/rollback/:version", async (request, response) => {
+  try {
+    const context = identity(request); const item = getConnectionItem(request.params.id, context); const erpType = String(request.body?.erpType || "generic");
+    response.json(await mappingReview.rollback({ context, datasourceId: request.params.id, connection: item.config, erpType, version: Number(request.params.version), changeSummary: request.body?.changeSummary }));
   } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
 });
 
