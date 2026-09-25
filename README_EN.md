@@ -236,4 +236,3 @@ The README structure and Agentic Data Assistant framing were inspired by [DB-GPT
 ## Contributing
 
 Issues, business metric suggestions, and feature requests are welcome in [GitHub Issues](https://github.com/qingxue0126/datapilot/issues).
-
