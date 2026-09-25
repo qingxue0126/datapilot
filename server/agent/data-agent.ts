@@ -4,7 +4,7 @@ import type { DatabaseConfig, SchemaTable } from "../database.js";
 import type { PermissionService } from "../auth/permission-service.js";
 import type { SessionStore } from "../context/session-store.js";
 import type { ErpQueryService } from "../domain/erp/erp-query-service.js";
-import type { FinanceMetric } from "../domain/erp/metrics.js";
+import type { FinanceMetricPrompt } from "../domain/erp/metrics.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 
 type QueryResult = {
@@ -31,7 +31,7 @@ export class DataAgent {
     this.permissions.require(input.context, "agent:query");
 
     const metrics = await this.step(trace, "metric.search", () =>
-      this.tools.call<{ question: string }, FinanceMetric[]>("metric.search", { question: input.question }, toolContext));
+      this.tools.call<{ question: string }, FinanceMetricPrompt[]>("metric.search", { question: input.question }, toolContext));
     const schema = await this.step(trace, "schema.search", () =>
       this.tools.call<{ question: string }, SchemaTable[]>("schema.search", { question: input.question }, toolContext));
     if (!schema.length) throw new Error("当前权限范围内没有可查询的业务表");
