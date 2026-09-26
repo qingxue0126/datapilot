@@ -364,14 +364,16 @@ export default function Home() {
 
 function ChatView({ session, messages, createAnalysis, sources, activeSource, activeSourceId, selectSource, question, setQuestion, ask, loading, error, result, openSources, addSource, inspect }: { session?: AnalysisSession; messages: AnalysisMessage[]; createAnalysis: () => void; sources: DataSource[]; activeSource?: DataSource; activeSourceId: string; selectSource: (source: DataSource) => void; question: string; setQuestion: (v: string) => void; ask: (v?: string) => Promise<void>; loading: boolean; error: string; result: QueryResult | null; openSources: () => void; addSource: () => void; inspect: (tab: DetailTab, entity?: string) => void }) {
   const queryAvailable = activeSource?.status === "connected";
+  const hasConversation = messages.length > 0;
+  const composer = <form className="query-box" onSubmit={(event) => { event.preventDefault(); void ask(); }}>
+    <textarea aria-label="输入数据问题" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder={queryAvailable ? "例如：本月营业收入是多少？" : activeSource ? "当前数据源未连接" : "请先添加一个数据源"} rows={2} disabled={!queryAvailable} />
+    <div className="query-footer"><DatasourceSwitcher sources={sources} activeSourceId={activeSourceId} onSelect={selectSource} onManageSources={openSources} /><button className="send-button" type="submit" disabled={loading || !question.trim() || !queryAvailable}>{loading ? "分析中…" : "发送 ↗"}</button></div>
+  </form>;
   if (!session && !result) return <div className="content"><div className="empty-analysis"><span><ChatBubbleIcon /></span><h2>开始一项新的数据分析</h2><p>每项分析拥有独立的多轮上下文，刷新或重新登录后仍可继续。</p><button onClick={createAnalysis}>＋ 新建分析</button></div></div>;
-  return <div className="content analysis-workspace">
+  return <div className={`content analysis-workspace ${hasConversation ? "has-conversation" : "new-conversation"}`}>
     <section className="hero-copy"><div className="eyebrow">ERP FINANCE DATA AGENT</div><h2>{messages.length ? session?.title : "今天想了解什么？"}</h2><p>当前分析中的连续追问会共享上下文，不会与其他分析串联。</p></section>
-    <form className="query-box" onSubmit={(event) => { event.preventDefault(); void ask(); }}>
-      <textarea aria-label="输入数据问题" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder={queryAvailable ? "例如：本月营业收入是多少？" : activeSource ? "当前数据源未连接" : "请先添加一个数据源"} rows={2} disabled={!queryAvailable} />
-      <div className="query-footer"><DatasourceSwitcher sources={sources} activeSourceId={activeSourceId} onSelect={selectSource} onManageSources={openSources} /><button className="send-button" type="submit" disabled={loading || !question.trim() || !queryAvailable}>{loading ? "分析中…" : "发送 ↗"}</button></div>
-    </form>
-    {messages.length === 0 && <div className="suggestions">{suggestions.map((item) => <button key={item} onClick={() => void ask(item)} disabled={!queryAvailable}>{item}<span>↗</span></button>)}</div>}
+    {!hasConversation && composer}
+    {!hasConversation && <div className="suggestions">{suggestions.map((item) => <button key={item} onClick={() => void ask(item)} disabled={!queryAvailable}>{item}<span>↗</span></button>)}</div>}
     {error && <BusinessErrorCard message={error} source={activeSource} onInspect={inspect} />}
     {!activeSource && <div className="empty-state compact"><span>▦</span><h3>还没有数据源</h3><p>连接数据源后即可开始 ERP 智能问数。</p><button onClick={addSource}>添加数据源</button></div>}
     <section className="message-stream" aria-label="分析对话">
@@ -381,6 +383,7 @@ function ChatView({ session, messages, createAnalysis, sources, activeSource, ac
       <AgentTracePanel loading={loading} />
       {result && <QueryResultCard result={result} />}
     </section>
+    {hasConversation && <div className="conversation-composer">{composer}</div>}
   </div>;
 }
 

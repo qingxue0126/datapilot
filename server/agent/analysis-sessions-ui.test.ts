@@ -30,3 +30,9 @@ test("query requests carry the selected session id and render a message stream",
   assert.match(page, /className="message-stream"/);
   assert.match(page, /item\.role === "user"/);
 });
+
+test("the composer moves below the message stream after a conversation starts", () => {
+  assert.match(page, /const hasConversation = messages\.length > 0/);
+  assert.match(page, /<section className="message-stream"[\s\S]*\{hasConversation && <div className="conversation-composer">\{composer\}<\/div>\}/);
+  assert.match(page, /!hasConversation && composer/);
+});
