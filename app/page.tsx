@@ -405,7 +405,7 @@ function ChatView({ session, messages, createAnalysis, sources, activeSource, ac
     {!activeSource && <div className="empty-state compact"><span>▦</span><h3>还没有数据源</h3><p>连接数据源后即可开始 ERP 智能问数。</p><button onClick={addSource}>添加数据源</button></div>}
     <section className="message-stream" aria-label="分析对话">
       {messages.map((item) => item.role === "user"
-        ? <article className="user-message" key={item.id}><span>你</span><p>{item.content}</p></article>
+        ? <article className="user-message" key={item.id}><p>{item.content}</p></article>
         : item.result ? <QueryResultCard key={item.id} result={item.result} /> : <article className="assistant-message" key={item.id}>{item.content}</article>)}
       <AgentTracePanel loading={loading} />
       {result && <QueryResultCard result={result} />}

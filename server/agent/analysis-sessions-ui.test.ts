@@ -49,6 +49,11 @@ test("sending a question immediately enters conversation mode before the answer 
   assert.match(page, /items\.filter\(\(item\) => item\.id !== optimisticMessage\?\.id\)/);
 });
 
+test("user messages render without an avatar", () => {
+  assert.match(page, /<article className="user-message" key=\{item\.id\}><p>\{item\.content\}<\/p><\/article>/);
+  assert.doesNotMatch(page, /className="user-message"[\s\S]{0,80}<span>你<\/span>/);
+});
+
 test("chat exposes model selection and model management navigation", () => {
   assert.match(page, /<ModelSelector models=\{models\} value=\{selectedModel\}/);
   assert.match(page, />模型管理<\/button>/);
