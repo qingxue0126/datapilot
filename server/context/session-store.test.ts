@@ -34,12 +34,15 @@ test("sessions and messages persist and the first question creates a short title
     item.store.appendExchange(alice, session.id, { question: "按部门拆分", answer: "部门分析", datasourceId: "source-a", result: result("按部门拆分") });
     assert.equal(saved.messages.length, 2);
     assert.equal(saved.session.title, "请分析2026年9月营业收入变化趋势");
+    assert.equal(saved.session.pinned, false);
+    item.store.update(alice, session.id, { pinned: true });
     item.store.close();
     const reloaded = new SqliteSessionStore(item.path);
     try {
       const detail = reloaded.get(alice, session.id);
       assert.equal(detail.messages.length, 6);
       assert.equal(detail.session.title, "请分析2026年9月营业收入变化趋势");
+      assert.equal(detail.session.pinned, true);
       assert.equal(detail.messages[1].result?.sql, "SELECT 1");
     } finally { reloaded.close(); }
     rmSync(item.directory, { recursive: true, force: true });
@@ -59,6 +62,7 @@ test("session reads, updates, deletes, and history are isolated by tenant/accoun
     for (const context of [bob, otherTenant, otherAccountSet]) {
       assert.throws(() => item.store.get(context, session.id), (error: SessionStoreError) => error.status === 404);
       assert.throws(() => item.store.update(context, session.id, { title: "越权" }), (error: SessionStoreError) => error.status === 404);
+      assert.throws(() => item.store.update(context, session.id, { pinned: true }), (error: SessionStoreError) => error.status === 404);
       assert.throws(() => item.store.delete(context, session.id), (error: SessionStoreError) => error.status === 404);
     }
     item.store.update(alice, session.id, { title: "手动标题" });

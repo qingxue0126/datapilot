@@ -90,6 +90,7 @@ export type QueryResult = {
 export type AnalysisSession = {
   id: string;
   title: string;
+  pinned: boolean;
   datasourceId?: string;
   createdAt: string;
   updatedAt: string;

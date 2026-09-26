@@ -32,6 +32,10 @@ test("session API supports CRUD while hiding sessions from other users", async (
     const renamed = await fetch(`${base}/api/sessions/${created.session.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "收入分析" }) });
     assert.equal(renamed.status, 200);
     assert.equal((await renamed.json() as { session: { title: string } }).session.title, "收入分析");
+    const pinned = await fetch(`${base}/api/sessions/${created.session.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pinned: true }) });
+    assert.equal(pinned.status, 200);
+    assert.equal((await pinned.json() as { session: { pinned: boolean } }).session.pinned, true);
+    assert.equal((await fetch(`${base}/api/sessions/${created.session.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-test-user": "bob" }, body: JSON.stringify({ pinned: true }) })).status, 404);
     assert.equal((await fetch(`${base}/api/sessions/${created.session.id}`, { method: "DELETE", headers: { "x-test-user": "bob" } })).status, 404);
     assert.equal((await fetch(`${base}/api/sessions/${created.session.id}`, { method: "DELETE" })).status, 204);
   } finally {

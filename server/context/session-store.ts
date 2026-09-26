@@ -7,6 +7,7 @@ import type { ChatTurn, RequestContext } from "../core/types.js";
 export type AnalysisSession = {
   id: string;
   title: string;
+  pinned: boolean;
   datasourceId?: string;
   createdAt: string;
   updatedAt: string;
@@ -31,7 +32,7 @@ export interface SessionStore {
   create(context: RequestContext, input?: { title?: string; datasourceId?: string }): AnalysisSession;
   list(context: RequestContext): AnalysisSession[];
   get(context: RequestContext, sessionId: string): AnalysisSessionDetail;
-  update(context: RequestContext, sessionId: string, input: { title?: string; datasourceId?: string | null }): AnalysisSession;
+  update(context: RequestContext, sessionId: string, input: { title?: string; datasourceId?: string | null; pinned?: boolean }): AnalysisSession;
   delete(context: RequestContext, sessionId: string): void;
   history(context: RequestContext, sessionId: string): ChatTurn[];
   appendExchange(context: RequestContext, sessionId: string, input: {
@@ -45,6 +46,7 @@ export interface SessionStore {
 type SessionRow = {
   id: string;
   title: string;
+  pinned: number;
   datasource_id: string | null;
   created_at: string;
   updated_at: string;
@@ -83,19 +85,19 @@ export class SqliteSessionStore implements SessionStore {
     const now = new Date().toISOString();
     const title = cleanTitle(input.title) || "新分析";
     this.database.prepare(`
-      INSERT INTO sessions (id, tenant_id, account_set_id, user_id, title, title_manually_edited, datasource_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, tenant_id, account_set_id, user_id, title, title_manually_edited, pinned, datasource_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
     `).run(id, context.tenantId, context.accountSetId, context.userId, title, title !== "新分析" ? 1 : 0, input.datasourceId || null, now, now);
     return this.get(context, id).session;
   }
 
   list(context: RequestContext) {
     const rows = this.database.prepare(`
-      SELECT s.id, s.title, s.datasource_id, s.created_at, s.updated_at, COUNT(m.id) AS message_count
+      SELECT s.id, s.title, s.pinned, s.datasource_id, s.created_at, s.updated_at, COUNT(m.id) AS message_count
       FROM sessions s LEFT JOIN messages m ON m.session_id = s.id
       WHERE s.tenant_id = ? AND s.account_set_id = ? AND s.user_id = ?
       GROUP BY s.id
-      ORDER BY s.updated_at DESC, s.id DESC
+      ORDER BY s.pinned DESC, s.updated_at DESC, s.id DESC
     `).all(context.tenantId, context.accountSetId, context.userId) as unknown as SessionRow[];
     return rows.map(toSession);
   }
@@ -109,7 +111,7 @@ export class SqliteSessionStore implements SessionStore {
     return { session: { ...toSession(row), messageCount: messageRows.length }, messages: messageRows.map(toMessage) };
   }
 
-  update(context: RequestContext, sessionId: string, input: { title?: string; datasourceId?: string | null }) {
+  update(context: RequestContext, sessionId: string, input: { title?: string; datasourceId?: string | null; pinned?: boolean }) {
     this.ownedRow(context, sessionId);
     const now = new Date().toISOString();
     if (input.title !== undefined) {
@@ -119,6 +121,9 @@ export class SqliteSessionStore implements SessionStore {
     }
     if (input.datasourceId !== undefined) {
       this.database.prepare(`UPDATE sessions SET datasource_id = ?, updated_at = ? WHERE id = ?`).run(input.datasourceId || null, now, sessionId);
+    }
+    if (input.pinned !== undefined) {
+      this.database.prepare(`UPDATE sessions SET pinned = ?, updated_at = ? WHERE id = ?`).run(input.pinned ? 1 : 0, now, sessionId);
     }
     return this.get(context, sessionId).session;
   }
@@ -177,7 +182,7 @@ export class SqliteSessionStore implements SessionStore {
 
   private ownedRow(context: RequestContext, sessionId: string, includeManual = false) {
     const row = this.database.prepare(`
-      SELECT id, title, datasource_id, created_at, updated_at${includeManual ? ", title_manually_edited" : ""}
+      SELECT id, title, pinned, datasource_id, created_at, updated_at${includeManual ? ", title_manually_edited" : ""}
       FROM sessions WHERE id = ? AND tenant_id = ? AND account_set_id = ? AND user_id = ?
     `).get(sessionId, context.tenantId, context.accountSetId, context.userId) as unknown as (SessionRow & { title_manually_edited?: SQLOutputValue }) | undefined;
     if (!row) throw new SessionStoreError("分析不存在或无权访问", 404);
@@ -193,6 +198,7 @@ export class SqliteSessionStore implements SessionStore {
         user_id TEXT NOT NULL,
         title TEXT NOT NULL DEFAULT '新分析',
         title_manually_edited INTEGER NOT NULL DEFAULT 0,
+        pinned INTEGER NOT NULL DEFAULT 0,
         datasource_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
@@ -208,6 +214,10 @@ export class SqliteSessionStore implements SessionStore {
       );
       CREATE INDEX IF NOT EXISTS messages_session_created_idx ON messages (session_id, created_at);
     `);
+    const columns = this.database.prepare(`PRAGMA table_info(sessions)`).all() as unknown as { name: string }[];
+    if (!columns.some((column) => column.name === "pinned")) {
+      this.database.exec(`ALTER TABLE sessions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`);
+    }
   }
 }
 
@@ -215,6 +225,7 @@ function toSession(row: SessionRow): AnalysisSession {
   return {
     id: row.id,
     title: row.title,
+    pinned: Boolean(row.pinned),
     datasourceId: row.datasource_id || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

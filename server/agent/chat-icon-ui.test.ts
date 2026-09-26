@@ -14,8 +14,8 @@ test("legacy data question primary navigation is removed", () => {
   assert.doesNotMatch(page, /nav-item[\s\S]{0,180}>数据问答<\/button>/);
 });
 
-test("query history uses the same chat bubble icon", () => {
-  assert.match(page, /history-icon.*ChatBubbleIcon/s);
+test("standalone query history view is removed", () => {
+  assert.doesNotMatch(page, /HistoryView|查询历史|history-item/);
 });
 
 test("legacy data question glyph is removed", () => {

@@ -8,6 +8,13 @@
       "when": 1790405877156,
       "tag": "0000_freezing_norrin_radd",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790423679876,
+      "tag": "0001_premium_the_stranger",
+      "breakpoints": true
     }
   ]
 }

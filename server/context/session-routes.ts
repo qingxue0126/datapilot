@@ -30,10 +30,14 @@ export function installSessionRoutes(
 
   app.patch("/api/sessions/:id", (request, response) => {
     try {
-      const input: { title?: string; datasourceId?: string | null } = {};
+      const input: { title?: string; datasourceId?: string | null; pinned?: boolean } = {};
       if (request.body?.title !== undefined) input.title = String(request.body.title);
       if (request.body?.datasourceId !== undefined) input.datasourceId = request.body.datasourceId === null ? null : String(request.body.datasourceId);
-      if (input.title === undefined && input.datasourceId === undefined) throw new SessionStoreError("没有可更新的字段");
+      if (request.body?.pinned !== undefined) {
+        if (typeof request.body.pinned !== "boolean") throw new SessionStoreError("pinned 必须是布尔值");
+        input.pinned = request.body.pinned;
+      }
+      if (input.title === undefined && input.datasourceId === undefined && input.pinned === undefined) throw new SessionStoreError("没有可更新的字段");
       const context = resolveIdentity(request);
       if (input.datasourceId) validateDatasource?.(context, input.datasourceId);
       response.json({ session: store.update(context, request.params.id, input) });

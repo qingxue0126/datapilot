@@ -7,6 +7,7 @@ export const sessions = sqliteTable("sessions", {
   userId: text("user_id").notNull(),
   title: text("title").notNull().default("新分析"),
   titleManuallyEdited: integer("title_manually_edited", { mode: "boolean" }).notNull().default(false),
+  pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
   datasourceId: text("datasource_id"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
