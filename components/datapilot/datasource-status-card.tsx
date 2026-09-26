@@ -18,7 +18,7 @@ export function DatasourceStatusCard({ source, onClick }: { source: DataSource; 
   const entityCount = source.insight?.semanticSchema.length || 0;
   const coverage = Math.round((source.insight?.mappingConfidence || 0) * 100);
   return <button className="datasource-status-card" onClick={onClick}>
-    <span className="source-title"><span className={`status-dot ${source.status}`} />{source.name}<b>›</b></span>
+    <span className="source-title"><span className={`status-dot ${source.status}`} />{source.name}<span className="chevron-icon chevron-right" aria-hidden="true" /></span>
     <span className="source-meta">{source.engine}{source.insight ? ` · ${erpLabel(source.insight.erpType)}` : ""}</span>
     {source.insight && <span className="source-health-grid"><span>实体 {entityCount} / 9</span><span>Mapping {coverage}%</span><span>Join {source.insight.joinPaths.length}</span></span>}
     <span className={`source-understanding ${state.tone}`}><i />{state.title}</span>
