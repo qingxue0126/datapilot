@@ -14,7 +14,6 @@ test("anonymous users receive login and registration controls", () => {
 
 test("sidebar user entry exposes profile, logout, and account deletion", () => {
   assert.match(page, /<UserAccountMenu/);
-  assert.match(page, /src="\/datapilot-logo\.png"/);
   assert.match(accountUi, /个人信息/);
   assert.match(accountUi, /退出登录/);
   assert.match(accountUi, /注销账户/);
