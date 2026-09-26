@@ -333,8 +333,8 @@ export default function Home() {
 
   return <main className="app-shell">
     <aside className="sidebar">
-      <button className="brand" aria-label="打开当前分析" onClick={() => setView("chat")}><span className="brand-mark">D</span><span>DataPilot</span></button>
-      <button className="new-chat" onClick={startAnalysis}>＋ 新建分析</button>
+      <button className="brand" aria-label="打开当前分析" onClick={() => setView("chat")}><span>DataPilot</span></button>
+      <button className="new-chat" onClick={startAnalysis}><span className="nav-icon">＋</span><span>新建分析</span></button>
       <nav aria-label="主导航">
         <button className={`nav-item ${view === "sources" || view === "source-detail" ? "active" : ""}`} onClick={() => setView("sources")}><span>▦</span>数据源</button>
       </nav>

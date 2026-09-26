@@ -38,7 +38,6 @@ export function RecentAnalyses({ sessions, activeSessionId, onOpen, onPin, onRen
     return <section className="analysis-group" aria-label={`${label}会话`}>
       <button className="recent-analyses-heading" type="button" aria-expanded={expanded} onClick={toggle}>
         <span>{label}<i className={`chevron-icon ${expanded ? "chevron-down" : "chevron-right"}`} aria-hidden="true" /></span>
-        <small>{items.length}</small>
       </button>
       {expanded && (items.length === 0
         ? <p className="recent-analyses-empty">暂无会话，点击上方新建</p>
