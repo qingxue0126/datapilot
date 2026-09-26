@@ -28,7 +28,7 @@ type AuthSession = {
 };
 
 type StoredAuth = { accounts: Account[]; sessions: AuthSession[] };
-export type PublicAccount = Omit<Account, "passwordHash" | "status" | "deletedAt">;
+export type PublicAccount = Omit<Account, "passwordHash" | "status" | "deletedAt"> & { isBootstrapAdmin: boolean };
 
 const defaultPath = resolve(process.cwd(), ".data", "accounts.json");
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -71,7 +71,7 @@ export class AccountStore {
     this.state.accounts.push(account);
     const token = this.issueSession(account.id);
     this.persist();
-    return { user: publicAccount(account), token };
+    return { user: publicAccount(account, this.state.accounts), token };
   }
 
   async login(identifierInput: string, password: string) {
@@ -82,7 +82,7 @@ export class AccountStore {
     }
     const token = this.issueSession(account.id);
     this.persist();
-    return { user: publicAccount(account), token };
+    return { user: publicAccount(account, this.state.accounts), token };
   }
 
   authenticate(token?: string): { user: PublicAccount; context: RequestContext } {
@@ -92,7 +92,7 @@ export class AccountStore {
     const account = session && this.state.accounts.find((item) => item.id === session.userId && item.status === "active");
     if (!session || !account) throw new AuthError("登录状态已失效，请重新登录", 401);
     return {
-      user: publicAccount(account),
+      user: publicAccount(account, this.state.accounts),
       context: {
         userId: account.id,
         tenantId: account.tenantId,
@@ -181,7 +181,8 @@ function matchesIdentifier(account: Account, identifier: string) {
   return account.username.toLowerCase() === identifier || account.email?.toLowerCase() === identifier;
 }
 function hashToken(token: string) { return createHash("sha256").update(token).digest("hex"); }
-function publicAccount(account: Account): PublicAccount {
+function publicAccount(account: Account, accounts: Account[]): PublicAccount {
+  const firstAccount = [...accounts].sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0];
   return {
     id: account.id,
     username: account.username,
@@ -190,6 +191,10 @@ function publicAccount(account: Account): PublicAccount {
     tenantId: account.tenantId,
     accountSetId: account.accountSetId,
     role: account.role,
+    isBootstrapAdmin: firstAccount?.id === account.id
+      && account.role === "tenant_admin"
+      && account.tenantId === (process.env.DEFAULT_TENANT_ID || "demo-tenant")
+      && account.accountSetId === (process.env.DEFAULT_ACCOUNT_SET_ID || "default-account-set"),
     createdAt: account.createdAt,
     updatedAt: account.updatedAt,
   };

@@ -10,6 +10,7 @@ export type AuthUser = {
   tenantId: string;
   accountSetId: string;
   role: "tenant_admin" | "finance_analyst" | "finance_viewer";
+  isBootstrapAdmin: boolean;
   createdAt: string;
   updatedAt: string;
 };

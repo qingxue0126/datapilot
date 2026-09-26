@@ -82,6 +82,8 @@ test("registered accounts receive isolated tenant and account-set contexts", asy
     const second = await item.store.register("tenant-b", "Secure123", "Secure123");
     const firstContext = item.store.authenticate(first.token).context;
     const secondContext = item.store.authenticate(second.token).context;
+    assert.equal(item.store.authenticate(first.token).user.isBootstrapAdmin, true);
+    assert.equal(item.store.authenticate(second.token).user.isBootstrapAdmin, false);
     assert.notEqual(firstContext.tenantId, secondContext.tenantId);
     assert.notEqual(firstContext.accountSetId, secondContext.accountSetId);
     assert.notEqual(firstContext.userId, secondContext.userId);

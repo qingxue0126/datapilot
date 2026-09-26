@@ -9,6 +9,7 @@ import { erpLabel, sourceState } from "../components/datapilot/datasource-status
 import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
 import { DatasourceSwitcher } from "../components/datapilot/datasource-switcher";
 import { ChatBubbleIcon } from "../components/datapilot/icons";
+import { loadQueryHistory } from "../components/datapilot/query-history-storage";
 import type { DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
 
 type View = "chat" | "sources" | "source-detail" | "database" | "history";
@@ -70,9 +71,7 @@ export default function Home() {
   useEffect(() => {
     if (!currentUser) return;
     const timer = window.setTimeout(() => {
-      const saved = localStorage.getItem(`datapilot-history:${currentUser.id}`);
-      if (!saved) return;
-      try { setHistory(JSON.parse(saved)); } catch { localStorage.removeItem(`datapilot-history:${currentUser.id}`); }
+      setHistory(loadQueryHistory<HistoryItem>(localStorage, currentUser));
     }, 0);
     return () => window.clearTimeout(timer);
   }, [currentUser]);
