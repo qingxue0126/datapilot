@@ -37,6 +37,12 @@ test("the composer moves below the message stream after a conversation starts", 
   assert.match(page, /!hasConversation && composer/);
 });
 
+test("conversation mode removes the top bar and landing hero", () => {
+  assert.match(page, /const chatHasConversation = view === "chat" && messages\.length > 0/);
+  assert.match(page, /\{!chatHasConversation && <header className="topbar">/);
+  assert.match(page, /\{!hasConversation && <section className="hero-copy">/);
+});
+
 test("chat exposes model selection and model management navigation", () => {
   assert.match(page, /<ModelSelector models=\{models\} value=\{selectedModel\}/);
   assert.match(page, />模型管理<\/button>/);

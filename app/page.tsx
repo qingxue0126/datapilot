@@ -243,6 +243,7 @@ export default function Home() {
 
   const activeSource = sources.find((source) => source.id === activeSourceId);
   const activeSession = analysisSessions.find((session) => session.id === activeSessionId);
+  const chatHasConversation = view === "chat" && messages.length > 0;
   const viewTitles: Record<View, [string, string]> = {
     chat: [activeSession?.title || "分析工作区", "连续追问，完整上下文仅在当前分析中生效"], sources: ["数据源", "查看数据库连接与 ERP Schema 理解状态"],
     "source-detail": [activeSource?.name || "数据源详情", "ERP Schema Mapping、Join Path 与验证结果"],
@@ -371,7 +372,7 @@ export default function Home() {
       </div>
     </aside>
 
-    <section className="workspace"><header className="topbar"><div><h1>{viewTitles[view][0]}</h1><p>{viewTitles[view][1]}</p></div><div className="top-actions"><span className="connection"><i className={activeSource?.status === "connected" ? "" : "offline"} />{activeSource ? sourceState(activeSource).title : "等待连接"}</span><button aria-label="帮助" title="帮助中心" onClick={() => setInteractionNotice("帮助中心功能开发中")}>?</button></div></header>
+    <section className={`workspace ${chatHasConversation ? "chat-conversation-active" : ""}`}>{!chatHasConversation && <header className="topbar"><div><h1>{viewTitles[view][0]}</h1><p>{viewTitles[view][1]}</p></div><div className="top-actions"><span className="connection"><i className={activeSource?.status === "connected" ? "" : "offline"} />{activeSource ? sourceState(activeSource).title : "等待连接"}</span><button aria-label="帮助" title="帮助中心" onClick={() => setInteractionNotice("帮助中心功能开发中")}>?</button></div></header>}
       {view === "chat" && <ChatView session={activeSession} messages={messages} createAnalysis={startAnalysis} sources={sources} activeSource={activeSource} activeSourceId={activeSourceId} selectSource={selectQuerySource} models={models} selectedModel={selectedModel} selectModel={selectModel} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} openSources={() => setView("sources")} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}
       {view === "sources" && <SourcesView sources={sources} activeSourceId={activeSourceId} testingSource={testingSource} notice={connectionNotice} add={() => { setConnectionNotice(""); setShowAddSource(true); }} open={(source) => void openSourceDetail(source)} test={testConnection} workbench={openDatabase} remove={removeSource} />}
       {view === "source-detail" && activeSource && <DatasourceDetail source={activeSource} mapping={mapping} loading={mappingLoading} error={mappingError} tab={detailTab} focusedEntity={focusedEntity} onTab={setDetailTab} onBack={() => setView("sources")} onOpenWorkbench={() => openDatabase(activeSource)} onRefresh={() => void openSourceDetail(activeSource, detailTab, focusedEntity)} onSaveDraft={saveMappingDraft} onValidate={validateMappingDraft} onPublish={publishMapping} onLoadVersions={loadMappingVersions} onLoadVersion={loadMappingVersion} onRollback={rollbackMapping} />}
@@ -393,7 +394,7 @@ function ChatView({ session, messages, createAnalysis, sources, activeSource, ac
   </form>;
   if (!session && !result) return <div className="content"><div className="empty-analysis"><span><ChatBubbleIcon /></span><h2>开始一项新的数据分析</h2><p>每项分析拥有独立的多轮上下文，刷新或重新登录后仍可继续。</p><button onClick={createAnalysis}>＋ 新建分析</button></div></div>;
   return <div className={`content analysis-workspace ${hasConversation ? "has-conversation" : "new-conversation"}`}>
-    <section className="hero-copy"><div className="eyebrow">ERP FINANCE DATA AGENT</div><h2>{messages.length ? session?.title : "今天想了解什么？"}</h2><p>当前分析中的连续追问会共享上下文，不会与其他分析串联。</p></section>
+    {!hasConversation && <section className="hero-copy"><div className="eyebrow">ERP FINANCE DATA AGENT</div><h2>今天想了解什么？</h2><p>当前分析中的连续追问会共享上下文，不会与其他分析串联。</p></section>}
     {!hasConversation && composer}
     {!hasConversation && <div className="suggestions">{suggestions.map((item) => <button key={item} onClick={() => void ask(item)} disabled={!queryAvailable}>{item}<span>↗</span></button>)}</div>}
     {error && <BusinessErrorCard message={error} source={activeSource} onInspect={inspect} />}
