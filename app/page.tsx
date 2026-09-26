@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { AuthScreen, UserAccountMenu, type AuthUser } from "../components/datapilot/account-access";
 import { AgentTracePanel, AnswerExplanation, BusinessErrorCard } from "../components/datapilot/agent-explanation";
 import { CurrentDatasourceShortcut } from "../components/datapilot/current-datasource-shortcut";
 import { DatasourceDetail } from "../components/datapilot/datasource-detail";
@@ -26,7 +27,16 @@ function agentHeaders() {
   return { "Content-Type": "application/json", "X-Session-Id": sessionId };
 }
 
+function apiFetch(path: string, init: RequestInit = {}) {
+  return fetch(`${API_BASE}${path}`, { ...init, credentials: "include" });
+}
+
 export default function Home() {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authError, setAuthError] = useState("");
   const [view, setView] = useState<View>("sources");
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
@@ -53,22 +63,59 @@ export default function Home() {
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [focusedEntity, setFocusedEntity] = useState("");
 
-  // Initial connection discovery intentionally runs once; later refreshes are explicit user actions.
+  // Authentication bootstrap intentionally runs once; later changes are explicit account actions.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { void restoreConnections(); }, []);
+  useEffect(() => { void restoreSession(); }, []);
 
   useEffect(() => {
+    if (!currentUser) return;
     const timer = window.setTimeout(() => {
-      const saved = localStorage.getItem("datapilot-history");
+      const saved = localStorage.getItem(`datapilot-history:${currentUser.id}`);
       if (!saved) return;
-      try { setHistory(JSON.parse(saved)); } catch { localStorage.removeItem("datapilot-history"); }
+      try { setHistory(JSON.parse(saved)); } catch { localStorage.removeItem(`datapilot-history:${currentUser.id}`); }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [currentUser]);
+
+  async function restoreSession() {
+    try {
+      const response = await apiFetch("/api/auth/me");
+      if (!response.ok) return;
+      const data = await response.json(); setCurrentUser(data.user); await restoreConnections();
+    } finally { setAuthLoading(false); }
+  }
+
+  async function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setAuthSubmitting(true); setAuthError("");
+    try {
+      const form = new FormData(event.currentTarget);
+      const body = { identifier: String(form.get("identifier") || ""), password: String(form.get("password") || ""), confirmPassword: String(form.get("confirmPassword") || "") };
+      if (authMode === "register" && body.password !== body.confirmPassword) throw new Error("两次输入的密码不一致");
+      const response = await apiFetch(`/api/auth/${authMode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || "认证失败");
+      setCurrentUser(data.user); setView("sources"); await restoreConnections();
+    } catch (caught) { setAuthError(message(caught, "认证失败")); }
+    finally { setAuthSubmitting(false); }
+  }
+
+  async function logout() {
+    await apiFetch("/api/auth/logout", { method: "POST" });
+    resetAuthenticatedState();
+  }
+
+  async function deleteAccount(confirmation: string) {
+    const response = await apiFetch("/api/auth/account", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ confirmation }) });
+    if (!response.ok) { const data = await response.json(); throw new Error(data.error || "注销账户失败"); }
+    resetAuthenticatedState();
+  }
+
+  function resetAuthenticatedState() {
+    setCurrentUser(null); setSources([]); setActiveSourceId(""); setResult(null); setMapping(null); setHistory([]); setQuestion(""); setAuthMode("login"); setAuthError("");
+  }
 
   async function restoreConnections() {
     try {
-      const response = await fetch(`${API_BASE}/api/connections`); const data = await response.json();
+      const response = await apiFetch("/api/connections"); const data = await response.json();
       if (!response.ok) throw new Error(data.error || "无法恢复数据源");
       const restored: DataSource[] = (data.items || []).map((item: Record<string, unknown>) => ({
         id: String(item.connectionId), connectionId: String(item.connectionId), name: String(item.name),
@@ -98,7 +145,7 @@ export default function Home() {
     database: [activeSource?.name || "数据库编辑台", "浏览数据结构并通过自然语言或 SQL 操作数据"], history: ["查询历史", "查看、检索并复用过去的分析"],
   };
 
-  function saveHistory(items: HistoryItem[]) { setHistory(items); localStorage.setItem("datapilot-history", JSON.stringify(items.slice(0, 50))); }
+  function saveHistory(items: HistoryItem[]) { setHistory(items); if (currentUser) localStorage.setItem(`datapilot-history:${currentUser.id}`, JSON.stringify(items.slice(0, 50))); }
 
   async function ask(text?: string) {
     const query = (text ?? question).trim();
@@ -107,7 +154,7 @@ export default function Home() {
     if (!query || loading) return;
     setQuestion(query); setLoading(true); setError(""); setResult(null); if (view !== "database") setView("chat");
     try {
-      const response = await fetch(`${API_BASE}/api/query`, { method: "POST", headers: agentHeaders(), body: JSON.stringify({ question: query, connectionId: activeSource.connectionId }) });
+      const response = await apiFetch("/api/query", { method: "POST", headers: agentHeaders(), body: JSON.stringify({ question: query, connectionId: activeSource.connectionId }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "查询失败");
       if (data.requiresConfirmation) { setPendingSql({ sql: data.sql, operation: data.operation, origin: "natural" }); setResult(data); return; }
       setResult(data); const entry: HistoryItem = { id: crypto.randomUUID(), question: query, createdAt: new Date().toISOString(), rowCount: data.rowCount, executionMs: data.executionMs, result: data };
@@ -116,7 +163,7 @@ export default function Home() {
   }
 
   async function fetchMapping(source: DataSource, samples: boolean) {
-    const response = await fetch(`${API_BASE}/api/datasources/${encodeURIComponent(source.connectionId)}/schema-mapping?samples=${samples ? "1" : "0"}`); const data = await response.json();
+    const response = await apiFetch(`/api/datasources/${encodeURIComponent(source.connectionId)}/schema-mapping?samples=${samples ? "1" : "0"}`); const data = await response.json();
     if (!response.ok) throw new Error(data.error || "读取 ERP Schema Mapping 失败"); return data as SchemaMappingResponse;
   }
 
@@ -129,7 +176,7 @@ export default function Home() {
   }
 
   async function mappingMutation<T>(source: DataSource, path: string, body: unknown) {
-    const response = await fetch(`${API_BASE}/api/datasources/${encodeURIComponent(source.connectionId)}/schema-mapping${path}`, { method: "POST", headers: agentHeaders(), body: JSON.stringify(body) });
+    const response = await apiFetch(`/api/datasources/${encodeURIComponent(source.connectionId)}/schema-mapping${path}`, { method: "POST", headers: agentHeaders(), body: JSON.stringify(body) });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || "Mapping 操作失败"); return data as T;
   }
   async function saveMappingDraft(draft: MappingDraftPayload) { if (!activeSource) return; await mappingMutation(activeSource, "/draft", draft); await openSourceDetail(activeSource, detailTab, focusedEntity); }
@@ -137,12 +184,12 @@ export default function Home() {
   async function publishMapping(erpType: string) { if (!activeSource) return; await mappingMutation(activeSource, "/publish", { erpType }); await openSourceDetail(activeSource, "overview"); }
   async function loadMappingVersions(erpType: string) {
     if (!activeSource) return { items: [], audits: [] };
-    const response = await fetch(`${API_BASE}/api/datasources/${encodeURIComponent(activeSource.connectionId)}/schema-mapping/versions?erpType=${encodeURIComponent(erpType)}`, { headers: agentHeaders() });
+    const response = await apiFetch(`/api/datasources/${encodeURIComponent(activeSource.connectionId)}/schema-mapping/versions?erpType=${encodeURIComponent(erpType)}`, { headers: agentHeaders() });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || "读取 Mapping 版本失败"); return data as MappingVersionsResponse;
   }
   async function loadMappingVersion(erpType: string, version: number) {
     if (!activeSource) throw new Error("数据源不存在");
-    const response = await fetch(`${API_BASE}/api/datasources/${encodeURIComponent(activeSource.connectionId)}/schema-mapping/versions/${version}?erpType=${encodeURIComponent(erpType)}`, { headers: agentHeaders() });
+    const response = await apiFetch(`/api/datasources/${encodeURIComponent(activeSource.connectionId)}/schema-mapping/versions/${version}?erpType=${encodeURIComponent(erpType)}`, { headers: agentHeaders() });
     const data = await response.json(); if (!response.ok) throw new Error(data.error || "读取 Mapping 版本失败"); return data as MappingVersionResponse;
   }
   async function rollbackMapping(erpType: string, version: number) { if (!activeSource) return; await mappingMutation(activeSource, `/rollback/${version}`, { erpType, changeSummary: `从前端回滚到 v${version}` }); await openSourceDetail(activeSource, "versions"); }
@@ -152,7 +199,7 @@ export default function Home() {
     try {
       const form = new FormData(event.currentTarget); const keyFile = form.get("sshKey") as File | null;
       const config = { name: String(form.get("name") || ""), engine: "mysql", host: String(form.get("host") || ""), port: Number(form.get("port")), database: String(form.get("database") || ""), user: String(form.get("user") || ""), password: String(form.get("password") || ""), ssh: sshEnabled ? { enabled: true, host: String(form.get("sshHost") || ""), port: Number(form.get("sshPort")), user: String(form.get("sshUser") || ""), privateKey: keyFile?.size ? await keyFile.text() : "", passphrase: String(form.get("sshPassphrase") || "") } : undefined };
-      const response = await fetch(`${API_BASE}/api/connections`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) }); const data = await response.json();
+      const response = await apiFetch("/api/connections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(config) }); const data = await response.json();
       if (!response.ok) throw new Error(data.error || "连接失败");
       const source: DataSource = { id: data.connectionId, connectionId: data.connectionId, name: data.name, engine: `MySQL ${String(data.version).split("-")[0]}`, host: `${data.host}:${data.port}`, database: data.database, tables: data.tables, status: "connected", sshEnabled: data.sshEnabled };
       setSources((items) => [...items, source]); setActiveSourceId(source.id); setShowAddSource(false); setSshEnabled(false); setConnectionNotice(`连接成功 · ${data.tables} 张表 · ${data.latencyMs} ms`); await openSourceDetail(source);
@@ -162,13 +209,13 @@ export default function Home() {
   async function testConnection(source: DataSource) {
     setTestingSource(source.id); setConnectionNotice("");
     try {
-      const response = await fetch(`${API_BASE}/api/connections/${source.connectionId}/test`, { method: "POST" }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "连接失败");
+      const response = await apiFetch(`/api/connections/${source.connectionId}/test`, { method: "POST" }); const data = await response.json(); if (!response.ok) throw new Error(data.error || "连接失败");
       setSources((items) => items.map((item) => item.id === source.id ? { ...item, status: "connected", tables: data.tables } : item)); setConnectionNotice(`连接成功 · ${data.tables} 张表 · ${data.latencyMs} ms`);
     } catch (connectionError) { setSources((items) => items.map((item) => item.id === source.id ? { ...item, status: "offline" } : item)); setConnectionNotice(message(connectionError, "连接失败")); } finally { setTestingSource(null); }
   }
 
   async function loadSchema(connectionId = activeSource?.connectionId) {
-    if (!connectionId) throw new Error("请先连接数据源"); const response = await fetch(`${API_BASE}/api/database/schema?connectionId=${encodeURIComponent(connectionId)}`); const data = await response.json();
+    if (!connectionId) throw new Error("请先连接数据源"); const response = await apiFetch(`/api/database/schema?connectionId=${encodeURIComponent(connectionId)}`); const data = await response.json();
     if (!response.ok) throw new Error(data.error || "读取 Schema 失败"); setServerSchema(data.tables || []);
   }
   function openDatabase(source: DataSource) { setActiveSourceId(source.id); setView("database"); setServerSchema([]); setSqlResult(null); setPendingSql(null); void loadSchema(source.connectionId).catch((e) => setConnectionNotice(e.message)); }
@@ -176,7 +223,7 @@ export default function Home() {
   async function runSql(confirm = false) {
     if (!activeSource || !sqlText.trim() || sqlRunning) return; setSqlRunning(true); setConnectionNotice("");
     try {
-      const requested = confirm && pendingSql ? pendingSql.sql : sqlText; const response = await fetch(`${API_BASE}/api/database/query`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sql: requested, connectionId: activeSource.connectionId, confirm }) }); const data = await response.json();
+      const requested = confirm && pendingSql ? pendingSql.sql : sqlText; const response = await apiFetch("/api/database/query", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sql: requested, connectionId: activeSource.connectionId, confirm }) }); const data = await response.json();
       if (!response.ok) throw new Error(data.error || "SQL 执行失败");
       if (data.requiresConfirmation) { setPendingSql({ sql: data.sql, operation: data.operation, origin: "console" }); setSqlResult(null); }
       else { setSqlResult(data); setPendingSql(null); if (confirm) { setConnectionNotice(`执行成功 · ${data.operation} 影响 ${data.affectedRows ?? 0} 行`); await loadSchema(); } }
@@ -184,10 +231,13 @@ export default function Home() {
   }
 
   function selectQuerySource(source: DataSource) { setActiveSourceId(source.id); setResult(null); setError(""); }
-  async function removeSource(source: DataSource) { await fetch(`${API_BASE}/api/connections/${source.connectionId}`, { method: "DELETE" }).catch(() => undefined); const remaining = sources.filter((item) => item.id !== source.id); setSources(remaining); setActiveSourceId(fallbackDatasourceId(remaining, activeSourceId === source.id ? undefined : activeSourceId)); setMapping(null); }
+  async function removeSource(source: DataSource) { await apiFetch(`/api/connections/${source.connectionId}`, { method: "DELETE" }).catch(() => undefined); const remaining = sources.filter((item) => item.id !== source.id); setSources(remaining); setActiveSourceId(fallbackDatasourceId(remaining, activeSourceId === source.id ? undefined : activeSourceId)); setMapping(null); }
+
+  if (authLoading) return <main className="auth-page"><div className="auth-loading">正在验证登录状态…</div></main>;
+  if (!currentUser) return <AuthScreen mode={authMode} setMode={(mode) => { setAuthMode(mode); setAuthError(""); }} submitting={authSubmitting} error={authError} submit={submitAuth} />;
 
   return <main className="app-shell">
-    <aside className="sidebar"><div className="brand"><span className="brand-mark">D</span><span>DataPilot</span></div><button className="new-chat" onClick={() => { setQuestion(""); setResult(null); setError(""); setView("chat"); }}>＋ 新建对话</button><nav aria-label="主导航"><button className={`nav-item ${view === "chat" ? "active" : ""}`} onClick={() => setView("chat")}><span className="nav-icon"><ChatBubbleIcon /></span>数据问答</button><button className={`nav-item ${view === "sources" || view === "source-detail" ? "active" : ""}`} onClick={() => setView("sources")}><span>▦</span>数据源</button><button className={`nav-item ${view === "history" ? "active" : ""}`} onClick={() => setView("history")}><span>◷</span>查询历史{history.length > 0 && <em>{history.length}</em>}</button></nav><CurrentDatasourceShortcut source={activeSource} onOpen={() => activeSource ? void openSourceDetail(activeSource) : setView("sources")} /><div className="sidebar-bottom"><button className="plain-button">⚙ <span>工作区设置</span></button><div className="profile"><span className="avatar">陈</span><span><strong>陈宇</strong><small>数据分析团队</small></span><span className="more">•••</span></div></div></aside>
+    <aside className="sidebar"><div className="brand"><span className="brand-mark">D</span><span>DataPilot</span></div><button className="new-chat" onClick={() => { setQuestion(""); setResult(null); setError(""); setView("chat"); }}>＋ 新建对话</button><nav aria-label="主导航"><button className={`nav-item ${view === "chat" ? "active" : ""}`} onClick={() => setView("chat")}><span className="nav-icon"><ChatBubbleIcon /></span>数据问答</button><button className={`nav-item ${view === "sources" || view === "source-detail" ? "active" : ""}`} onClick={() => setView("sources")}><span>▦</span>数据源</button><button className={`nav-item ${view === "history" ? "active" : ""}`} onClick={() => setView("history")}><span>◷</span>查询历史{history.length > 0 && <em>{history.length}</em>}</button></nav><CurrentDatasourceShortcut source={activeSource} onOpen={() => activeSource ? void openSourceDetail(activeSource) : setView("sources")} /><div className="sidebar-bottom"><button className="plain-button">⚙ <span>工作区设置</span></button><UserAccountMenu user={currentUser} onLogout={logout} onDelete={deleteAccount} /></div></aside>
 
     <section className="workspace"><header className="topbar"><div><h1>{viewTitles[view][0]}</h1><p>{viewTitles[view][1]}</p></div><div className="top-actions"><span className="connection"><i className={activeSource ? "" : "offline"} />{activeSource ? sourceState(activeSource).title : "等待连接"}</span><button aria-label="帮助">?</button></div></header>
       {view === "chat" && <ChatView sources={sources} activeSource={activeSource} activeSourceId={activeSourceId} selectSource={selectQuerySource} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} maxChart={maxChart} openSources={() => setView("sources")} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}

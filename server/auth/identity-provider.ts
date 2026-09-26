@@ -1,19 +1,24 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
 import type { RequestContext, Role } from "../core/types.js";
+import type { AccountStore } from "./account-store.js";
+import { sessionToken } from "./auth-routes.js";
 
 export interface IdentityProvider {
   resolve(request: Request): RequestContext;
 }
 
-/**
- * Local mode uses a fixed demo identity. When AUTH_JWT_SECRET is set, tenant,
- * account set, user and role are accepted only from a verified HS256 JWT.
- */
+/** Cookie sessions are primary; a verified HS256 bearer token remains available
+ * for existing service-to-service integrations when AUTH_JWT_SECRET is set. */
 export class EnvironmentIdentityProvider implements IdentityProvider {
+  constructor(private readonly accounts?: AccountStore) {}
+
   resolve(request: Request): RequestContext {
+    const token = sessionToken(request);
+    if (token && this.accounts) return this.accounts.authenticate(token).context;
     const secret = process.env.AUTH_JWT_SECRET?.trim();
-    const claims = secret ? verifyJwt(request, secret) : localClaims();
+    if (!secret) return this.accounts!.authenticate(token).context;
+    const claims = verifyJwt(request, secret);
     const role = claims.role as Role;
     if (!(["tenant_admin", "finance_analyst", "finance_viewer"] as string[]).includes(role)) throw new Error("无效的用户角色");
     return {
@@ -27,10 +32,6 @@ export class EnvironmentIdentityProvider implements IdentityProvider {
 }
 
 type Claims = { sub: string; tenant_id: string; account_set_id: string; role: string; exp?: number };
-
-function localClaims(): Claims {
-  return { sub: "local-admin", tenant_id: "demo-tenant", account_set_id: "default-account-set", role: "tenant_admin" };
-}
 
 function verifyJwt(request: Request, secret: string): Claims {
   const authorization = request.header("authorization") || "";

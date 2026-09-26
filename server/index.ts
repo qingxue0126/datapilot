@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express, { type Request } from "express";
 import { DataAgent } from "./agent/data-agent.js";
+import { AccountStore } from "./auth/account-store.js";
+import { installAuthRoutes } from "./auth/auth-routes.js";
 import { EnvironmentIdentityProvider } from "./auth/identity-provider.js";
 import { PermissionService } from "./auth/permission-service.js";
 import { loadConnections, saveConnections, type StoredConnection } from "./connection-store.js";
@@ -23,7 +25,8 @@ import { ToolRegistry } from "./tools/tool-registry.js";
 const app = express();
 const port = Number(process.env.API_PORT || 3001);
 const connections = loadConnections();
-const identities = new EnvironmentIdentityProvider();
+const accounts = new AccountStore();
+const identities = new EnvironmentIdentityProvider(accounts);
 const permissions = new PermissionService();
 const sessions = new InMemorySessionStore();
 const model = new DeepSeekModelProvider();
@@ -35,10 +38,15 @@ const tools = new ToolRegistry()
   .register(new DatabaseQueryTool(permissions));
 const agent = new DataAgent(tools, permissions, sessions, new ErpQueryService(model));
 
-app.use(cors({ origin: process.env.WEB_ORIGIN || "http://localhost:3000" }));
+app.use(cors({ origin: process.env.WEB_ORIGIN || "http://localhost:3000", credentials: true }));
 app.use(express.json({ limit: "2mb" }));
+installAuthRoutes(app, accounts);
 
 app.get("/api/health", (_request, response) => response.json({ ok: true, service: "datapilot-api" }));
+app.use("/api", (request, response, next) => {
+  try { identity(request); next(); }
+  catch { response.status(401).json({ error: "请先登录" }); }
+});
 app.get("/api/me", (request, response) => {
   try {
     const context = identity(request);
