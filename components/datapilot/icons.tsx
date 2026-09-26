@@ -49,3 +49,19 @@ export function KnowledgeDatabaseIcon({ className = "" }: { className?: string }
     <path className="knowledge-bolt" d="m19 12-3 5h3l-2 5 5-7h-3l2-3" />
   </svg>;
 }
+
+export function ModelCubeIcon({ className = "" }: { className?: string }) {
+  return <svg
+    className={`sidebar-nav-icon ${className}`.trim()}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="m12 2.8 8 4.6v9.2l-8 4.6-8-4.6V7.4l8-4.6Z" />
+    <path d="m4.4 7.6 7.6 4.3 7.6-4.3M12 12v8.7" />
+  </svg>;
+}

@@ -8,12 +8,13 @@ import { DatasourceDetail } from "../components/datapilot/datasource-detail";
 import { erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
 import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
 import { DatasourceSwitcher } from "../components/datapilot/datasource-switcher";
-import { ChatBubbleIcon, KnowledgeDatabaseIcon, ServerStackIcon } from "../components/datapilot/icons";
+import { ChatBubbleIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon } from "../components/datapilot/icons";
 import { KnowledgeBaseView } from "../components/datapilot/knowledge-base";
+import { ModelManagement, ModelSelector, type ModelOption } from "../components/datapilot/model-management";
 import { RecentAnalyses } from "../components/datapilot/recent-analyses";
 import type { AnalysisMessage, AnalysisSession, AnalysisSessionDetail, DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
 
-type View = "chat" | "sources" | "source-detail" | "database" | "knowledge";
+type View = "chat" | "sources" | "source-detail" | "database" | "knowledge" | "models";
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
 type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; rowCount: number; executionMs: number; requiresConfirmation?: boolean; operation?: string; affectedRows?: number };
 type PendingSql = { sql: string; operation: string; origin: "natural" | "console" };
@@ -65,6 +66,9 @@ export default function Home() {
   const [detailTab, setDetailTab] = useState<DetailTab>("overview");
   const [focusedEntity, setFocusedEntity] = useState("");
   const [interactionNotice, setInteractionNotice] = useState("");
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [modelsConfigured, setModelsConfigured] = useState(false);
 
   // Authentication bootstrap intentionally runs once; later changes are explicit account actions.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,7 +84,7 @@ export default function Home() {
     try {
       const response = await apiFetch("/api/auth/me");
       if (!response.ok) return;
-      const data = await response.json(); setCurrentUser(data.user); const restored = await restoreConnections(); await restoreAnalyses(restored);
+      const data = await response.json(); setCurrentUser(data.user); await restoreModels(); const restored = await restoreConnections(); await restoreAnalyses(restored);
     } finally { setAuthLoading(false); }
   }
 
@@ -92,7 +96,7 @@ export default function Home() {
       if (authMode === "register" && body.password !== body.confirmPassword) throw new Error("两次输入的密码不一致");
       const response = await apiFetch(`/api/auth/${authMode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "认证失败");
-      setCurrentUser(data.user); const restored = await restoreConnections(); await restoreAnalyses(restored);
+      setCurrentUser(data.user); await restoreModels(); const restored = await restoreConnections(); await restoreAnalyses(restored);
     } catch (caught) { setAuthError(message(caught, "认证失败")); }
     finally { setAuthSubmitting(false); }
   }
@@ -109,7 +113,22 @@ export default function Home() {
   }
 
   function resetAuthenticatedState() {
-    setCurrentUser(null); setSources([]); setActiveSourceId(""); setResult(null); setMapping(null); setQuestion(""); setAnalysisSessions([]); setActiveSessionId(""); setMessages([]); setAuthMode("login"); setAuthError("");
+    setCurrentUser(null); setSources([]); setActiveSourceId(""); setResult(null); setMapping(null); setQuestion(""); setAnalysisSessions([]); setActiveSessionId(""); setMessages([]); setModels([]); setSelectedModel(""); setAuthMode("login"); setAuthError("");
+  }
+
+  async function restoreModels() {
+    const response = await apiFetch("/api/models");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "无法读取模型列表");
+    const items = (data.items || []) as ModelOption[];
+    const saved = window.localStorage.getItem("datapilot-model");
+    const selected = items.some((item) => item.id === saved) ? saved! : String(data.defaultModel || items[0]?.id || "");
+    setModels(items); setSelectedModel(selected); setModelsConfigured(Boolean(data.configured));
+  }
+
+  function selectModel(id: string) {
+    if (!models.some((model) => model.id === id)) return;
+    setSelectedModel(id); window.localStorage.setItem("datapilot-model", id);
   }
 
   async function restoreConnections() {
@@ -229,6 +248,7 @@ export default function Home() {
     "source-detail": [activeSource?.name || "数据源详情", "ERP Schema Mapping、Join Path 与验证结果"],
     database: [activeSource?.name || "数据库编辑台", "浏览数据结构并通过自然语言或 SQL 操作数据"],
     knowledge: ["知识库", "管理文档、检索配置与向量检索测试"],
+    models: ["模型管理", "管理智能问数模型并设置当前默认模型"],
   };
 
   async function ask(text?: string) {
@@ -239,7 +259,7 @@ export default function Home() {
     setQuestion(query); setLoading(true); setError(""); setResult(null); if (view !== "database") setView("chat");
     try {
       const sessionId = await ensureAnalysisSession();
-      const response = await apiFetch("/api/query", { method: "POST", headers: agentHeaders(), body: JSON.stringify({ sessionId, question: query, connectionId: activeSource.connectionId }) });
+      const response = await apiFetch("/api/query", { method: "POST", headers: agentHeaders(), body: JSON.stringify({ sessionId, question: query, connectionId: activeSource.connectionId, model: selectedModel }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "查询失败");
       if (data.requiresConfirmation) { setPendingSql({ sql: data.sql, operation: data.operation, origin: "natural" }); setResult(data); return; }
       const queryResult = data as QueryResult;
@@ -340,6 +360,7 @@ export default function Home() {
       <nav aria-label="主导航">
         <button className={`nav-item ${view === "sources" || view === "source-detail" ? "active" : ""}`} onClick={() => setView("sources")}><span className="nav-icon"><ServerStackIcon /></span>数据源</button>
         <button className={`nav-item ${view === "knowledge" ? "active" : ""}`} onClick={() => setView("knowledge")}><span className="nav-icon"><KnowledgeDatabaseIcon /></span>知识库</button>
+        <button className={`nav-item ${view === "models" ? "active" : ""}`} onClick={() => setView("models")}><span className="nav-icon"><ModelCubeIcon /></span>模型管理</button>
       </nav>
       <div className="sidebar-sessions">
         <RecentAnalyses sessions={analysisSessions} activeSessionId={activeSessionId} onOpen={(session) => void openAnalysis(session)} onPin={pinAnalysis} onRename={renameAnalysis} onDelete={deleteAnalysis} />
@@ -351,23 +372,24 @@ export default function Home() {
     </aside>
 
     <section className="workspace"><header className="topbar"><div><h1>{viewTitles[view][0]}</h1><p>{viewTitles[view][1]}</p></div><div className="top-actions"><span className="connection"><i className={activeSource?.status === "connected" ? "" : "offline"} />{activeSource ? sourceState(activeSource).title : "等待连接"}</span><button aria-label="帮助" title="帮助中心" onClick={() => setInteractionNotice("帮助中心功能开发中")}>?</button></div></header>
-      {view === "chat" && <ChatView session={activeSession} messages={messages} createAnalysis={startAnalysis} sources={sources} activeSource={activeSource} activeSourceId={activeSourceId} selectSource={selectQuerySource} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} openSources={() => setView("sources")} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}
+      {view === "chat" && <ChatView session={activeSession} messages={messages} createAnalysis={startAnalysis} sources={sources} activeSource={activeSource} activeSourceId={activeSourceId} selectSource={selectQuerySource} models={models} selectedModel={selectedModel} selectModel={selectModel} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} openSources={() => setView("sources")} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}
       {view === "sources" && <SourcesView sources={sources} activeSourceId={activeSourceId} testingSource={testingSource} notice={connectionNotice} add={() => { setConnectionNotice(""); setShowAddSource(true); }} open={(source) => void openSourceDetail(source)} test={testConnection} workbench={openDatabase} remove={removeSource} />}
       {view === "source-detail" && activeSource && <DatasourceDetail source={activeSource} mapping={mapping} loading={mappingLoading} error={mappingError} tab={detailTab} focusedEntity={focusedEntity} onTab={setDetailTab} onBack={() => setView("sources")} onOpenWorkbench={() => openDatabase(activeSource)} onRefresh={() => void openSourceDetail(activeSource, detailTab, focusedEntity)} onSaveDraft={saveMappingDraft} onValidate={validateMappingDraft} onPublish={publishMapping} onLoadVersions={loadMappingVersions} onLoadVersion={loadMappingVersion} onRollback={rollbackMapping} />}
       {view === "database" && activeSource && <DatabaseWorkbench source={activeSource} schema={serverSchema} mode={dbMode} setMode={setDbMode} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} sqlText={sqlText} setSqlText={setSqlText} sqlResult={sqlResult} sqlRunning={sqlRunning} runSql={() => void runSql()} notice={connectionNotice} pendingSql={pendingSql} cancelPending={() => setPendingSql(null)} confirmWrite={() => void runSql(true)} back={() => void openSourceDetail(activeSource)} setNotice={setConnectionNotice} loadSchema={loadSchema} />}
       {view === "knowledge" && <KnowledgeBaseView />}
+      {view === "models" && <ModelManagement models={models} selectedModel={selectedModel} configured={modelsConfigured} onSelect={selectModel} />}
     </section>
     {showAddSource && <ConnectionModal sshEnabled={sshEnabled} setSshEnabled={setSshEnabled} connecting={connecting} notice={connectionNotice} close={() => setShowAddSource(false)} submit={addConnection} />}
     {interactionNotice && <div className="interaction-toast" role="status"><span>{interactionNotice}</span><button aria-label="关闭提示" onClick={() => setInteractionNotice("")}>×</button></div>}
   </main>;
 }
 
-function ChatView({ session, messages, createAnalysis, sources, activeSource, activeSourceId, selectSource, question, setQuestion, ask, loading, error, result, openSources, addSource, inspect }: { session?: AnalysisSession; messages: AnalysisMessage[]; createAnalysis: () => void; sources: DataSource[]; activeSource?: DataSource; activeSourceId: string; selectSource: (source: DataSource) => void; question: string; setQuestion: (v: string) => void; ask: (v?: string) => Promise<void>; loading: boolean; error: string; result: QueryResult | null; openSources: () => void; addSource: () => void; inspect: (tab: DetailTab, entity?: string) => void }) {
+function ChatView({ session, messages, createAnalysis, sources, activeSource, activeSourceId, selectSource, models, selectedModel, selectModel, question, setQuestion, ask, loading, error, result, openSources, addSource, inspect }: { session?: AnalysisSession; messages: AnalysisMessage[]; createAnalysis: () => void; sources: DataSource[]; activeSource?: DataSource; activeSourceId: string; selectSource: (source: DataSource) => void; models: ModelOption[]; selectedModel: string; selectModel: (id: string) => void; question: string; setQuestion: (v: string) => void; ask: (v?: string) => Promise<void>; loading: boolean; error: string; result: QueryResult | null; openSources: () => void; addSource: () => void; inspect: (tab: DetailTab, entity?: string) => void }) {
   const queryAvailable = activeSource?.status === "connected";
   const hasConversation = messages.length > 0;
   const composer = <form className="query-box" onSubmit={(event) => { event.preventDefault(); void ask(); }}>
     <textarea aria-label="输入数据问题" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder={queryAvailable ? "例如：本月营业收入是多少？" : activeSource ? "当前数据源未连接" : "请先添加一个数据源"} rows={2} disabled={!queryAvailable} />
-    <div className="query-footer"><DatasourceSwitcher sources={sources} activeSourceId={activeSourceId} onSelect={selectSource} onManageSources={openSources} /><button className="send-button" type="submit" disabled={loading || !question.trim() || !queryAvailable}>{loading ? "分析中…" : "发送 ↗"}</button></div>
+    <div className="query-footer"><div className="query-options"><DatasourceSwitcher sources={sources} activeSourceId={activeSourceId} onSelect={selectSource} onManageSources={openSources} /><ModelSelector models={models} value={selectedModel} onChange={selectModel} /></div><button className="send-button" type="submit" disabled={loading || !question.trim() || !queryAvailable}>{loading ? "分析中…" : "发送 ↗"}</button></div>
   </form>;
   if (!session && !result) return <div className="content"><div className="empty-analysis"><span><ChatBubbleIcon /></span><h2>开始一项新的数据分析</h2><p>每项分析拥有独立的多轮上下文，刷新或重新登录后仍可继续。</p><button onClick={createAnalysis}>＋ 新建分析</button></div></div>;
   return <div className={`content analysis-workspace ${hasConversation ? "has-conversation" : "new-conversation"}`}>

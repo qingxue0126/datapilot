@@ -26,7 +26,7 @@ test("empty new sessions stay out of the recent list until the first exchange is
 });
 
 test("query requests carry the selected session id and render a message stream", () => {
-  assert.match(page, /JSON\.stringify\(\{ sessionId, question: query, connectionId: activeSource\.connectionId \}\)/);
+  assert.match(page, /JSON\.stringify\(\{ sessionId, question: query, connectionId: activeSource\.connectionId, model: selectedModel \}\)/);
   assert.match(page, /className="message-stream"/);
   assert.match(page, /item\.role === "user"/);
 });
@@ -35,4 +35,10 @@ test("the composer moves below the message stream after a conversation starts", 
   assert.match(page, /const hasConversation = messages\.length > 0/);
   assert.match(page, /<section className="message-stream"[\s\S]*\{hasConversation && <div className="conversation-composer">\{composer\}<\/div>\}/);
   assert.match(page, /!hasConversation && composer/);
+});
+
+test("chat exposes model selection and model management navigation", () => {
+  assert.match(page, /<ModelSelector models=\{models\} value=\{selectedModel\}/);
+  assert.match(page, />模型管理<\/button>/);
+  assert.match(page, /<ModelManagement models=\{models\}/);
 });

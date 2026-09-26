@@ -16,6 +16,7 @@ export class ErpQueryService {
     metrics: FinanceMetricPrompt[];
     history: ChatTurn[];
     previousError?: string;
+    model?: string;
   }) {
     validateMetricContext(input.metrics, input.schema);
     validateRequiredJoinPaths(input.question, input.metrics, input.schema);
@@ -87,7 +88,7 @@ export class ErpQueryService {
           previousError: input.previousError,
         }),
       },
-    ]);
+    ], { model: input.model });
     if (plan.status !== "ready" || !plan.sql?.trim()) {
       const message = String(plan.message || plan.reasoning || "缺少完成查询所需的指标或 Schema 映射");
       if (message.startsWith("口径信息不足：") || message.startsWith("Schema 映射不足：")) throw new Error(message);
@@ -98,7 +99,7 @@ export class ErpQueryService {
     return plan;
   }
 
-  async analyze(input: { question: string; sql: string; rows: Record<string, unknown>[]; rowCount: number }) {
+  async analyze(input: { question: string; sql: string; rows: Record<string, unknown>[]; rowCount: number; model?: string }) {
     const answer = await this.model.structured<Answer>([
       {
         role: "system",
@@ -108,7 +109,7 @@ export class ErpQueryService {
         role: "user",
         content: JSON.stringify({ question: input.question, sql: input.sql, rowCount: input.rowCount, rows: input.rows.slice(0, 50) }),
       },
-    ]);
+    ], { model: input.model });
     return String(answer.summary || "查询已完成。").slice(0, 2000);
   }
 }
