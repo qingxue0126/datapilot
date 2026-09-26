@@ -46,8 +46,6 @@ details[open] > .disclosure-summary .chevron-icon { transform: rotate(45deg); }
 .current-datasource-copy.empty { grid-column: 1 / 3; }
 .current-datasource-shortcut .chevron-right { margin-left: 0; }
 .sidebar-bottom { margin-top: auto; }
-.plain-button { width: 100%; border: 0; padding: 11px; color: #b7cbc2; background: none; text-align: left; cursor: pointer; }
-.plain-button span { margin-left: 10px; }
 .profile { display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 10px; margin-top: 12px; padding: 15px 9px 0; border-top: 1px solid rgba(255,255,255,.12); }
 .avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #e6b98d; color: #543721; font-size: 13px; font-weight: 700; }
 .profile strong, .profile small { display: block; }
@@ -120,7 +118,6 @@ table { width: 100%; border-collapse: collapse; font-size: 11px; }th, td { paddi
 .source-title { font-size: 15px; }
 .source-meta { font-size: 12px; }
 .source-stats span { font-size: 11px; }
-.plain-button { font-size: 13px; }
 .profile strong { font-size: 14px; }
 .profile small { font-size: 11px; }
 .topbar h1 { font-size: 22px; }
