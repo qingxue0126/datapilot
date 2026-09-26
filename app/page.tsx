@@ -257,17 +257,21 @@ export default function Home() {
     if (!activeSource) { setError("请先添加并连接一个数据源"); setView("sources"); return; }
     if (activeSource.status !== "connected") { setError(`数据源 ${activeSource.name} 当前未连接，请先测试连接`); return; }
     if (!query || loading) return;
-    setQuestion(query); setLoading(true); setError(""); setResult(null); if (view !== "database") setView("chat");
+    const showInConversation = view !== "database";
+    const optimisticMessage: AnalysisMessage | undefined = showInConversation ? {
+      id: `pending-${window.crypto.randomUUID()}`, sessionId: activeSessionId, role: "user", content: query, createdAt: new Date().toISOString(),
+    } : undefined;
+    setQuestion(""); setLoading(true); setError(""); setResult(null);
+    if (optimisticMessage) { setMessages((items) => [...items, optimisticMessage]); setView("chat"); }
     try {
       const sessionId = await ensureAnalysisSession();
       const response = await apiFetch("/api/query", { method: "POST", headers: agentHeaders(), body: JSON.stringify({ sessionId, question: query, connectionId: activeSource.connectionId, model: selectedModel }) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "查询失败");
       if (data.requiresConfirmation) { setPendingSql({ sql: data.sql, operation: data.operation, origin: "natural" }); setResult(data); return; }
       const queryResult = data as QueryResult;
-      if (view === "database") setResult(queryResult);
-      else setMessages((items) => [...items, ...(queryResult.persistedMessages || [])]);
+      if (!showInConversation) setResult(queryResult);
+      else setMessages((items) => [...items.filter((item) => item.id !== optimisticMessage?.id), ...(queryResult.persistedMessages || [])]);
       if (queryResult.session) setAnalysisSessions((items) => [queryResult.session!, ...items.filter((item) => item.id !== queryResult.session!.id)]);
-      setQuestion("");
     } catch (queryError) { setError(message(queryError, "查询失败")); } finally { setLoading(false); }
   }
 
