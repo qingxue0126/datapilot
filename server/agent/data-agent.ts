@@ -24,7 +24,7 @@ export class DataAgent {
     private readonly erp: ErpQueryService,
   ) {}
 
-  async run(input: { question: string; context: RequestContext; datasourceId: string; connection: DatabaseConfig }) {
+  async run(input: { question: string; context: RequestContext; sessionId: string; datasourceId: string; connection: DatabaseConfig }) {
     const started = Date.now();
     const runId = randomUUID();
     const trace: AgentTraceEvent[] = [];
@@ -38,7 +38,7 @@ export class DataAgent {
       this.tools.call<{ question: string; includeSamples: boolean }, SchemaSearchResult>("schema.search", { question: input.question, includeSamples: true }, toolContext));
     if (!schema.rawSchema.length) throw new Error("当前权限范围内没有可查询的业务表");
 
-    const history = this.sessions.history(input.context);
+    const history = this.sessions.history(input.context, input.sessionId);
     let previousError: string | undefined;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
@@ -49,8 +49,7 @@ export class DataAgent {
           this.tools.call<{ sql: string }, QueryResult>("database.query", { sql: plan.sql }, toolContext));
         const summary = await this.step(trace, "result.analyze", () =>
           this.erp.analyze({ question: input.question, sql: result.sql, rows: result.rows, rowCount: result.rowCount }));
-        this.sessions.append(input.context, { question: input.question, answer: summary, sql: result.sql, createdAt: Date.now() });
-        return {
+        const queryResult = {
           question: input.question,
           summary,
           sql: result.sql,
@@ -59,10 +58,17 @@ export class DataAgent {
           chart: buildChart(result.rows),
           rowCount: result.rowCount,
           executionMs: Date.now() - started,
-          sessionId: input.context.sessionId,
+          sessionId: input.sessionId,
           explanation: buildExplanation(result.sql, metrics, schema),
           agent: { runId, attempts: attempt, tools: this.tools.list(), trace },
         };
+        const persisted = this.sessions.appendExchange(input.context, input.sessionId, {
+          question: input.question,
+          answer: summary,
+          datasourceId: input.datasourceId,
+          result: queryResult,
+        });
+        return { ...queryResult, session: persisted.session, persistedMessages: persisted.messages };
       } catch (error) {
         previousError = safeError(error);
         if (attempt === 3) throw error;

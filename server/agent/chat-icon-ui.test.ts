@@ -5,9 +5,13 @@ import test from "node:test";
 const page = readFileSync(new URL("../../app/page.tsx", import.meta.url), "utf8");
 const icon = readFileSync(new URL("../../components/datapilot/icons.tsx", import.meta.url), "utf8");
 
-test("data question navigation uses the shared chat bubble icon", () => {
+test("analysis workspace uses the shared chat bubble icon", () => {
   assert.match(page, /ChatBubbleIcon/);
-  assert.match(page, /nav-icon.*ChatBubbleIcon/s);
+  assert.match(page, /empty-analysis[\s\S]*ChatBubbleIcon/);
+});
+
+test("legacy data question primary navigation is removed", () => {
+  assert.doesNotMatch(page, /nav-item[\s\S]{0,180}>数据问答<\/button>/);
 });
 
 test("query history uses the same chat bubble icon", () => {

@@ -13,7 +13,7 @@ HTTP/API
       -> ModelProvider（生成只读 SQL）
       -> database.query Tool（AST、权限、数据范围校验）
       -> ModelProvider（结果分析）
-  -> SessionStore（最近对话上下文）
+  -> SessionStore（持久化分析会话与最近对话上下文）
 ```
 
 数据库凭据只进入服务端 ToolContext，不进入模型 Prompt。模型只能看到权限过滤后的 Schema、指标定义、最近会话和查询结果。
@@ -22,7 +22,7 @@ HTTP/API
 
 - `server/agent`：Agent Loop 和可替换 Harness 依赖。
 - `server/auth`：身份解析与数据库、表、字段、数据范围权限。
-- `server/context`：会话接口及当前内存实现。
+- `server/context`：会话接口、SQLite 持久化实现及会话 API；按租户、账套和用户校验归属。
 - `server/domain/erp`：收入、费用、应收、应付、利润、同比、环比指标，以及 ERP SQL 规划规则。
 - `server/llm`：模型适配器；业务代码不依赖具体模型 API。
 - `server/tools`：Tool Registry、Schema 检索、指标检索和只读数据库查询。
@@ -64,4 +64,4 @@ HTTP/API
 ]
 ```
 
-生产环境下一步应把 JWT 验证适配到企业 OIDC/JWKS，把权限规则与 SessionStore 换成持久化服务；这些替换不影响 Agent、模型或 Tool 实现。
+生产环境下一步可把 JWT 验证适配到企业 OIDC/JWKS，并按部署形态将当前 SQLite SessionStore 替换为共享数据库实现；SessionStore 接口使这些替换不影响 Agent、模型或 Tool 实现。

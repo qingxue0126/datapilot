@@ -217,7 +217,8 @@ npm run lint         # Run ESLint
 | Multi-tenant, role, and fine-grained data permissions | ✅ Foundation available |
 | Result tables and lightweight charts | ✅ Available |
 | PostgreSQL / SQL Server / Oracle | 🗓️ Planned |
-| Persistent sessions and audit center | 🗓️ Planned |
+| Persistent multi-turn analysis sessions | ✅ Implemented |
+| Audit center | 🗓️ Planned |
 | Python sandbox / file analysis | 🧩 Interface reserved |
 | Metric and semantic-layer management UI | 🗓️ Planned |
 

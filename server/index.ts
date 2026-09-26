@@ -8,7 +8,8 @@ import { installAuthRoutes } from "./auth/auth-routes.js";
 import { EnvironmentIdentityProvider } from "./auth/identity-provider.js";
 import { PermissionService } from "./auth/permission-service.js";
 import { loadConnections, saveConnections, type StoredConnection } from "./connection-store.js";
-import { InMemorySessionStore } from "./context/session-store.js";
+import { installSessionRoutes } from "./context/session-routes.js";
+import { SessionStoreError, SqliteSessionStore } from "./context/session-store.js";
 import type { RequestContext } from "./core/types.js";
 import { executeSql, getSchema, prepareSql, testDatabase, validateConfig } from "./database.js";
 import { ErpQueryService } from "./domain/erp/erp-query-service.js";
@@ -28,7 +29,7 @@ const connections = loadConnections();
 const accounts = new AccountStore();
 const identities = new EnvironmentIdentityProvider(accounts);
 const permissions = new PermissionService();
-const sessions = new InMemorySessionStore();
+const sessions = new SqliteSessionStore();
 const model = new DeepSeekModelProvider();
 const mappingRegistry = new MappingRegistryStore();
 const mappingReview = new MappingReviewService(mappingRegistry, permissions);
@@ -53,6 +54,8 @@ app.get("/api/me", (request, response) => {
     response.json({ ...context, capabilities: permissions.policy(context).capabilities });
   } catch (error) { response.status(401).json({ error: errorMessage(error) }); }
 });
+
+installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getConnectionItem(datasourceId, context); });
 
 app.get("/api/connections", (request, response) => {
   try {
@@ -207,10 +210,13 @@ app.post("/api/query", async (request, response) => {
     const context = identity(request);
     const question = String(request.body?.question || "").trim().slice(0, 500);
     if (!question) return response.status(400).json({ error: "请输入问题" });
+    const sessionId = String(request.body?.sessionId || "").trim();
+    if (!sessionId) return response.status(400).json({ error: "请先创建或选择一个分析" });
+    sessions.get(context, sessionId);
     const datasourceId = String(request.body?.connectionId || "");
     const item = getConnectionItem(datasourceId, context);
-    return response.json(await agent.run({ question, context, datasourceId, connection: item.config }));
-  } catch (error) { return response.status(400).json({ error: errorMessage(error) }); }
+    return response.json(await agent.run({ question, context, sessionId, datasourceId, connection: item.config }));
+  } catch (error) { return response.status(error instanceof SessionStoreError ? error.status : 400).json({ error: errorMessage(error) }); }
 });
 
 app.listen(port, "127.0.0.1", () => console.log(`DataPilot API: http://localhost:${port}`));

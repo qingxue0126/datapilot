@@ -32,6 +32,7 @@ const apiPort = 3199;
 const apiBase = `http://127.0.0.1:${apiPort}`;
 const connection: DatabaseConfig = { name: "datapilot_mock", engine: "mysql", host: "127.0.0.1", port: 3306, database: "datapilot_mock", user: "root", password: "123456" };
 const adminContext: RequestContext = { tenantId: "demo-tenant", accountSetId: "default-account-set", userId: "evaluation-admin", role: "tenant_admin", sessionId: "erp-mock-evaluation" };
+let evaluationAnalysisSessionId = "";
 
 await mkdir(resultsDirectory, { recursive: true });
 const expected = JSON.parse(await readFile(resolve(root, "scripts", "mock-erp", "expected-results.json"), "utf8"));
@@ -150,8 +151,8 @@ async function runFunctionalTests(mapping: ReturnType<typeof mapErpSchema>, join
     assert.ok(value.diff); return value;
   })).result);
   cases.push((await measured("FUNC-13", "Rollback Mapping", async () => { const value = expectOk(await api("POST", `/api/datasources/${datasourceId}/schema-mapping/rollback/${firstPublished.version}`, { erpType: "generic", changeSummary: "ERP mock rollback verification" })); assert.equal(value.rollbackFromVersion, firstPublished.version); return value; })).result);
-  cases.push((await measured("FUNC-14", "数据问答、SQL、Trace 与 Explanation", async () => { const value = expectOk(await api("POST", "/api/query", { connectionId: datasourceId, question: "2026年9月营业收入是多少？" })); assert.ok(value.sql && value.agent?.trace?.length && value.explanation); return value; })).result);
-  cases.push((await measured("FUNC-15", "Mapping 不足时拒答", async () => { const response = await api("POST", "/api/query", { connectionId: datasourceId, question: "客户信用评级是多少？" }); assert.equal(response.status, 400); return response.body; })).result);
+  cases.push((await measured("FUNC-14", "数据问答、SQL、Trace 与 Explanation", async () => { const value = expectOk(await queryApi(datasourceId, "2026年9月营业收入是多少？")); assert.ok(value.sql && value.agent?.trace?.length && value.explanation); return value; })).result);
+  cases.push((await measured("FUNC-15", "Mapping 不足时拒答", async () => { const response = await queryApi(datasourceId, "客户信用评级是多少？"); assert.equal(response.status, 400); return response.body; })).result);
   return summarizeCases(cases, { datasourceId, mappingPublishSuccessRate: cases.find((item) => item.id === "FUNC-09")?.passed ? 1 : 0 });
 }
 
@@ -172,7 +173,7 @@ async function runIntegrationTests(datasourceId: string) {
   ] as const;
   const cases: CaseResult[] = [];
   for (const [id, name, sql, value] of definitions) cases.push((await measured(id, name, async () => { const result = await executeSql(connection, sql); assert.ok(numbers(result.rows).some((item) => close(item, value))); return result; })).result);
-  cases.push((await measured("INT-13", "端到端 Data Agent", async () => { const result = expectOk(await api("POST", "/api/query", { connectionId: datasourceId, question: "客户A应收余额是多少？" })); assert.ok(numbers(result.rows).some((item) => close(item, 300000))); return result; })).result);
+  cases.push((await measured("INT-13", "端到端 Data Agent", async () => { const result = expectOk(await queryApi(datasourceId, "客户A应收余额是多少？")); assert.ok(numbers(result.rows).some((item) => close(item, 300000))); return result; })).result);
   return summarizeCases(cases, { stages: ["MySQL", "Raw Schema", "ERP Adapter", "Semantic Mapping", "Mapping Registry", "Join Validation", "Finance Metric", "Text2SQL", "SQL Safety", "SQL Execute", "Answer", "Trace / Explanation"] });
 }
 
@@ -206,7 +207,7 @@ async function runText2SqlTests(datasourceId: string) {
   const results: any[] = [];
   for (let index = 0; index < questions.length; index += 1) {
     const item = questions[index]; const started = performance.now();
-    const response = await api("POST", "/api/query", { connectionId: datasourceId, question: item.question });
+    const response = await queryApi(datasourceId, item.question);
     const latencyMs = Math.round((performance.now() - started) * 100) / 100;
     const rejected = response.status !== 200;
     const sql = String(response.body?.sql || "");
@@ -261,6 +262,14 @@ function runCommand(kind: string, command: string, args: string[]) {
 function summarizeCases(cases: CaseResult[], extra: Record<string, unknown> = {}) { const passed = cases.filter((item) => item.passed).length; return { generatedAt: new Date().toISOString(), total: cases.length, passed, failed: cases.length - passed, passRate: ratio(passed, cases.length), cases, ...extra }; }
 async function measured<T>(id: string, name: string, action: () => Promise<T>) { const started = performance.now(); try { const value = await action(); return { value, result: { id, name, passed: true, latencyMs: roundMs(performance.now() - started) } as CaseResult }; } catch (error) { return { value: undefined, result: { id, name, passed: false, latencyMs: roundMs(performance.now() - started), error: error instanceof Error ? error.message : String(error) } as CaseResult }; } }
 async function api(method: string, path: string, body?: unknown) { try { const response = await fetch(`${apiBase}${path}`, { method, headers: body === undefined ? undefined : { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }); const text = await response.text(); let parsed: any = {}; try { parsed = text ? JSON.parse(text) : {}; } catch { parsed = { raw: text }; } return { status: response.status, body: parsed }; } catch (error) { return { status: 0, body: { error: error instanceof Error ? error.message : String(error) } }; } }
+
+async function queryApi(connectionId: string, question: string) {
+  if (!evaluationAnalysisSessionId) {
+    const created = expectOk(await api("POST", "/api/sessions", { datasourceId: connectionId }));
+    evaluationAnalysisSessionId = String(created.session.id);
+  }
+  return api("POST", "/api/query", { sessionId: evaluationAnalysisSessionId, connectionId, question });
+}
 function expectOk(response: { status: number; body: any }) { assert.equal(response.status, 200, JSON.stringify(response.body)); return response.body; }
 function compareExpected(expectedValue: Question["expected"], rows: Record<string, unknown>[]) { const found = numbers(rows); const labels = rows.flatMap((row) => Object.values(row).filter((value) => typeof value === "string").map(String)); if (expectedValue.mode === "scalar") return found.some((value) => close(value, expectedValue.value!)); if (expectedValue.mode === "ratio") return found.some((value) => close(value, expectedValue.value!, 0.0002) || close(value, expectedValue.value! * 100, 0.02)); if (expectedValue.mode === "series" || expectedValue.mode === "contains") return (expectedValue.values || []).every((expectedNumber) => found.some((value) => close(value, expectedNumber))); if (expectedValue.mode === "top") return labels.includes(expectedValue.label || "") && found.some((value) => close(value, expectedValue.value!)) && rows.length <= (expectedValue.limit || rows.length); return false; }
 function numbers(rows: Record<string, unknown>[]) { return rows.flatMap((row) => Object.values(row).map((value) => typeof value === "number" ? value : typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value) ? Number(value) : NaN).filter(Number.isFinite)); }

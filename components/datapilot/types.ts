@@ -82,6 +82,29 @@ export type QueryResult = {
   operation?: string;
   explanation?: QueryExplanation;
   agent?: { runId: string; attempts: number; trace: AgentTraceEvent[] };
+  sessionId?: string;
+  session?: AnalysisSession;
+  persistedMessages?: AnalysisMessage[];
 };
+
+export type AnalysisSession = {
+  id: string;
+  title: string;
+  datasourceId?: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+};
+
+export type AnalysisMessage = {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  result?: QueryResult;
+  createdAt: string;
+};
+
+export type AnalysisSessionDetail = { session: AnalysisSession; messages: AnalysisMessage[] };
 
 export type DetailTab = "overview" | "mapping" | "joins" | "validation" | "versions" | "raw";

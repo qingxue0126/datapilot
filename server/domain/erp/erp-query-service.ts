@@ -83,7 +83,7 @@ export class ErpQueryService {
           mappingSource: input.schema.mappingSource,
           unresolvedFields: input.schema.unresolvedFields,
           mappingSamples: input.schema.mappingSamples,
-          recentContext: input.history.slice(-4).map(({ question, answer, sql }) => ({ question, answer, sql })),
+          recentContext: input.history.map(({ question, answer, sql }) => ({ question, answer, sql })),
           previousError: input.previousError,
         }),
       },
