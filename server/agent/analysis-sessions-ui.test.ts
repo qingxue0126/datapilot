@@ -21,6 +21,10 @@ test("recent analyses can be opened, pinned, renamed, and deleted", () => {
   assert.match(recent, />删除</);
 });
 
+test("empty new sessions stay out of the recent list until the first exchange is saved", () => {
+  assert.match(recent, /!session\.pinned && session\.messageCount > 0/);
+});
+
 test("query requests carry the selected session id and render a message stream", () => {
   assert.match(page, /JSON\.stringify\(\{ sessionId, question: query, connectionId: activeSource\.connectionId \}\)/);
   assert.match(page, /className="message-stream"/);

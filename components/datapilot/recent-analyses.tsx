@@ -20,7 +20,7 @@ export function RecentAnalyses({ sessions, activeSessionId, onOpen, onPin, onRen
   const [recentExpanded, setRecentExpanded] = useState(true);
   const sorted = useMemo(() => [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), [sessions]);
   const pinned = sorted.filter((session) => session.pinned);
-  const recent = sorted.filter((session) => !session.pinned);
+  const recent = sorted.filter((session) => !session.pinned && session.messageCount > 0);
 
   function beginRename(session: AnalysisSession) {
     setMenuId("");
@@ -72,7 +72,9 @@ export function RecentAnalyses({ sessions, activeSessionId, onOpen, onPin, onRen
         }}
       /> : <span title={session.title}>{session.title}</span>}
       <div className="recent-analysis-actions">
-        <button aria-label={`会话菜单：${session.title}`} aria-expanded={menuId === session.id} title="会话菜单" onClick={(event) => { event.stopPropagation(); setMenuId((current) => current === session.id ? "" : session.id); }}>•••</button>
+        <button aria-label={`会话菜单：${session.title}`} aria-expanded={menuId === session.id} title="会话菜单" onClick={(event) => { event.stopPropagation(); setMenuId((current) => current === session.id ? "" : session.id); }}>
+          <span className="session-more-icon" aria-hidden="true"><i /><i /><i /></span>
+        </button>
         {menuId === session.id && <div className="session-menu" role="menu" onClick={(event) => event.stopPropagation()}>
           <button role="menuitem" onClick={() => { setMenuId(""); void onPin(session, !session.pinned); }}>{session.pinned ? "取消置顶" : "置顶"}</button>
           <button role="menuitem" onClick={() => beginRename(session)}>重命名</button>

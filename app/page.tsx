@@ -9,10 +9,11 @@ import { erpLabel, sourceState } from "../components/datapilot/datasource-status
 import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
 import { DatasourceSwitcher } from "../components/datapilot/datasource-switcher";
 import { ChatBubbleIcon } from "../components/datapilot/icons";
+import { KnowledgeBaseView } from "../components/datapilot/knowledge-base";
 import { RecentAnalyses } from "../components/datapilot/recent-analyses";
 import type { AnalysisMessage, AnalysisSession, AnalysisSessionDetail, DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
 
-type View = "chat" | "sources" | "source-detail" | "database";
+type View = "chat" | "sources" | "source-detail" | "database" | "knowledge";
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
 type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; rowCount: number; executionMs: number; requiresConfirmation?: boolean; operation?: string; affectedRows?: number };
 type PendingSql = { sql: string; operation: string; origin: "natural" | "console" };
@@ -227,6 +228,7 @@ export default function Home() {
     chat: [activeSession?.title || "分析工作区", "连续追问，完整上下文仅在当前分析中生效"], sources: ["数据源", "查看数据库连接与 ERP Schema 理解状态"],
     "source-detail": [activeSource?.name || "数据源详情", "ERP Schema Mapping、Join Path 与验证结果"],
     database: [activeSource?.name || "数据库编辑台", "浏览数据结构并通过自然语言或 SQL 操作数据"],
+    knowledge: ["知识库", "管理文档、检索配置与向量检索测试"],
   };
 
   async function ask(text?: string) {
@@ -337,6 +339,7 @@ export default function Home() {
       <button className="new-chat" onClick={startAnalysis}><span className="nav-icon">＋</span><span>新建分析</span></button>
       <nav aria-label="主导航">
         <button className={`nav-item ${view === "sources" || view === "source-detail" ? "active" : ""}`} onClick={() => setView("sources")}><span>▦</span>数据源</button>
+        <button className={`nav-item ${view === "knowledge" ? "active" : ""}`} onClick={() => setView("knowledge")}><span>◇</span>知识库</button>
       </nav>
       <div className="sidebar-sessions">
         <RecentAnalyses sessions={analysisSessions} activeSessionId={activeSessionId} onOpen={(session) => void openAnalysis(session)} onPin={pinAnalysis} onRename={renameAnalysis} onDelete={deleteAnalysis} />
@@ -352,6 +355,7 @@ export default function Home() {
       {view === "sources" && <SourcesView sources={sources} activeSourceId={activeSourceId} testingSource={testingSource} notice={connectionNotice} add={() => { setConnectionNotice(""); setShowAddSource(true); }} open={(source) => void openSourceDetail(source)} test={testConnection} workbench={openDatabase} remove={removeSource} />}
       {view === "source-detail" && activeSource && <DatasourceDetail source={activeSource} mapping={mapping} loading={mappingLoading} error={mappingError} tab={detailTab} focusedEntity={focusedEntity} onTab={setDetailTab} onBack={() => setView("sources")} onOpenWorkbench={() => openDatabase(activeSource)} onRefresh={() => void openSourceDetail(activeSource, detailTab, focusedEntity)} onSaveDraft={saveMappingDraft} onValidate={validateMappingDraft} onPublish={publishMapping} onLoadVersions={loadMappingVersions} onLoadVersion={loadMappingVersion} onRollback={rollbackMapping} />}
       {view === "database" && activeSource && <DatabaseWorkbench source={activeSource} schema={serverSchema} mode={dbMode} setMode={setDbMode} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} sqlText={sqlText} setSqlText={setSqlText} sqlResult={sqlResult} sqlRunning={sqlRunning} runSql={() => void runSql()} notice={connectionNotice} pendingSql={pendingSql} cancelPending={() => setPendingSql(null)} confirmWrite={() => void runSql(true)} back={() => void openSourceDetail(activeSource)} setNotice={setConnectionNotice} loadSchema={loadSchema} />}
+      {view === "knowledge" && <KnowledgeBaseView />}
     </section>
     {showAddSource && <ConnectionModal sshEnabled={sshEnabled} setSshEnabled={setSshEnabled} connecting={connecting} notice={connectionNotice} close={() => setShowAddSource(false)} submit={addConnection} />}
     {interactionNotice && <div className="interaction-toast" role="status"><span>{interactionNotice}</span><button aria-label="关闭提示" onClick={() => setInteractionNotice("")}>×</button></div>}

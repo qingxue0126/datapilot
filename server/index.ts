@@ -17,6 +17,9 @@ import { MappingRegistryStore } from "./domain/erp/schema-mapping/mapping-regist
 import { MappingReviewService, type MappingDraftInput } from "./domain/erp/schema-mapping/mapping-review-service.js";
 import type { SchemaSearchResult } from "./domain/erp/schema-mapping/types.js";
 import { DeepSeekModelProvider } from "./llm/model-provider.js";
+import { installKnowledgeRoutes } from "./knowledge/knowledge-routes.js";
+import { KnowledgeStore } from "./knowledge/knowledge-store.js";
+import { createVectorStore } from "./knowledge/vector-store.js";
 import { assertAgentSql } from "./security/sql-policy.js";
 import { DatabaseQueryTool } from "./tools/database-query-tool.js";
 import { MetricSearchTool } from "./tools/metric-search-tool.js";
@@ -33,6 +36,8 @@ const sessions = new SqliteSessionStore();
 const model = new DeepSeekModelProvider();
 const mappingRegistry = new MappingRegistryStore();
 const mappingReview = new MappingReviewService(mappingRegistry, permissions);
+const knowledge = new KnowledgeStore();
+const vectors = createVectorStore();
 const tools = new ToolRegistry()
   .register(new MetricSearchTool())
   .register(new SchemaSearchTool(permissions, mappingRegistry))
@@ -56,6 +61,7 @@ app.get("/api/me", (request, response) => {
 });
 
 installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getConnectionItem(datasourceId, context); });
+installKnowledgeRoutes(app, knowledge, vectors, identity);
 
 app.get("/api/connections", (request, response) => {
   try {
