@@ -38,6 +38,8 @@ button { color: inherit; }
 nav { margin-top: 10px; display: grid; gap: 5px; }
 .nav-item { width: 100%; display: flex; align-items: center; gap: 12px; border: 0; padding: 11px 13px; border-radius: 8px; color: #fff; background: transparent; text-decoration: none; font-size: 14px; text-align: left; cursor: pointer; }
 .nav-item span { width: 18px; font-size: 18px; text-align: center; }
+.sidebar-nav-icon { display: block; width: 19px; height: 19px; overflow: visible; }
+.sidebar-nav-icon .knowledge-bolt { stroke: #24c8bd; stroke-width: 2.1; }
 .chat-bubble-icon { display: block; width: 20px; height: 20px; }
 .nav-icon { display: grid; place-items: center; }
 .nav-icon .chat-bubble-icon { width: 18px; height: 18px; }
