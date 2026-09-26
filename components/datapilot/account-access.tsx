@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
 export type AuthUser = {
   id: string;
@@ -24,7 +25,7 @@ export function AuthScreen({ mode, setMode, submitting, error, submit }: {
 }) {
   const register = mode === "register";
   return <main className="auth-page">
-    <section className="auth-brand"><span className="brand-mark">D</span><strong>DataPilot</strong></section>
+    <section className="auth-brand"><Image src="/datapilot-logo.png" alt="DataPilot" width={34} height={34} priority /><strong>DataPilot</strong></section>
     <form className="auth-card" onSubmit={submit}>
       <div className="eyebrow">ERP FINANCE DATA AGENT</div>
       <h1>{register ? "创建账户" : "欢迎回来"}</h1>

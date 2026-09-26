@@ -14,7 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "DataPilot · AI 数据分析助手",
     description: "用自然语言查询业务数据库，自动生成 SQL、可视化并解读结果。",
-    icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+    icons: { icon: "/datapilot-logo.png", shortcut: "/datapilot-logo.png", apple: "/datapilot-logo.png" },
     openGraph: { title: "DataPilot · AI 数据分析助手", description: "用自然语言，直接问数据", images: [{ url: `${origin}/og.png`, width: 1200, height: 630 }] },
     twitter: { card: "summary_large_image", title: "DataPilot · AI 数据分析助手", description: "用自然语言，直接问数据", images: [`${origin}/og.png`] },
   };
