@@ -27,6 +27,17 @@ nav { margin-top: 20px; display: grid; gap: 5px; }
 .source-meta { display: block; margin: 8px 0 14px 15px; color: #91a9a0; font-size: 11px; }
 .source-stats { display: flex; gap: 7px; }
 .source-stats span { padding: 5px 8px; border-radius: 5px; background: rgba(255,255,255,.07); color: #b9ccc4; font-size: 10px; }
+.current-datasource-context { margin-top: 25px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.12); }
+.current-datasource-label { display: block; margin: 0 10px 8px; color: #819e92; font-size: 10px; font-weight: 600; letter-spacing: .8px; }
+.current-datasource-shortcut { width: 100%; display: grid; grid-template-columns: 7px minmax(0, 1fr) 9px; align-items: center; gap: 9px; border: 0; border-radius: 7px; padding: 9px 10px; color: #e8f2ed; background: transparent; text-align: left; cursor: pointer; }
+.current-datasource-shortcut:hover, .current-datasource-shortcut:focus-visible { outline: 0; background: rgba(255,255,255,.07); }
+.current-datasource-copy { min-width: 0; }
+.current-datasource-copy strong, .current-datasource-copy small, .current-datasource-copy em { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.current-datasource-copy strong { font-size: 13px; }
+.current-datasource-copy small { margin-top: 4px; color: #91aa9f; font-size: 10px; }
+.current-datasource-copy em { margin-top: 4px; color: #aec3ba; font-size: 9px; font-style: normal; }
+.current-datasource-copy.empty { grid-column: 1 / 3; }
+.current-datasource-shortcut .chevron-right { margin-left: 0; }
 .sidebar-bottom { margin-top: auto; }
 .plain-button { width: 100%; border: 0; padding: 11px; color: #b7cbc2; background: none; text-align: left; cursor: pointer; }
 .plain-button span { margin-left: 10px; }
