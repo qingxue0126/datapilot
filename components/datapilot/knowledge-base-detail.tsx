@@ -88,6 +88,14 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     finally { setBusy(false); }
   }
 
+  function openTab(value: Tab) {
+    if (value === "chunks" && selectedDocumentId) {
+      void openChunks(selectedDocumentId);
+      return;
+    }
+    setTab(value);
+  }
+
   async function deleteDocument(document: KnowledgeDocumentData) {
     if (!window.confirm(`删除文档“${document.filename}”及其全部 Chunk？`)) return;
     setBusy(true);
@@ -189,7 +197,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     {notice && <p className="knowledge-notice">{notice}</p>}
     {kb.requiresReindex && <div className="knowledge-reindex-warning"><span>Embedding 模型已变更，现有向量需要重建。</span><button onClick={() => void revectorize()} disabled={busy}>重新向量化</button></div>}
     <nav className="knowledge-tabs" aria-label="知识库详情">
-      {([['documents', '文档'], ['chunks', 'Chunk'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{label}</button>)}
+      {([['documents', '文档'], ['chunks', 'Chunk'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => openTab(value)}>{label}</button>)}
     </nav>
     {tab === "documents" && <DocumentsPanel documents={detail.documents} busy={busy} fileInput={fileInput} uploadParser={uploadParser} setUploadParser={setUploadParser} upload={uploadDocument} openChunks={openChunks} remove={deleteDocument} />}
     {tab === "chunks" && <ChunksPanel document={selectedDocument} documents={detail.documents} chunks={chunks} preview={preview} busy={busy} select={openChunks} reparse={reparseDocument} save={saveChunk} />}

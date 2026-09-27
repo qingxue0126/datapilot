@@ -26,4 +26,6 @@ test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval te
   assert.match(component, /document-preview-panel/);
   assert.match(component, /placeholder="搜索 Chunk"/);
   assert.match(component, /chunk-switch/);
+  assert.match(component, /value === "chunks" && selectedDocumentId/);
+  assert.match(component, /openChunks\(selectedDocumentId\)/);
 });
