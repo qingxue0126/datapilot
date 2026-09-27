@@ -16,6 +16,20 @@ export class ModelService implements StructuredModelClient {
   delete(context: RequestContext, id: string) { this.store.delete(context, id); }
   routes(context: RequestContext) { return this.store.listRoutes(context); }
   saveRoute(context: RequestContext, task: ModelTask, input: Parameters<ModelStore["saveRoute"]>[2]) { return this.store.saveRoute(context, task, input); }
+  embeddingModels(context: RequestContext) { return this.store.list(context).filter((model) => model.enabled && model.modelType === "embedding"); }
+
+  async embedBatch(context: RequestContext, modelId: string, texts: string[]) {
+    if (!texts.length) return [];
+    const model = this.store.runtime(context, modelId);
+    if (!model.enabled || model.modelType !== "embedding") throw new Error("所选模型不是已启用的 Embedding 模型");
+    const provider = this.providers.get(model.provider);
+    if (!provider.embed) throw new Error("当前 Provider 不支持 Embedding");
+    return provider.embed(model, texts);
+  }
+
+  async embed(context: RequestContext, modelId: string, text: string) {
+    return (await this.embedBatch(context, modelId, [text]))[0];
+  }
 
   async testConnection(context: RequestContext, id: string) {
     const model = this.store.runtime(context, id);

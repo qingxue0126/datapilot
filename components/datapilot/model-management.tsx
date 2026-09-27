@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 export type ModelOption = {
-  id: string; name: string; provider: string; modelId: string; baseUrl: string; apiKeyMasked: string; apiKeyConfigured: boolean;
+  id: string; name: string; modelType: "chat" | "embedding" | "rerank"; provider: string; modelId: string; baseUrl: string; apiKeyMasked: string; apiKeyConfigured: boolean;
   contextWindow: number; timeout: number; maxRetries: number; temperature: number; supportsTools: boolean;
   supportsStructuredOutput: boolean; supportsVision: boolean; enabled: boolean; lastTestStatus: "success" | "failed" | null;
   lastTestLatencyMs: number | null; lastTestError: string | null; lastTestedAt: string | null;
@@ -17,7 +17,7 @@ const providers = [
 ];
 
 export function ModelSelector({ models, value, onChange }: { models: ModelOption[]; value: string; onChange: (id: string) => void }) {
-  const enabled = models.filter((model) => model.enabled);
+  const enabled = models.filter((model) => model.enabled && model.modelType === "chat");
   return <label className="model-selector"><span>模型</span><select aria-label="选择模型" value={value} onChange={(event) => onChange(event.target.value)}>
     <option value="">按任务路由</option>{enabled.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
   </select></label>;
@@ -38,7 +38,7 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
     event.preventDefault(); setBusy("save"); setNotice("");
     try {
       const data = new FormData(event.currentTarget);
-      const payload = { name: value(data, "name"), provider: value(data, "provider"), modelId: value(data, "modelId"), baseUrl: value(data, "baseUrl"), apiKey: value(data, "apiKey"),
+      const payload = { name: value(data, "name"), modelType: value(data, "modelType"), provider: value(data, "provider"), modelId: value(data, "modelId"), baseUrl: value(data, "baseUrl"), apiKey: value(data, "apiKey"),
         contextWindow: number(data, "contextWindow"), timeout: number(data, "timeout"), maxRetries: number(data, "maxRetries"), temperature: number(data, "temperature"),
         supportsTools: data.has("supportsTools"), supportsStructuredOutput: data.has("supportsStructuredOutput"), supportsVision: data.has("supportsVision"), enabled: data.has("enabled") };
       const path = editing === "new" ? "/api/models" : `/api/models/${editing?.id}`;
@@ -79,18 +79,18 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
     <section className="model-list-section"><header><div><h3>Models</h3><p>API Key 仅在服务端加密保存，页面只显示掩码。</p></div><small>{models.length} 个模型</small></header>
       <div className="model-table-wrap"><table className="model-table"><thead><tr><th>模型名称</th><th>Provider / Model ID</th><th>能力</th><th>状态</th><th>连接状态</th><th>操作</th></tr></thead><tbody>
         {models.map((model) => <tr key={model.id}><td><strong>{model.name}</strong>{selectedModel === model.id && <small className="default-tag">对话选择</small>}<small>{model.apiKeyMasked || "未配置 Key"}</small></td>
-          <td><span>{providerLabel(model.provider)}</span><code>{model.modelId}</code></td><td><div className="capability-tags">{model.supportsTools && <small>Tools</small>}{model.supportsStructuredOutput && <small>Structured</small>}{model.supportsVision && <small>Vision</small>}</div></td>
+          <td><span>{providerLabel(model.provider)}</span><code>{model.modelId}</code></td><td><div className="capability-tags"><small>{model.modelType}</small>{model.supportsTools && <small>Tools</small>}{model.supportsStructuredOutput && <small>Structured</small>}{model.supportsVision && <small>Vision</small>}</div></td>
           <td><button className={`status-toggle ${model.enabled ? "enabled" : ""}`} disabled={busy === model.id} onClick={() => void patchModel(model, { enabled: !model.enabled })}>{model.enabled ? "已启用" : "已停用"}</button></td>
           <td><span className={`test-state ${model.lastTestStatus || "unknown"}`}>{model.lastTestStatus === "success" ? `成功 · ${model.lastTestLatencyMs} ms` : model.lastTestStatus === "failed" ? "失败" : "未测试"}</span>{model.lastTestError && <small title={model.lastTestError}>{model.lastTestError}</small>}</td>
-          <td><div className="model-actions"><button onClick={() => setEditing(model)}>编辑</button><button disabled={busy === `test-${model.id}`} onClick={() => void testModel(model)}>测试连接</button><button onClick={() => onSelect(model.id)} disabled={!model.enabled || selectedModel === model.id}>选择</button><button className="danger" onClick={() => void removeModel(model)}>删除</button></div></td></tr>)}
+          <td><div className="model-actions"><button onClick={() => setEditing(model)}>编辑</button><button disabled={busy === `test-${model.id}`} onClick={() => void testModel(model)}>测试连接</button><button onClick={() => onSelect(model.id)} disabled={!model.enabled || model.modelType !== "chat" || selectedModel === model.id}>选择</button><button className="danger" onClick={() => void removeModel(model)}>删除</button></div></td></tr>)}
         {!models.length && <tr><td colSpan={6} className="empty-cell">暂无模型，请新增模型。</td></tr>}
       </tbody></table></div>
     </section>
 
     <section className="model-list-section routing-section"><header><div><h3>Routing</h3><p>按任务选择主模型、备用模型及调用参数，失败时自动切换备用模型。</p></div></header>
       <div className="routing-list">{routes.map((route) => <div className="routing-row" key={route.task}><div className="routing-task"><strong>{route.task}</strong><small>{taskLabels[route.task]}</small></div>
-        <label>主模型<select value={route.primaryModelId || ""} onChange={(e) => changeRoute(route.task, "primaryModelId", e.target.value)}><option value="">自动选择</option>{models.filter((m) => m.enabled).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-        <label>备用模型<select value={route.fallbackModelId || ""} onChange={(e) => changeRoute(route.task, "fallbackModelId", e.target.value)}><option value="">无</option>{models.filter((m) => m.enabled).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+        <label>主模型<select value={route.primaryModelId || ""} onChange={(e) => changeRoute(route.task, "primaryModelId", e.target.value)}><option value="">自动选择</option>{models.filter((m) => m.enabled && m.modelType === "chat").map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
+        <label>备用模型<select value={route.fallbackModelId || ""} onChange={(e) => changeRoute(route.task, "fallbackModelId", e.target.value)}><option value="">无</option>{models.filter((m) => m.enabled && m.modelType === "chat").map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
         <label>Temperature<input type="number" min="0" max="2" step="0.1" value={route.temperature} onChange={(e) => changeRoute(route.task, "temperature", Number(e.target.value))} /></label>
         <label>超时(ms)<input type="number" min="1000" step="1000" value={route.timeout} onChange={(e) => changeRoute(route.task, "timeout", Number(e.target.value))} /></label>
         <label>重试<input type="number" min="0" max="10" value={route.maxRetries} onChange={(e) => changeRoute(route.task, "maxRetries", Number(e.target.value))} /></label>
@@ -102,7 +102,7 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
 
 function ModelEditor({ model, busy, close, submit }: { model?: ModelOption; busy: boolean; close: () => void; submit: (event: FormEvent<HTMLFormElement>) => void }) {
   return <div className="modal-backdrop"><form className="source-modal source-modal-wide" onSubmit={submit}><div className="modal-head"><div><h2>{model ? "编辑模型" : "新增模型"}</h2><p>兼容 OpenAI Chat Completions 协议的模型服务。</p></div><button type="button" onClick={close}>×</button></div>
-    <div className="connection-form-grid"><label>模型名称<input name="name" required defaultValue={model?.name || ""} /></label><label>Provider<select name="provider" defaultValue={model?.provider || "openai-compatible"}>{providers.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
+    <div className="connection-form-grid"><label>模型名称<input name="name" required defaultValue={model?.name || ""} /></label><label>模型类型<select name="modelType" defaultValue={model?.modelType || "chat"}><option value="chat">Chat</option><option value="embedding">Embedding</option><option value="rerank">Rerank</option></select></label><label>Provider<select name="provider" defaultValue={model?.provider || "openai-compatible"}>{providers.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
       <label>Model ID<input name="modelId" required defaultValue={model?.modelId || ""} /></label><label>Base URL<input name="baseUrl" type="url" required defaultValue={model?.baseUrl || "https://api.openai.com/v1"} /></label>
       <label className="span-two">API Key<input name="apiKey" type="password" autoComplete="new-password" placeholder={model?.apiKeyMasked || "仅发送到服务端，不会明文回显"} /><small>{model ? "留空将保留现有 API Key" : "Ollama 等无需鉴权的本地服务可留空"}</small></label>
       <label>上下文窗口<input name="contextWindow" type="number" min="1" required defaultValue={model?.contextWindow || 64000} /></label><label>超时 (ms)<input name="timeout" type="number" min="1000" required defaultValue={model?.timeout || 60000} /></label>

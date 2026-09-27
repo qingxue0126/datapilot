@@ -8,7 +8,7 @@ import { modelTasks, type ModelTask } from "./model-types.js";
 export function installModelRoutes(app: Express, service: ModelService, permissions: PermissionService, identity: (request: Request) => RequestContext) {
   app.get("/api/models", (request, response) => handle(response, () => {
     const context = identity(request); permissions.require(context, "model:read"); const items = service.list(context);
-    return { items, defaultModel: items.find((item) => item.enabled)?.id || null };
+    return { items, defaultModel: items.find((item) => item.enabled && item.modelType === "chat")?.id || null };
   }));
   app.post("/api/models", (request, response) => handle(response, () => {
     const context = identity(request); permissions.require(context, "model:manage"); return service.create(context, request.body);

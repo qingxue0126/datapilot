@@ -34,3 +34,17 @@ test("connection testing stores only public status information", async () => {
   const publicModel = store.get(context, model.id);
   assert.equal(publicModel.lastTestStatus, "success"); assert.equal(publicModel.lastTestLatencyMs, 12); assert.equal("apiKey" in publicModel, false);
 });
+
+test("embedding calls use only enabled embedding model configurations", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 6));
+  const embedding = store.create(context, { ...config("embedding"), modelType: "embedding" });
+  const chat = store.create(context, config("chat"));
+  const provider: ModelProvider = {
+    async chat() { throw new Error("unused"); },
+    async testConnection() { return { content: "OK", latencyMs: 1 }; },
+    async embed(_model, texts) { return texts.map((_text, index) => [1, index]); },
+  };
+  const service = new ModelService(store, new ModelRouter(store), { get: () => provider } as unknown as ModelProviderRegistry);
+  assert.deepEqual(await service.embedBatch(context, embedding.id, ["a", "b"]), [[1, 0], [1, 1]]);
+  await assert.rejects(() => service.embed(context, chat.id, "a"), /Embedding 模型/);
+});

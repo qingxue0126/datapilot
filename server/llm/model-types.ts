@@ -1,11 +1,14 @@
 export const modelProviders = ["openai-compatible", "openai", "qwen", "deepseek", "glm", "vllm", "ollama"] as const;
 export type ModelProviderId = typeof modelProviders[number];
+export const modelTypes = ["chat", "embedding", "rerank"] as const;
+export type ModelType = typeof modelTypes[number];
 
 export const modelTasks = ["intent", "text2sql", "sqlRepair", "agent", "answer", "schemaMapping"] as const;
 export type ModelTask = typeof modelTasks[number];
 
 export type ModelConfigInput = {
   name: string;
+  modelType?: ModelType;
   provider: ModelProviderId;
   modelId: string;
   baseUrl: string;
@@ -20,8 +23,9 @@ export type ModelConfigInput = {
   enabled: boolean;
 };
 
-export type ModelConfig = Omit<ModelConfigInput, "apiKey"> & {
+export type ModelConfig = Omit<ModelConfigInput, "apiKey" | "modelType"> & {
   id: string;
+  modelType: ModelType;
   apiKeyMasked: string;
   apiKeyConfigured: boolean;
   lastTestStatus: "success" | "failed" | null;

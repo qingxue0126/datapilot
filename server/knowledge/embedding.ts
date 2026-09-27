@@ -1,6 +1,35 @@
-const dimensions = 256;
+import type { RequestContext } from "../core/types.js";
+import type { ModelService } from "../llm/model-service.js";
 
-/** Deterministic local embedding keeps the MVP runnable without an external model service. */
+const dimensions = 256;
+export const localEmbeddingModelId = "local-hash-embedding-v1";
+
+export interface EmbeddingProvider {
+  embed(context: RequestContext, modelId: string, text: string): Promise<number[]>;
+  embedBatch(context: RequestContext, modelId: string, texts: string[]): Promise<number[][]>;
+}
+
+/** Uses model management in production and permits the deterministic fallback only outside production. */
+export class ManagedEmbeddingProvider implements EmbeddingProvider {
+  constructor(private readonly models: ModelService) {}
+
+  async embed(context: RequestContext, modelId: string, text: string) {
+    return (await this.embedBatch(context, modelId, [text]))[0];
+  }
+
+  async embedBatch(context: RequestContext, modelId: string, texts: string[]) {
+    if (modelId === localEmbeddingModelId && process.env.NODE_ENV !== "production") return texts.map(embedText);
+    return this.models.embedBatch(context, modelId, texts);
+  }
+}
+
+/** Explicit test provider; never selected by production bootstrap. */
+export class TestEmbeddingProvider implements EmbeddingProvider {
+  async embed(_context: RequestContext, _modelId: string, text: string) { return embedText(text); }
+  async embedBatch(_context: RequestContext, _modelId: string, texts: string[]) { return texts.map(embedText); }
+}
+
+/** Deterministic hash embedding retained only for tests and local development. */
 export function embedText(text: string) {
   const vector = Array<number>(dimensions).fill(0);
   const normalized = text.toLowerCase().normalize("NFKC");

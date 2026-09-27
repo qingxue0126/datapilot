@@ -22,6 +22,7 @@ import { ModelService } from "./llm/model-service.js";
 import { ModelStore } from "./llm/model-store.js";
 import { installKnowledgeRoutes } from "./knowledge/knowledge-routes.js";
 import { KnowledgeStore } from "./knowledge/knowledge-store.js";
+import { ManagedEmbeddingProvider } from "./knowledge/embedding.js";
 import { createVectorStore } from "./knowledge/vector-store.js";
 import { assertAgentSql } from "./security/sql-policy.js";
 import { DatabaseQueryTool } from "./tools/database-query-tool.js";
@@ -43,6 +44,7 @@ const mappingRegistry = new MappingRegistryStore();
 const mappingReview = new MappingReviewService(mappingRegistry, permissions);
 const knowledge = new KnowledgeStore();
 const vectors = createVectorStore();
+const embeddings = new ManagedEmbeddingProvider(model);
 const tools = new ToolRegistry()
   .register(new MetricSearchTool())
   .register(new SchemaSearchTool(permissions, mappingRegistry))
@@ -66,7 +68,7 @@ app.get("/api/me", (request, response) => {
 });
 
 installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getConnectionItem(datasourceId, context); });
-installKnowledgeRoutes(app, knowledge, vectors, identity);
+installKnowledgeRoutes(app, knowledge, vectors, embeddings, identity);
 installModelRoutes(app, model, permissions, identity);
 
 app.get("/api/connections", (request, response) => {
