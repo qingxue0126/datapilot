@@ -142,6 +142,7 @@ export class KnowledgeStore {
     this.ensureColumn("knowledge_chunks", "enabled", "INTEGER NOT NULL DEFAULT 1");
     this.ensureColumn("knowledge_chunks", "updated_at", "TEXT");
     this.database.exec("UPDATE knowledge_chunks SET updated_at = created_at WHERE updated_at IS NULL");
+    this.repairDocumentFilenames();
   }
 
   list(context: RequestContext) {
@@ -223,10 +224,11 @@ export class KnowledgeStore {
   }) {
     this.ownedBase(context, knowledgeBaseId);
     const id = randomUUID(); const now = new Date().toISOString();
+    const filename = normalizeDocumentFilename(input.filename).slice(0, 240);
     this.database.prepare(`INSERT INTO knowledge_documents
       (id, knowledge_base_id, filename, file_type, size, parser_type, columns_json, source_data, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, '[]', ?, 'uploaded', ?, ?)`)
-      .run(id, knowledgeBaseId, input.filename, input.fileType, input.size, input.parserType || "general", input.source || Buffer.alloc(0), now, now);
+      .run(id, knowledgeBaseId, filename, input.fileType, input.size, input.parserType || "general", input.source || Buffer.alloc(0), now, now);
     return this.document(context, id);
   }
 
@@ -350,6 +352,23 @@ export class KnowledgeStore {
     const columns = this.database.prepare(`PRAGMA table_info(${table})`).all() as unknown as { name: string }[];
     if (!columns.some((item) => item.name === column)) this.database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
+
+  private repairDocumentFilenames() {
+    const rows = this.database.prepare("SELECT id, filename FROM knowledge_documents").all() as unknown as { id: string; filename: string }[];
+    const update = this.database.prepare("UPDATE knowledge_documents SET filename = ? WHERE id = ?");
+    for (const row of rows) {
+      const filename = normalizeDocumentFilename(row.filename);
+      if (filename !== row.filename) update.run(filename, row.id);
+    }
+  }
+}
+
+/** Multer exposes UTF-8 multipart filenames as Latin-1; repair that lossless byte interpretation. */
+export function normalizeDocumentFilename(value: string) {
+  const filename = String(value || "").normalize("NFC");
+  if (!/[\u0080-\u00ff]/.test(filename)) return filename;
+  const decoded = Buffer.from(filename, "latin1").toString("utf8").normalize("NFC");
+  return decoded.includes("\uFFFD") ? filename : decoded;
 }
 
 export const defaultRetrievalConfig: RetrievalConfig = {

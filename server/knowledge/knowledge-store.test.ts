@@ -2,10 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { RequestContext } from "../core/types.js";
 import { chunkText } from "./document-pipeline.js";
-import { KnowledgeStore, KnowledgeStoreError } from "./knowledge-store.js";
+import { KnowledgeStore, KnowledgeStoreError, normalizeDocumentFilename } from "./knowledge-store.js";
 
 const alice: RequestContext = { tenantId: "tenant-a", accountSetId: "books-a", userId: "alice", role: "tenant_admin", sessionId: "auth-a" };
 const bob: RequestContext = { ...alice, userId: "bob" };
+
+test("multipart UTF-8 document filenames are repaired from Multer Latin-1 decoding", () => {
+  const expected = "畅捷通高频问题_0924_test.xlsx";
+  const multerFilename = Buffer.from(expected, "utf8").toString("latin1");
+  assert.equal(normalizeDocumentFilename(multerFilename), expected);
+  assert.equal(normalizeDocumentFilename("report_0924.xlsx"), "report_0924.xlsx");
+});
 
 test("knowledge store scopes bases, documents, and chunks to the full owner context", () => {
   const store = new KnowledgeStore(":memory:");

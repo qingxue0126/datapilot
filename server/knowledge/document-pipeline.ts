@@ -31,7 +31,7 @@ export class DocumentPipeline {
     const base = this.store.get(context, knowledgeBaseId).knowledgeBase;
     const parserType = parserOverrides.parserType || (tableExtensions.has(extension) ? "table" : base.config.parserType);
     const document = this.store.createDocument(context, knowledgeBaseId, {
-      filename: file.originalname.slice(0, 240), fileType: extension.slice(1).toUpperCase(), size: file.size,
+      filename: file.originalname, fileType: extension.slice(1).toUpperCase(), size: file.size,
       parserType, source: file.buffer,
     });
     return this.run(context, document.id, extension, file.buffer, { ...base.config, ...parserOverrides, parserType });

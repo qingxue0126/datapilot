@@ -32,7 +32,7 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     const created = await createdResponse.json() as { knowledgeBase: { id: string } };
 
     const csv = "产品,模块,问题,答案\n好会计,凭证,如何删除凭证,打开凭证列表后选择删除\n易代账,报表,如何导出报表,点击导出按钮";
-    const form = new FormData(); form.append("file", new Blob([csv], { type: "text/csv" }), "faq.csv"); form.append("parserType", "qa");
+    const form = new FormData(); form.append("file", new Blob([csv], { type: "text/csv" }), "高频问题.csv"); form.append("parserType", "qa");
     form.append("questionColumn", "问题"); form.append("answerColumn", "答案"); form.append("metadataFields", JSON.stringify(["产品", "模块"]));
     const uploaded = await fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}/documents`, { method: "POST", body: form });
     assert.equal(uploaded.status, 201);
@@ -51,7 +51,7 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     const retrieved = await retrieve({ query: "好会计怎么删除凭证", topK: 5, scoreThreshold: -1, metadataFilter: { 产品: "好会计" } });
     assert.equal(retrieved.status, 200);
     const result = await retrieved.json() as { items: { rank: number; filename: string; metadata: Record<string, unknown> }[] };
-    assert.equal(result.items.length, 1); assert.equal(result.items[0].rank, 1); assert.equal(result.items[0].filename, "faq.csv");
+    assert.equal(result.items.length, 1); assert.equal(result.items[0].rank, 1); assert.equal(result.items[0].filename, "高频问题.csv");
 
     const chunkId = chunks.items[0].id;
     const disabled = await fetch(`${base}/api/chunks/${chunkId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) });
