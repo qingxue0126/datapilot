@@ -10,7 +10,7 @@ export type ColumnRole = "index" | "metadata" | "both" | "ignore";
 export type RetrievalConfig = {
   language: "zh-CN" | "en";
   parserType: ParserType; chunkSize: number; chunkOverlap: number; questionColumn: string; answerColumn: string;
-  metadataFields: string[]; columnRoles: Record<string, ColumnRole>; embeddingModel: string; topK: number; scoreThreshold: number; rerank: boolean; rerankModel: string;
+  metadataFields: string[]; columnMode: "auto" | "manual"; columnRoles: Record<string, ColumnRole>; embeddingModel: string; topK: number; scoreThreshold: number; rerank: boolean; rerankModel: string;
 };
 export type KnowledgeBaseData = {
   id: string; name: string; description: string; documentCount: number; chunkCount: number; requiresReindex: boolean;
@@ -71,6 +71,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
       const body = new FormData(); body.append("file", file); body.append("parserType", parserType);
       body.append("questionColumn", detail.knowledgeBase.config.questionColumn); body.append("answerColumn", detail.knowledgeBase.config.answerColumn);
       body.append("metadataFields", JSON.stringify(detail.knowledgeBase.config.metadataFields));
+      body.append("columnMode", detail.knowledgeBase.config.columnMode);
       body.append("columnRoles", JSON.stringify(detail.knowledgeBase.config.columnRoles || {}));
       const data = await responseJson(await apiRequest(`/api/knowledge-bases/${encodeURIComponent(detail.knowledgeBase.id)}/documents`, { method: "POST", body }));
       await refresh(); await refreshList();
@@ -127,7 +128,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
       language: String(form.get("language")) as RetrievalConfig["language"],
       parserType: String(form.get("parserType")), chunkSize: Number(form.get("chunkSize")), chunkOverlap: Number(form.get("chunkOverlap")),
       questionColumn: String(form.get("questionColumn")), answerColumn: String(form.get("answerColumn")),
-      metadataFields, columnRoles, embeddingModel: String(form.get("embeddingModel")),
+      metadataFields, columnMode, columnRoles, embeddingModel: String(form.get("embeddingModel")),
       topK: Number(form.get("topK")), scoreThreshold: Number(form.get("scoreThreshold")),
       rerank: form.get("rerank") === "on", rerankModel: String(form.get("rerankModel")),
     };
@@ -152,7 +153,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
           parserType: config.parserType, chunkSize: config.chunkSize, chunkOverlap: config.chunkOverlap,
           questionColumn: config.questionColumn, answerColumn: config.answerColumn, metadataFields: config.metadataFields,
-          columnRoles: config.columnRoles,
+          columnMode: config.columnMode, columnRoles: config.columnRoles,
         }),
       }));
       await refresh(); await openChunks(selectedDocument.id); setNotice(data.document.status === "ready" ? "文档已重新解析并向量化" : data.document.error || "重新解析失败");
@@ -207,7 +208,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     <nav className="knowledge-tabs" aria-label="知识库详情">
       {([['documents', '文件列表'], ['chunks', '分块结果'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => openTab(value)}>{label}</button>)}
     </nav>
-    {tab === "documents" && <DocumentsPanel documents={detail.documents} metadataFields={kb.config.metadataFields} busy={busy} fileInput={fileInput} upload={uploadDocument} openChunks={openChunks} remove={(document) => setPendingDelete({ type: "document", document })} />}
+    {tab === "documents" && <DocumentsPanel documents={detail.documents} metadataFields={kb.config.columnMode === "auto" ? columns : kb.config.metadataFields} busy={busy} fileInput={fileInput} upload={uploadDocument} openChunks={openChunks} remove={(document) => setPendingDelete({ type: "document", document })} />}
     {tab === "chunks" && <ChunksPanel document={selectedDocument} documents={detail.documents} chunks={chunks} preview={preview} busy={busy} select={openChunks} reparse={reparseDocument} save={saveChunk} />}
     {tab === "config" && <ConfigPanel kb={kb} columns={columns} models={models} busy={busy} save={saveConfig} revectorize={revectorize} />}
     {tab === "retrieval" && <RetrievalPanel config={kb.config} query={query} setQuery={setQuery} metadataFilter={metadataFilter} setMetadataFilter={setMetadataFilter} results={results} busy={busy} retrieve={retrieve} locate={openChunks} />}
@@ -288,7 +289,7 @@ function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
   kb: KnowledgeBaseData; columns: string[]; models: EmbeddingModel[]; busy: boolean; save: (event: FormEvent<HTMLFormElement>) => Promise<void>; revectorize: () => Promise<void>;
 }) {
   const config = kb.config;
-  const [columnMode, setColumnMode] = useState(Object.keys(config.columnRoles || {}).length ? "manual" : "auto");
+  const [columnMode, setColumnMode] = useState(config.columnMode || (Object.keys(config.columnRoles || {}).length ? "manual" : "auto"));
   return <form className="knowledge-settings" key={kb.updatedAt} onSubmit={save}>
     <section className="knowledge-settings-block"><header><h3>基础信息</h3><p>管理知识库名称、语言与描述。知识库继续遵循当前租户、账套和用户隔离。</p></header><div className="knowledge-settings-fields">
       <label><span><b>*</b> 名称</span><input name="name" required maxLength={80} defaultValue={kb.name} /></label>
@@ -310,8 +311,8 @@ function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
       <div className="knowledge-setting-pair"><label><span>Chunk Size</span><input name="chunkSize" type="number" min="100" max="4000" defaultValue={config.chunkSize} /></label><label><span>Chunk Overlap</span><input name="chunkOverlap" type="number" min="0" max="3999" defaultValue={config.chunkOverlap} /></label></div>
       <div className="knowledge-setting-pair"><label><span>问题列（QA）</span><input name="questionColumn" defaultValue={config.questionColumn} /></label><label><span>答案列（QA）</span><input name="answerColumn" defaultValue={config.answerColumn} /></label></div>
       <fieldset className="column-role-settings"><legend>Column Mode / Metadata Fields</legend><div className="column-mode"><label><input type="radio" name="columnMode" value="auto" checked={columnMode === "auto"} onChange={() => setColumnMode("auto")} /> Auto</label><label><input type="radio" name="columnMode" value="manual" checked={columnMode === "manual"} onChange={() => setColumnMode("manual")} /> Manual</label></div>
-        <p>选择字段进入 Chunk 正文（索引）、仅作为可过滤元数据、两者兼有或忽略。</p>
-        {columns.length ? <div className="column-role-list">{columns.map((column) => <label key={column}><span>{column}</span><select name={`columnRole:${column}`} disabled={columnMode === "auto"} defaultValue={config.columnRoles?.[column] || (config.metadataFields.includes(column) ? "metadata" : "index")}><option value="index">索引</option><option value="metadata">元数据</option><option value="both">索引 + 元数据</option><option value="ignore">忽略</option></select></label>)}</div> : <small>上传 XLSX / CSV 后，这里会显示表头字段。</small>}
+        {columnMode === "auto" ? <p className="column-mode-description">所有列都会包含在 Chunk 正文中，并同时保存为元数据（RAGFlow 默认方式）。</p> : <><p className="column-mode-description">选择字段进入 Chunk 正文（索引）、仅作为可过滤元数据、两者兼有或忽略。变更对新解析生效；已有文档需要重新解析。</p>
+          {columns.length ? <div className="column-role-list">{columns.map((column) => <label key={column}><span>{column}</span><select name={`columnRole:${column}`} defaultValue={config.columnRoles?.[column] || (config.metadataFields.includes(column) ? "metadata" : "index")}><option value="index">索引</option><option value="metadata">元数据</option><option value="both">索引 + 元数据</option><option value="ignore">忽略</option></select></label>)}</div> : <small>上传 XLSX / CSV 后，这里会显示表头字段。</small>}</>}
       </fieldset>
     </div></section>
     <footer className="knowledge-settings-actions"><button className="primary-action" disabled={busy}>{busy ? "保存中…" : "保存配置"}</button></footer>

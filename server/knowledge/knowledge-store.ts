@@ -7,6 +7,7 @@ import type { Metadata } from "./vector-store.js";
 
 export type ParserType = "general" | "table" | "qa";
 export type ColumnRole = "index" | "metadata" | "both" | "ignore";
+export type ColumnMode = "auto" | "manual";
 
 export type RetrievalConfig = {
   language: "zh-CN" | "en";
@@ -16,6 +17,7 @@ export type RetrievalConfig = {
   questionColumn: string;
   answerColumn: string;
   metadataFields: string[];
+  columnMode: ColumnMode;
   columnRoles: Record<string, ColumnRole>;
   embeddingModel: string;
   topK: number;
@@ -382,6 +384,7 @@ export const defaultRetrievalConfig: RetrievalConfig = {
   questionColumn: "问题",
   answerColumn: "答案",
   metadataFields: [],
+  columnMode: "auto",
   columnRoles: {},
   embeddingModel: process.env.NODE_ENV === "production" ? "" : "local-hash-embedding-v1",
   topK: 5,
@@ -400,6 +403,7 @@ export function normalizeConfig(input: Partial<RetrievalConfig> = {}): Retrieval
     questionColumn: cleanColumn(input.questionColumn, defaultRetrievalConfig.questionColumn),
     answerColumn: cleanColumn(input.answerColumn, defaultRetrievalConfig.answerColumn),
     metadataFields: uniqueStrings(input.metadataFields).slice(0, 100),
+    columnMode: input.columnMode === "manual" || (!input.columnMode && Object.keys(input.columnRoles || {}).length > 0) ? "manual" : "auto",
     columnRoles: normalizeColumnRoles(input.columnRoles),
     embeddingModel: cleanModel(input.embeddingModel, defaultRetrievalConfig.embeddingModel),
     topK: integer(input.topK, defaultRetrievalConfig.topK, 1, 50),

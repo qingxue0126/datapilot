@@ -165,6 +165,7 @@ function parserOptions(value: unknown): Partial<ParserOptions> {
   if (body.questionColumn !== undefined) result.questionColumn = String(body.questionColumn);
   if (body.answerColumn !== undefined) result.answerColumn = String(body.answerColumn);
   if (body.metadataFields !== undefined) result.metadataFields = stringArray(body.metadataFields);
+  if (body.columnMode === "auto" || body.columnMode === "manual") result.columnMode = body.columnMode;
   if (body.columnRoles !== undefined) result.columnRoles = columnRoleMap(body.columnRoles);
   return result;
 }

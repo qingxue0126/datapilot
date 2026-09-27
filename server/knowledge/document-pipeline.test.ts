@@ -53,6 +53,7 @@ test("document preview preserves workbook sheets, columns, and row values", asyn
 test("Table Parser applies index, metadata, both, and ignore column roles", async () => {
   const result = await parseDocumentChunks(".xlsx", workbookBuffer(rows), {
     parserType: "table", chunkSize: 800, chunkOverlap: 120, questionColumn: "问题", answerColumn: "答案", metadataFields: [],
+    columnMode: "manual",
     columnRoles: { 产品: "metadata", 模块: "ignore", 问题类型: "metadata", 问题: "index", 答案: "both" },
   });
   assert.match(result.chunks[0].content, /问题：如何删除凭证/);
@@ -63,4 +64,17 @@ test("Table Parser applies index, metadata, both, and ignore column roles", asyn
   assert.equal(result.chunks[0].metadata["问题类型"], "操作");
   assert.equal(result.chunks[0].metadata["答案"], "打开凭证列表，选择目标凭证后删除。");
   assert.equal(result.chunks[0].metadata["模块"], undefined);
+});
+
+test("Table Parser auto mode indexes every column and stores every column as metadata", async () => {
+  const result = await parseDocumentChunks(".xlsx", workbookBuffer(rows), {
+    parserType: "table", chunkSize: 800, chunkOverlap: 120, questionColumn: "问题", answerColumn: "答案", metadataFields: [],
+    columnMode: "auto",
+    columnRoles: {},
+  });
+  const firstRow: Record<string, string> = rows[0];
+  for (const column of result.columns) {
+    assert.match(result.chunks[0].content, new RegExp(`${column}：`));
+    assert.equal(result.chunks[0].metadata[column], firstRow[column]);
+  }
 });
