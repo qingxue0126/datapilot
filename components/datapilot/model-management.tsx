@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { ConfirmDialog } from "./confirm-dialog";
 
 export type ModelOption = {
   id: string; name: string; modelType: "chat" | "embedding" | "rerank"; provider: string; modelId: string; baseUrl: string; apiKeyMasked: string; apiKeyConfigured: boolean;
@@ -28,6 +29,7 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
   const [editing, setEditing] = useState<ModelOption | "new" | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<ModelOption | null>(null);
   useEffect(() => { void loadRoutes(); }, []);
 
   async function loadRoutes() {
@@ -53,7 +55,6 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
     catch (error) { setNotice(errorMessage(error)); } finally { setBusy(""); }
   }
   async function removeModel(model: ModelOption) {
-    if (!window.confirm(`确认删除模型“${model.name}”？相关路由将自动清空。`)) return;
     setBusy(model.id); const response = await apiFetch(`/api/models/${model.id}`, { method: "DELETE" });
     if (!response.ok) { const data = await response.json(); setNotice(data.error || "删除失败"); } else { setNotice("模型已删除"); await onRefresh(); await loadRoutes(); }
     setBusy("");
@@ -82,7 +83,7 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
           <td><span>{providerLabel(model.provider)}</span><code>{model.modelId}</code></td><td><div className="capability-tags"><small>{model.modelType}</small>{model.supportsTools && <small>Tools</small>}{model.supportsStructuredOutput && <small>Structured</small>}{model.supportsVision && <small>Vision</small>}</div></td>
           <td><button className={`status-toggle ${model.enabled ? "enabled" : ""}`} disabled={busy === model.id} onClick={() => void patchModel(model, { enabled: !model.enabled })}>{model.enabled ? "已启用" : "已停用"}</button></td>
           <td><span className={`test-state ${model.lastTestStatus || "unknown"}`}>{model.lastTestStatus === "success" ? `成功 · ${model.lastTestLatencyMs} ms` : model.lastTestStatus === "failed" ? "失败" : "未测试"}</span>{model.lastTestError && <small title={model.lastTestError}>{model.lastTestError}</small>}</td>
-          <td><div className="model-actions"><button onClick={() => setEditing(model)}>编辑</button><button disabled={busy === `test-${model.id}`} onClick={() => void testModel(model)}>测试连接</button><button onClick={() => onSelect(model.id)} disabled={!model.enabled || model.modelType !== "chat" || selectedModel === model.id}>选择</button><button className="danger" onClick={() => void removeModel(model)}>删除</button></div></td></tr>)}
+          <td><div className="model-actions"><button onClick={() => setEditing(model)}>编辑</button><button disabled={busy === `test-${model.id}`} onClick={() => void testModel(model)}>测试连接</button><button onClick={() => onSelect(model.id)} disabled={!model.enabled || model.modelType !== "chat" || selectedModel === model.id}>选择</button><button className="danger" onClick={() => setPendingDelete(model)}>删除</button></div></td></tr>)}
         {!models.length && <tr><td colSpan={6} className="empty-cell">暂无模型，请新增模型。</td></tr>}
       </tbody></table></div>
     </section>
@@ -97,6 +98,7 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
         <button disabled={busy === `route-${route.task}`} onClick={() => void saveRoute(route)}>保存</button></div>)}</div>
     </section>
     {editing && <ModelEditor model={editing === "new" ? undefined : editing} busy={busy === "save"} close={() => setEditing(null)} submit={saveModel} />}
+    {pendingDelete && <ConfirmDialog title="删除模型" message={`确认删除模型“${pendingDelete.name}”？相关路由将自动清空。`} busy={busy === pendingDelete.id} close={() => setPendingDelete(null)} confirm={async () => { const model = pendingDelete; setPendingDelete(null); await removeModel(model); }} />}
   </div>;
 }
 

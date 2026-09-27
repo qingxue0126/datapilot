@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { AuthScreen, UserAccountMenu, type AuthUser } from "../components/datapilot/account-access";
 import { AgentTracePanel, AnswerExplanation, BusinessErrorCard } from "../components/datapilot/agent-explanation";
 import { CurrentDatasourceShortcut } from "../components/datapilot/current-datasource-shortcut";
+import { ConfirmDialog } from "../components/datapilot/confirm-dialog";
 import { DatasourceDetail } from "../components/datapilot/datasource-detail";
 import { erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
 import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
@@ -43,6 +44,7 @@ export default function Home() {
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [analysisSessions, setAnalysisSessions] = useState<AnalysisSession[]>([]);
+  const [pendingSessionDelete, setPendingSessionDelete] = useState<AnalysisSession | null>(null);
   const [activeSessionId, setActiveSessionId] = useState("");
   const [messages, setMessages] = useState<AnalysisMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -211,7 +213,6 @@ export default function Home() {
   }
 
   async function deleteAnalysis(session: AnalysisSession) {
-    if (!window.confirm(`删除分析“${session.title}”及其全部对话？`)) return;
     const response = await apiFetch(`/api/sessions/${encodeURIComponent(session.id)}`, { method: "DELETE" });
     if (!response.ok) { const data = await response.json(); throw new Error(data.error || "无法删除分析"); }
     const remaining = analysisSessions.filter((item) => item.id !== session.id);
@@ -368,7 +369,7 @@ export default function Home() {
         <button className={`nav-item ${view === "models" ? "active" : ""}`} onClick={() => setView("models")}><span className="nav-icon"><ModelCubeIcon /></span>模型管理</button>
       </nav>
       <div className="sidebar-sessions">
-        <RecentAnalyses sessions={analysisSessions} activeSessionId={activeSessionId} onOpen={(session) => void openAnalysis(session)} onPin={pinAnalysis} onRename={renameAnalysis} onDelete={deleteAnalysis} />
+        <RecentAnalyses sessions={analysisSessions} activeSessionId={activeSessionId} onOpen={(session) => void openAnalysis(session)} onPin={pinAnalysis} onRename={renameAnalysis} onDelete={async (session) => setPendingSessionDelete(session)} />
       </div>
       <div className="sidebar-footer">
         <CurrentDatasourceShortcut source={activeSource} onOpen={() => activeSource ? void openSourceDetail(activeSource) : setView("sources")} />
@@ -385,6 +386,7 @@ export default function Home() {
       {view === "models" && <ModelManagement models={models} selectedModel={selectedModel} onSelect={selectModel} onRefresh={restoreModels} />}
     </section>
     {showAddSource && <ConnectionModal sshEnabled={sshEnabled} setSshEnabled={setSshEnabled} connecting={connecting} notice={connectionNotice} close={() => setShowAddSource(false)} submit={addConnection} />}
+    {pendingSessionDelete && <ConfirmDialog title="删除分析" message={`确认删除分析“${pendingSessionDelete.title}”及其全部对话？`} close={() => setPendingSessionDelete(null)} confirm={async () => { const session = pendingSessionDelete; setPendingSessionDelete(null); await deleteAnalysis(session); }} />}
     {interactionNotice && <div className="interaction-toast" role="status"><span>{interactionNotice}</span><button aria-label="关闭提示" onClick={() => setInteractionNotice("")}>×</button></div>}
   </main>;
 }

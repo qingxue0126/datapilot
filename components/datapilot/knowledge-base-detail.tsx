@@ -2,6 +2,7 @@
 
 import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest, formatTime, message, responseJson } from "./knowledge-client";
+import { ConfirmDialog } from "./confirm-dialog";
 
 export type ParserType = "general" | "table" | "qa";
 export type Metadata = Record<string, string | number | boolean>;
@@ -44,7 +45,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   const [query, setQuery] = useState("");
   const [metadataFilter, setMetadataFilter] = useState("");
   const [results, setResults] = useState<RetrievalItem[]>([]);
-  const [uploadParser, setUploadParser] = useState<ParserType | "auto">("auto");
+  const [pendingDelete, setPendingDelete] = useState<{ type: "knowledge-base" } | { type: "document"; document: KnowledgeDocumentData } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const selectedDocument = detail.documents.find((item) => item.id === selectedDocumentId);
   const columns = useMemo(() => [...new Set(detail.documents.flatMap((document) => document.columns))], [detail.documents]);
@@ -63,7 +64,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     setBusy(true); setNotice("正在解析、分块、Embedding 并写入向量库…");
     try {
       const isTable = /\.(xlsx|csv)$/i.test(file.name);
-      const parserType = uploadParser === "auto" ? (isTable ? "table" : "general") : uploadParser;
+      const parserType = isTable ? "table" : "general";
       const body = new FormData(); body.append("file", file); body.append("parserType", parserType);
       body.append("questionColumn", detail.knowledgeBase.config.questionColumn); body.append("answerColumn", detail.knowledgeBase.config.answerColumn);
       body.append("metadataFields", JSON.stringify(detail.knowledgeBase.config.metadataFields));
@@ -97,7 +98,6 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   }
 
   async function deleteDocument(document: KnowledgeDocumentData) {
-    if (!window.confirm(`删除文档“${document.filename}”及其全部 Chunk？`)) return;
     setBusy(true);
     try {
       await requestEmpty(`/api/documents/${encodeURIComponent(document.id)}`, { method: "DELETE" });
@@ -108,7 +108,6 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   }
 
   async function deleteKnowledgeBase() {
-    if (!window.confirm(`删除知识库“${detail.knowledgeBase.name}”及其全部文档？`)) return;
     setBusy(true);
     try { await requestEmpty(`/api/knowledge-bases/${encodeURIComponent(detail.knowledgeBase.id)}`, { method: "DELETE" }); setDetail(null); await refreshList(); }
     catch (error) { setNotice(message(error, "删除知识库失败")); }
@@ -192,35 +191,42 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   return <div className="module-content knowledge-page">
     <button className="knowledge-back" onClick={back}>← 返回知识库</button>
     <div className="module-heading knowledge-detail-heading"><div><span className="eyebrow">KNOWLEDGE BASE</span><h2>{kb.name}</h2><p>{kb.description || "管理文档、Chunk、解析配置与检索测试。"}</p></div><div>
-      <button className="danger-action" onClick={() => void deleteKnowledgeBase()} disabled={busy}>删除知识库</button>
+      <button className="danger-action" onClick={() => setPendingDelete({ type: "knowledge-base" })} disabled={busy}>删除知识库</button>
     </div></div>
     {notice && <p className="knowledge-notice">{notice}</p>}
     {kb.requiresReindex && <div className="knowledge-reindex-warning"><span>Embedding 模型已变更，现有向量需要重建。</span><button onClick={() => void revectorize()} disabled={busy}>重新向量化</button></div>}
     <nav className="knowledge-tabs" aria-label="知识库详情">
       {([['documents', '文件列表'], ['chunks', '分块结果'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => openTab(value)}>{label}</button>)}
     </nav>
-    {tab === "documents" && <DocumentsPanel documents={detail.documents} busy={busy} fileInput={fileInput} uploadParser={uploadParser} setUploadParser={setUploadParser} upload={uploadDocument} openChunks={openChunks} remove={deleteDocument} />}
+    {tab === "documents" && <DocumentsPanel documents={detail.documents} metadataFields={kb.config.metadataFields} busy={busy} fileInput={fileInput} upload={uploadDocument} openChunks={openChunks} remove={(document) => setPendingDelete({ type: "document", document })} />}
     {tab === "chunks" && <ChunksPanel document={selectedDocument} documents={detail.documents} chunks={chunks} preview={preview} busy={busy} select={openChunks} reparse={reparseDocument} save={saveChunk} />}
     {tab === "config" && <ConfigPanel kb={kb} columns={columns} models={models} busy={busy} save={saveConfig} revectorize={revectorize} />}
     {tab === "retrieval" && <RetrievalPanel config={kb.config} query={query} setQuery={setQuery} metadataFilter={metadataFilter} setMetadataFilter={setMetadataFilter} results={results} busy={busy} retrieve={retrieve} locate={openChunks} />}
+    {pendingDelete && <ConfirmDialog
+      title={pendingDelete.type === "knowledge-base" ? "删除知识库" : "删除文件"}
+      message={pendingDelete.type === "knowledge-base" ? `确认删除知识库“${kb.name}”及其全部文档？` : `确认删除文件“${pendingDelete.document.filename}”及其全部 Chunk？`}
+      busy={busy}
+      close={() => setPendingDelete(null)}
+      confirm={async () => { const target = pendingDelete; setPendingDelete(null); if (target.type === "knowledge-base") await deleteKnowledgeBase(); else await deleteDocument(target.document); }}
+    />}
   </div>;
 }
 
-function DocumentsPanel({ documents, busy, fileInput, uploadParser, setUploadParser, upload, openChunks, remove }: {
-  documents: KnowledgeDocumentData[]; busy: boolean; fileInput: RefObject<HTMLInputElement | null>; uploadParser: ParserType | "auto";
-  setUploadParser: (value: ParserType | "auto") => void; upload: (file?: File) => Promise<void>; openChunks: (id: string) => Promise<void>; remove: (document: KnowledgeDocumentData) => Promise<void>;
+function DocumentsPanel({ documents, metadataFields, busy, fileInput, upload, openChunks, remove }: {
+  documents: KnowledgeDocumentData[]; metadataFields: string[]; busy: boolean; fileInput: RefObject<HTMLInputElement | null>;
+  upload: (file?: File) => Promise<void>; openChunks: (id: string) => Promise<void>; remove: (document: KnowledgeDocumentData) => void;
 }) {
   return <section className="knowledge-section"><header><div><h3>文件列表</h3><p>文件 → Parser → Chunk → Metadata → Embedding → Milvus</p></div><div className="knowledge-upload-actions">
-    <select value={uploadParser} aria-label="解析方式" onChange={(event) => setUploadParser(event.target.value as ParserType | "auto")}><option value="auto">Auto</option><option value="general">General Parser</option><option value="table">Table Parser</option><option value="qa">QA Parser</option></select>
     <input ref={fileInput} type="file" hidden accept=".pdf,.docx,.txt,.md,.xlsx,.csv" onChange={(event) => void upload(event.target.files?.[0])} />
-    <button className="primary-action" onClick={() => fileInput.current?.click()} disabled={busy}>↑ 上传文档</button>
+    <button className="primary-action" onClick={() => fileInput.current?.click()} disabled={busy}>＋ 新增文件</button>
   </div></header>
   {documents.length === 0 ? <div className="knowledge-document-empty">暂无文档。XLSX / CSV 默认推荐使用 Table Parser。</div> : <div className="knowledge-document-table">
-    <div className="knowledge-document-head"><span>文件名</span><span>类型</span><span>大小</span><span>解析</span><span>上传时间</span><span /></div>
+    <div className="knowledge-document-head"><span>文件名</span><span>类型</span><span>大小</span><span>上传时间</span><span>元数据</span><span>解析</span><span>分块数</span><span>操作</span></div>
     {documents.map((document) => <div className="knowledge-document-row" key={document.id}>
       <button className="document-name" title={document.filename} onClick={() => void openChunks(document.id)}>{document.filename}</button><span>{document.fileType}</span><span>{formatSize(document.size)}</span>
-      <span className={`document-status ${document.status}`} title={document.error}>{statusLabels[document.status] || document.status} · {document.parserType} · {document.chunkCount}</span>
-      <time>{formatTime(document.createdAt)}</time><button className="document-delete" onClick={() => void remove(document)} disabled={busy}>删除</button>
+      <time>{formatTime(document.createdAt)}</time><span className="document-metadata" title={metadataFields.join("、")}>{metadataFields.length ? metadataFields.join("、") : "—"}</span>
+      <span className={`document-status ${document.status}`} title={document.error || statusLabels[document.status]}>{document.parserType}</span><strong>{document.chunkCount}</strong>
+      <button className="document-delete" onClick={() => remove(document)} disabled={busy}>删除</button>
     </div>)}</div>}
   </section>;
 }

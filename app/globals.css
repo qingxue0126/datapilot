@@ -446,6 +446,24 @@ button:disabled { cursor: not-allowed; }
 @media (max-width: 1050px) { .knowledge-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.knowledge-lower-grid { grid-template-columns: 1fr; }.knowledge-document-table { overflow-x: auto; }.knowledge-document-head, .knowledge-document-row { min-width: 780px; }.chunk-split-layout { grid-template-columns: 1fr; max-height: none; }.document-preview-panel { min-height: 520px; border-right: 0; border-bottom: 1px solid #dfe7e3; }.chunk-results-panel .chunk-list { max-height: 680px; } }
 @media (max-width: 720px) { .knowledge-page { width: calc(100% - 28px); }.knowledge-grid { grid-template-columns: 1fr; }.knowledge-detail-heading { align-items: flex-start; flex-direction: column; }.knowledge-section > header { align-items: flex-start; flex-direction: column; }.knowledge-upload-actions { align-items: stretch; flex-direction: column; width: 100%; }.retrieval-config, .retrieval-test-grid { grid-template-columns: 1fr; }.retrieval-config .span-two, .retrieval-config > button, .retrieval-test-grid .span-two, .retrieval-test-grid button { grid-column: 1; }.knowledge-tabs { overflow-x: auto; }.knowledge-reindex-warning { align-items: flex-start; flex-direction: column; } }
 
+/* Knowledge file list: keep document facts in separate, scannable columns. */
+.knowledge-document-head,
+.knowledge-document-row { grid-template-columns: minmax(220px, 2fr) 75px 90px 135px minmax(130px, 1fr) 100px 80px 65px; }
+.knowledge-document-row .document-metadata { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-document-row > strong { color: #354b40; font-size: 15px; font-weight: 600; }
+.knowledge-confirm-backdrop { z-index: 40; }
+.knowledge-confirm-dialog { width: min(460px, 100%); padding: 24px; border: 1px solid #dce5e0; border-radius: 14px; background: #fbfcfa; box-shadow: 0 25px 70px rgba(9,27,20,.3); }
+.knowledge-confirm-dialog header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.knowledge-confirm-dialog h2 { margin: 0; color: #293d34; font: 500 25px Georgia, "Songti SC", serif; }
+.knowledge-confirm-dialog header p { margin: 6px 0 0; color: #8b9690; font-size: 13px; }
+.knowledge-confirm-dialog header button { border: 0; color: #7d8983; background: transparent; font-size: 22px; cursor: pointer; }
+.knowledge-confirm-dialog > p { margin: 24px 0; color: #53645b; font-size: 15px; line-height: 1.7; }
+.knowledge-confirm-dialog footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 18px; border-top: 1px solid #e4e9e6; }
+.knowledge-confirm-dialog footer button { border: 1px solid #d5ded9; border-radius: 8px; padding: 9px 15px; color: #46584f; background: white; font-size: 14px; cursor: pointer; }
+.knowledge-confirm-dialog footer .danger-confirm { border-color: #a34d42; color: white; background: #a34d42; }
+.knowledge-confirm-dialog button:disabled { opacity: .5; cursor: not-allowed; }
+@media (max-width: 1050px) { .knowledge-document-head, .knowledge-document-row { min-width: 1120px; } }
+
 /* Model registry */
 .model-management-page { width: min(1040px, calc(100% - 56px)); }
 .model-service-status { display: flex; align-items: center; gap: 9px; margin: -10px 0 18px; border: 1px solid #d9e5df; border-radius: 9px; padding: 11px 14px; color: #456458; background: #f1f7f4; font-size: 12px; }

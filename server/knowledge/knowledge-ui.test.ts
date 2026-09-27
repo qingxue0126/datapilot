@@ -14,7 +14,7 @@ test("sidebar exposes knowledge base as a primary navigation item", () => {
 });
 
 test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval testing", () => {
-  for (const label of ["新建知识库", "上传文档", "General Parser", "Table Parser", "QA Parser", "重新解析文档", "Metadata Fields", "Embedding 模型", "重新向量化", "检索测试", "Score Threshold", "定位 Chunk"]) {
+  for (const label of ["新建知识库", "新增文件", "重新解析文档", "Metadata Fields", "Embedding 模型", "重新向量化", "检索测试", "Score Threshold", "定位 Chunk"]) {
     assert.match(component, new RegExp(label));
   }
   assert.match(component, /\.pdf,\.docx,\.txt,\.md,\.xlsx,\.csv/);
@@ -28,6 +28,8 @@ test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval te
   assert.match(component, /chunk-switch/);
   assert.match(component, /value === "chunks" && selectedDocumentId/);
   assert.match(component, /openChunks\(selectedDocumentId\)/);
-  for (const label of ["文件列表", "分块结果", "解析方式", "Auto"]) assert.match(component, new RegExp(label));
+  for (const label of ["文件列表", "分块结果", "上传时间", "元数据", "解析", "分块数", "确认删除"]) assert.match(component, new RegExp(label));
+  assert.doesNotMatch(component, /window\.confirm/);
+  assert.doesNotMatch(component, /<option value="auto">Auto<\/option>/);
   assert.doesNotMatch(component, /状态 \/ Parser/);
 });

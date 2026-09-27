@@ -12,7 +12,8 @@ test("new analysis creates a persistent server session", () => {
 });
 
 test("recent analyses can be opened, pinned, renamed, and deleted", () => {
-  assert.match(page, /<RecentAnalyses[\s\S]*onOpen=[\s\S]*onPin=\{pinAnalysis\}[\s\S]*onRename=\{renameAnalysis\}[\s\S]*onDelete=\{deleteAnalysis\}/);
+  assert.match(page, /<RecentAnalyses[\s\S]*onOpen=[\s\S]*onPin=\{pinAnalysis\}[\s\S]*onRename=\{renameAnalysis\}[\s\S]*onDelete=\{async \(session\) => setPendingSessionDelete\(session\)\}/);
+  assert.match(page, /<ConfirmDialog title="删除分析"[\s\S]*await deleteAnalysis\(session\)/);
   assert.match(recent, /session\.pinned \? "取消置顶" : "置顶"/);
   assert.match(recent, /group\("置顶"/);
   assert.match(recent, /group\("最近"/);
