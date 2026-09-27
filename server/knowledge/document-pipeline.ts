@@ -12,7 +12,7 @@ export const supportedDocumentExtensions = new Set([".pdf", ".docx", ".txt", ".m
 const tableExtensions = new Set([".xlsx", ".csv"]);
 const pdf = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<{ text: string }>;
 
-export type ParserOptions = Pick<RetrievalConfig, "parserType" | "chunkSize" | "chunkOverlap" | "questionColumn" | "answerColumn" | "metadataFields">;
+export type ParserOptions = Pick<RetrievalConfig, "parserType" | "chunkSize" | "chunkOverlap" | "questionColumn" | "answerColumn" | "metadataFields"> & { columnRoles?: RetrievalConfig["columnRoles"] };
 export type ParsedChunk = { id: string; content: string; metadata: Metadata; enabled: boolean };
 export type ParseResult = { parserType: ParserType; columns: string[]; chunks: ParsedChunk[] };
 export type DocumentPreview =
@@ -116,7 +116,9 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
     sheet.rows.forEach((row, index) => {
       const rowNumber = index + 2;
       const metadata: Metadata = { sheet: sheet.name, row: rowNumber };
-      for (const field of options.metadataFields) if (row[field] !== undefined && row[field] !== "") metadata[field] = row[field];
+      const columnRoles = options.columnRoles || {};
+      const roleFields = Object.entries(columnRoles).filter(([, role]) => role === "metadata" || role === "both").map(([field]) => field);
+      for (const field of [...new Set([...options.metadataFields, ...roleFields])]) if (row[field] !== undefined && row[field] !== "") metadata[field] = row[field];
       if (options.parserType === "qa") {
         const question = displayValue(row[options.questionColumn]);
         const answer = displayValue(row[options.answerColumn]);
@@ -124,7 +126,9 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
         chunks.push({ id: randomUUID(), content: `问题：${question}\n答案：${answer}`.trim(), metadata, enabled: true });
         return;
       }
-      const content = sheet.columns.map((column) => [column, displayValue(row[column])] as const)
+      const configuredRoles = Object.keys(columnRoles).length > 0;
+      const indexedColumns = configuredRoles ? sheet.columns.filter((column) => ["index", "both"].includes(columnRoles[column])) : sheet.columns;
+      const content = indexedColumns.map((column) => [column, displayValue(row[column])] as const)
         .filter(([, value]) => value !== "").map(([column, value]) => `${column}：${value}`).join("\n");
       if (content) chunks.push({ id: randomUUID(), content, metadata, enabled: true });
     });

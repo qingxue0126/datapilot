@@ -6,14 +6,17 @@ import type { RequestContext } from "../core/types.js";
 import type { Metadata } from "./vector-store.js";
 
 export type ParserType = "general" | "table" | "qa";
+export type ColumnRole = "index" | "metadata" | "both" | "ignore";
 
 export type RetrievalConfig = {
+  language: "zh-CN" | "en";
   parserType: ParserType;
   chunkSize: number;
   chunkOverlap: number;
   questionColumn: string;
   answerColumn: string;
   metadataFields: string[];
+  columnRoles: Record<string, ColumnRole>;
   embeddingModel: string;
   topK: number;
   scoreThreshold: number;
@@ -372,12 +375,14 @@ export function normalizeDocumentFilename(value: string) {
 }
 
 export const defaultRetrievalConfig: RetrievalConfig = {
+  language: "zh-CN",
   parserType: "general",
   chunkSize: 800,
   chunkOverlap: 120,
   questionColumn: "问题",
   answerColumn: "答案",
   metadataFields: [],
+  columnRoles: {},
   embeddingModel: process.env.NODE_ENV === "production" ? "" : "local-hash-embedding-v1",
   topK: 5,
   scoreThreshold: 0.2,
@@ -388,12 +393,14 @@ export const defaultRetrievalConfig: RetrievalConfig = {
 export function normalizeConfig(input: Partial<RetrievalConfig> = {}): RetrievalConfig {
   const chunkSize = integer(input.chunkSize, defaultRetrievalConfig.chunkSize, 100, 4000);
   return {
+    language: input.language === "en" ? "en" : "zh-CN",
     parserType: parserType(input.parserType),
     chunkSize,
     chunkOverlap: integer(input.chunkOverlap, defaultRetrievalConfig.chunkOverlap, 0, Math.max(0, chunkSize - 1)),
     questionColumn: cleanColumn(input.questionColumn, defaultRetrievalConfig.questionColumn),
     answerColumn: cleanColumn(input.answerColumn, defaultRetrievalConfig.answerColumn),
     metadataFields: uniqueStrings(input.metadataFields).slice(0, 100),
+    columnRoles: normalizeColumnRoles(input.columnRoles),
     embeddingModel: cleanModel(input.embeddingModel, defaultRetrievalConfig.embeddingModel),
     topK: integer(input.topK, defaultRetrievalConfig.topK, 1, 50),
     scoreThreshold: decimal(input.scoreThreshold, defaultRetrievalConfig.scoreThreshold, -1, 1),
@@ -437,6 +444,14 @@ function cleanName(value: unknown) { return String(value || "").replace(/\s+/g, 
 function cleanModel(value: unknown, fallback: string) { return String(value ?? fallback).trim().slice(0, 120) || fallback; }
 function cleanColumn(value: unknown, fallback: string) { return String(value || fallback).trim().slice(0, 120) || fallback; }
 function parserType(value: unknown): ParserType { return value === "table" || value === "qa" ? value : "general"; }
+function normalizeColumnRoles(value: unknown): Record<string, ColumnRole> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const allowed = new Set<ColumnRole>(["index", "metadata", "both", "ignore"]);
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .map(([column, role]) => [column.trim(), String(role)] as const)
+    .filter(([column, role]) => column && allowed.has(role as ColumnRole))
+    .slice(0, 100)) as Record<string, ColumnRole>;
+}
 function uniqueStrings(value: unknown) { return Array.isArray(value) ? [...new Set(value.map(String).map((item) => item.trim()).filter(Boolean))] : []; }
 function integer(value: unknown, fallback: number, min: number, max: number) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.min(max, Math.max(min, Math.round(parsed))) : fallback; }
 function decimal(value: unknown, fallback: number, min: number, max: number) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback; }

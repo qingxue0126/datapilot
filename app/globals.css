@@ -464,6 +464,36 @@ button:disabled { cursor: not-allowed; }
 .knowledge-confirm-dialog button:disabled { opacity: .5; cursor: not-allowed; }
 @media (max-width: 1050px) { .knowledge-document-head, .knowledge-document-row { min-width: 1120px; } }
 
+/* RAG-style knowledge settings, grouped by information lifecycle. */
+.knowledge-settings { display: grid; gap: 18px; }
+.knowledge-settings-block { overflow: hidden; border: 1px solid #dfe7e3; border-radius: 12px; background: rgba(255,255,255,.86); box-shadow: 0 10px 28px rgba(27,55,43,.035); }
+.knowledge-settings-block > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px 26px; border-bottom: 1px solid #e5ebe8; }
+.knowledge-settings-block > header h3 { margin: 0; color: #2d4137; font: 500 25px Georgia, "Songti SC", serif; }
+.knowledge-settings-block > header p { margin: 6px 0 0; color: #839088; font-size: 14px; line-height: 1.6; }
+.knowledge-settings-block > header button { border: 1px solid #c8d8d0; border-radius: 8px; padding: 9px 13px; color: #27694f; background: white; cursor: pointer; }
+.knowledge-settings-fields { display: grid; gap: 0; padding: 8px 26px 22px; }
+.knowledge-settings-fields > label { display: grid; grid-template-columns: 230px minmax(0,1fr); align-items: center; gap: 20px; padding: 14px 0; color: #69776f; font-size: 15px; }
+.knowledge-settings-fields > label > span:first-child b { color: #cf594e; }
+.knowledge-settings-fields input:not([type="radio"]):not([type="checkbox"]), .knowledge-settings-fields select, .knowledge-settings-fields textarea { width: 100%; min-height: 46px; border: 1px solid #d2ddd7; border-radius: 8px; outline: 0; padding: 10px 12px; color: #34483e; background: #fff; font: inherit; }
+.knowledge-settings-fields textarea { resize: vertical; }
+.knowledge-settings-fields input:focus, .knowledge-settings-fields select:focus, .knowledge-settings-fields textarea:focus { border-color: #6fa68f; box-shadow: 0 0 0 3px rgba(71,139,108,.09); }
+.knowledge-settings-fields select:disabled { color: #8a958f; background: #f4f6f5; }
+.knowledge-setting-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-left: 250px; padding: 14px 0; }
+.knowledge-setting-pair label { display: grid; gap: 7px; color: #69776f; font-size: 14px; }
+.knowledge-setting-switch > span:last-child, .parser-method, .column-mode { display: flex; align-items: center; gap: 12px; color: #3f5148; }
+.knowledge-setting-switch input, .parser-method input, .column-mode input { width: 17px; height: 17px; margin: 0; accent-color: var(--green); }
+.parser-method input:nth-of-type(2) { margin-left: 28px; }
+.column-role-settings { margin: 14px 0 0 250px; border: 1px solid #dfe7e3; border-radius: 10px; padding: 18px; }
+.column-role-settings legend { padding: 0 7px; color: #41574b; font-size: 15px; font-weight: 650; }
+.column-role-settings > p { margin: 13px 0 18px; color: #74847b; font-size: 13px; line-height: 1.6; }
+.column-mode { gap: 24px; }
+.column-role-list { display: grid; gap: 9px; }
+.column-role-list > label { display: grid; grid-template-columns: minmax(150px,1fr) 220px; align-items: center; gap: 15px; color: #52645a; }
+.column-role-list select { min-height: 40px; }
+.knowledge-settings-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding: 16px 22px; border: 1px solid #dfe7e3; border-radius: 11px; background: rgba(250,252,250,.94); backdrop-filter: blur(8px); }
+.knowledge-settings-actions .primary-action { min-width: 120px; }
+@media (max-width: 850px) { .knowledge-settings-fields > label { grid-template-columns: 1fr; gap: 8px; }.knowledge-setting-pair, .column-role-settings { margin-left: 0; }.knowledge-setting-pair { grid-template-columns: 1fr; }.column-role-list > label { grid-template-columns: 1fr; gap: 6px; } }
+
 /* Model registry */
 .model-management-page { width: min(1040px, calc(100% - 56px)); }
 .model-service-status { display: flex; align-items: center; gap: 9px; margin: -10px 0 18px; border: 1px solid #d9e5df; border-radius: 9px; padding: 11px 14px; color: #456458; background: #f1f7f4; font-size: 12px; }

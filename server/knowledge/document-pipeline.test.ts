@@ -49,3 +49,18 @@ test("document preview preserves workbook sheets, columns, and row values", asyn
   assert.equal(preview.sheets[0].rows.length, 2);
   assert.deepEqual(preview.sheets[0].rows[0], rows[0]);
 });
+
+test("Table Parser applies index, metadata, both, and ignore column roles", async () => {
+  const result = await parseDocumentChunks(".xlsx", workbookBuffer(rows), {
+    parserType: "table", chunkSize: 800, chunkOverlap: 120, questionColumn: "问题", answerColumn: "答案", metadataFields: [],
+    columnRoles: { 产品: "metadata", 模块: "ignore", 问题类型: "metadata", 问题: "index", 答案: "both" },
+  });
+  assert.match(result.chunks[0].content, /问题：如何删除凭证/);
+  assert.match(result.chunks[0].content, /答案：打开凭证列表/);
+  assert.doesNotMatch(result.chunks[0].content, /产品：/);
+  assert.doesNotMatch(result.chunks[0].content, /模块：/);
+  assert.equal(result.chunks[0].metadata["产品"], "好会计");
+  assert.equal(result.chunks[0].metadata["问题类型"], "操作");
+  assert.equal(result.chunks[0].metadata["答案"], "打开凭证列表，选择目标凭证后删除。");
+  assert.equal(result.chunks[0].metadata["模块"], undefined);
+});

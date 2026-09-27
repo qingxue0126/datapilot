@@ -32,4 +32,5 @@ test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval te
   assert.doesNotMatch(component, /window\.confirm/);
   assert.doesNotMatch(component, /<option value="auto">Auto<\/option>/);
   assert.doesNotMatch(component, /状态 \/ Parser/);
+  for (const label of ["基础信息", "向量信息", "解析方法", "Column Mode", "索引 + 元数据", "私有（当前租户 / 账套 / 用户）"]) assert.ok(component.includes(label));
 });

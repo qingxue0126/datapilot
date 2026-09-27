@@ -165,6 +165,7 @@ function parserOptions(value: unknown): Partial<ParserOptions> {
   if (body.questionColumn !== undefined) result.questionColumn = String(body.questionColumn);
   if (body.answerColumn !== undefined) result.answerColumn = String(body.answerColumn);
   if (body.metadataFields !== undefined) result.metadataFields = stringArray(body.metadataFields);
+  if (body.columnRoles !== undefined) result.columnRoles = columnRoleMap(body.columnRoles);
   return result;
 }
 
@@ -174,6 +175,18 @@ function stringArray(value: unknown) {
   if (!text) return [];
   try { const parsed = JSON.parse(text); if (Array.isArray(parsed)) return parsed.map(String).map((item) => item.trim()).filter(Boolean); } catch { /* comma separated form value */ }
   return text.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function columnRoleMap(value: unknown): NonNullable<ParserOptions["columnRoles"]> {
+  let source = value;
+  if (typeof value === "string") { try { source = JSON.parse(value); } catch { return {}; } }
+  if (!source || typeof source !== "object" || Array.isArray(source)) return {};
+  const result: NonNullable<ParserOptions["columnRoles"]> = {};
+  for (const [column, role] of Object.entries(source as Record<string, unknown>)) {
+    const normalized = String(role);
+    if (normalized === "index" || normalized === "metadata" || normalized === "both" || normalized === "ignore") result[column] = normalized;
+  }
+  return result;
 }
 
 function cleanMetadata(value: unknown): Metadata {
