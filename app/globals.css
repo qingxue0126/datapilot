@@ -378,6 +378,39 @@ button:disabled { cursor: not-allowed; }
 .chunk-list { display: grid; gap: 12px; padding: 18px; background: #f6f8f7; }.chunk-card { border: 1px solid #dce6e1; border-radius: 9px; padding: 15px; background: white; }.chunk-card.disabled { opacity: .68; background: #f2f3f2; }.chunk-card > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }.chunk-card > header div { display: grid; gap: 4px; }.chunk-card > header small { color: #87948d; font: 9px var(--font-geist-mono); }.chunk-card > header label { display: flex; align-items: center; gap: 6px; color: #5d7067; font-size: 11px; }.chunk-card > label { display: grid; gap: 6px; margin-top: 10px; color: #68786f; font-size: 10px; font-weight: 700; }.chunk-card textarea { width: 100%; border: 1px solid #d3ded8; border-radius: 7px; padding: 10px; color: #33483e; background: #fbfcfb; line-height: 1.6; resize: vertical; }.chunk-card .metadata-editor { font-family: var(--font-geist-mono); font-size: 10px; }.chunk-card footer { display: flex; justify-content: flex-end; margin-top: 12px; }
 .knowledge-config-grid select { width: 100%; }.metadata-fields { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 0; border: 1px solid #dce5e0; border-radius: 8px; padding: 12px; }.metadata-fields legend { padding: 0 5px; color: #68786f; font-size: 10px; font-weight: 700; }.metadata-fields label { display: flex; align-items: center; flex-direction: row; gap: 6px; }.metadata-fields input { width: 14px; height: 14px; accent-color: var(--green); }.metadata-fields small { color: #8a9690; font-size: 10px; }
 .retrieval-test-grid { grid-template-columns: 1fr 1fr; }.retrieval-test-grid label { display: grid; gap: 6px; color: #68786f; font-size: 10px; font-weight: 700; }.retrieval-test-grid .span-two { grid-column: 1 / -1; }.retrieval-test-grid button { grid-column: 2; }.retrieval-results article header button { border: 0; color: #267153; background: transparent; cursor: pointer; }.retrieval-results article dl { display: flex; flex-wrap: wrap; gap: 6px; margin: 11px 0 0; }.retrieval-results article dl div { display: flex; gap: 5px; border-radius: 5px; padding: 4px 7px; background: #e9f1ed; font-size: 9px; }.retrieval-results article dt { color: #61736a; font-weight: 700; }.retrieval-results article dd { margin: 0; color: #2f5544; }
+
+/* Knowledge detail typography follows the chat workspace's readable scale. */
+.knowledge-back { font-size: 16px; }
+.knowledge-detail-heading p { font-size: 16px; line-height: 1.6; }
+.knowledge-notice, .knowledge-reindex-warning { font-size: 14px; line-height: 1.55; }
+.knowledge-tabs button { font-size: 17px; line-height: 1.4; }
+.knowledge-section h3 { font-size: 18px; line-height: 1.45; }
+.knowledge-section header p { font-size: 14px; line-height: 1.55; }
+.knowledge-section header > small { font-size: 14px; }
+.knowledge-section button, .knowledge-section select, .knowledge-section input, .knowledge-section textarea { font-size: 15px; }
+.knowledge-document-empty { font-size: 15px; line-height: 1.6; }
+.knowledge-document-head, .knowledge-document-row { grid-template-columns: minmax(240px, 2fr) 80px 100px 160px 140px 70px; padding-top: 13px; padding-bottom: 13px; }
+.knowledge-document-head { font-size: 14px; }
+.knowledge-document-row { font-size: 15px; line-height: 1.45; }
+.knowledge-document-row .document-name, .knowledge-document-row strong { font-size: 15px; }
+.document-status { font-size: 14px; line-height: 1.35; }
+.retrieval-config label, .retrieval-test-grid label { font-size: 14px; line-height: 1.45; }
+.retrieval-config input, .retrieval-config select, .retrieval-test input, .retrieval-test textarea, .knowledge-upload-actions select { min-height: 42px; font-size: 15px; line-height: 1.5; }
+.chunk-card > header strong { font-size: 17px; }
+.chunk-card > header small { font-size: 13px; line-height: 1.5; }
+.chunk-card > header label, .chunk-card > label { font-size: 15px; line-height: 1.45; }
+.chunk-card textarea { font-size: 16px; line-height: 1.65; }
+.chunk-card .metadata-editor { font-size: 14px; }
+.metadata-fields legend, .metadata-fields small { font-size: 14px; }
+.metadata-fields label { font-size: 15px; }
+.retrieval-results article header strong { font-size: 17px; }
+.retrieval-results article header button { font-size: 14px; }
+.retrieval-results article header span, .retrieval-results article small { font-size: 14px; line-height: 1.5; }
+.retrieval-results article p { font-size: 16px; line-height: 1.7; }
+.retrieval-results article dl div { font-size: 14px; }
+.retrieval-empty { font-size: 15px; }
+.knowledge-create-dialog header p, .knowledge-create-dialog label { font-size: 14px; line-height: 1.5; }
+.knowledge-create-dialog input, .knowledge-create-dialog textarea, .knowledge-create-dialog footer button { font-size: 15px; }
 @media (max-width: 1050px) { .knowledge-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.knowledge-lower-grid { grid-template-columns: 1fr; }.knowledge-document-table { overflow-x: auto; }.knowledge-document-head, .knowledge-document-row { min-width: 780px; } }
 @media (max-width: 720px) { .knowledge-page { width: calc(100% - 28px); }.knowledge-grid { grid-template-columns: 1fr; }.knowledge-detail-heading { align-items: flex-start; flex-direction: column; }.knowledge-section > header { align-items: flex-start; flex-direction: column; }.knowledge-upload-actions { align-items: stretch; flex-direction: column; width: 100%; }.retrieval-config, .retrieval-test-grid { grid-template-columns: 1fr; }.retrieval-config .span-two, .retrieval-config > button, .retrieval-test-grid .span-two, .retrieval-test-grid button { grid-column: 1; }.knowledge-tabs { overflow-x: auto; }.knowledge-reindex-warning { align-items: flex-start; flex-direction: column; } }
 
