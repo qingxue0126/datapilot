@@ -24,7 +24,7 @@ export class DataAgent {
     private readonly erp: ErpQueryService,
   ) {}
 
-  async run(input: { question: string; context: RequestContext; sessionId: string; datasourceId: string; connection: DatabaseConfig; model?: string }) {
+  async run(input: { question: string; context: RequestContext; sessionId: string; datasourceId: string; connection: DatabaseConfig; preferredModelId?: string }) {
     const started = Date.now();
     const runId = randomUUID();
     const trace: AgentTraceEvent[] = [];
@@ -43,12 +43,14 @@ export class DataAgent {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const plan = await this.step(trace, `sql.generate.${attempt}`, () =>
-          this.erp.generateSql({ question: input.question, schema, metrics, history, previousError, model: input.model }));
+          this.erp.generateSql({ question: input.question, schema, metrics, history, previousError, context: input.context,
+            preferredModelId: input.preferredModelId, task: attempt === 1 ? "text2sql" : "sqlRepair" }));
         if (!plan.sql?.trim()) throw new Error("模型没有生成 SQL");
         const result = await this.step(trace, `database.query.${attempt}`, () =>
           this.tools.call<{ sql: string }, QueryResult>("database.query", { sql: plan.sql }, toolContext));
         const summary = await this.step(trace, "result.analyze", () =>
-          this.erp.analyze({ question: input.question, sql: result.sql, rows: result.rows, rowCount: result.rowCount, model: input.model }));
+          this.erp.analyze({ question: input.question, sql: result.sql, rows: result.rows, rowCount: result.rowCount,
+            context: input.context, preferredModelId: input.preferredModelId }));
         const queryResult = {
           question: input.question,
           summary,
@@ -58,7 +60,7 @@ export class DataAgent {
           chart: buildChart(result.rows),
           rowCount: result.rowCount,
           executionMs: Date.now() - started,
-          model: input.model,
+          model: input.preferredModelId,
           sessionId: input.sessionId,
           explanation: buildExplanation(result.sql, metrics, schema),
           agent: { runId, attempts: attempt, tools: this.tools.list(), trace },

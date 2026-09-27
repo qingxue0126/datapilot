@@ -1,14 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ModelProvider } from "../../llm/model-provider.js";
+import type { StructuredModelClient } from "../../llm/model-service.js";
 import { assertGroupedMetricFilters, ErpQueryService } from "./erp-query-service.js";
 import { searchMetrics, toMetricPrompt } from "./metrics.js";
 import { mapErpSchema } from "./schema-mapping/adapters.js";
 import type { JoinPathDefinition } from "./schema-mapping/types.js";
 
+const context = { tenantId: "tenant", accountSetId: "books", userId: "user", role: "tenant_admin" as const, sessionId: "session" };
+
 test("ERP query service propagates an explicit insufficient-definition error", async () => {
   let systemPrompt = "";
-  const model: ModelProvider = {
+  const model: StructuredModelClient = {
     async structured<T>(messages: { role: "system" | "user"; content: string }[]) {
       systemPrompt = messages[0]?.content || "";
       return {
@@ -33,7 +35,7 @@ test("ERP query service propagates an explicit insufficient-definition error", a
   }];
   const schema = mapErpSchema(rawSchema);
   await assert.rejects(
-    service.generateSql({ question: "主营业务收入同比", schema, metrics, history: [] }),
+    service.generateSql({ question: "主营业务收入同比", schema, metrics, history: [], context }),
     /口径信息不足：缺少主营业务科目映射/,
   );
   assert.match(systemPrompt, /不得自行发明、简化或替换财务口径/);
@@ -41,14 +43,14 @@ test("ERP query service propagates an explicit insufficient-definition error", a
 });
 
 test("comparison metrics require an explicit base metric", async () => {
-  const model: ModelProvider = { async structured() { throw new Error("model should not be called"); } };
+  const model: StructuredModelClient = { async structured() { throw new Error("model should not be called"); } };
   const service = new ErpQueryService(model);
   const metrics = searchMetrics("同比").map(toMetricPrompt);
-  await assert.rejects(service.generateSql({ question: "同比", schema: mapErpSchema([]), metrics, history: [] }), /必须指定.*基础指标/);
+  await assert.rejects(service.generateSql({ question: "同比", schema: mapErpSchema([]), metrics, history: [], context }), /必须指定.*基础指标/);
 });
 
 test("ERP query service rejects missing critical semantic fields before calling the model", async () => {
-  const model: ModelProvider = { async structured() { throw new Error("model should not be called"); } };
+  const model: StructuredModelClient = { async structured() { throw new Error("model should not be called"); } };
   const service = new ErpQueryService(model);
   const schema = mapErpSchema([{
     name: "voucher_entry", rows: 0,
@@ -59,19 +61,19 @@ test("ERP query service rejects missing critical semantic fields before calling 
     ],
   }]);
   const metrics = searchMetrics("本月营业收入是多少").map(toMetricPrompt);
-  await assert.rejects(service.generateSql({ question: "本月营业收入是多少", schema, metrics, history: [] }), /Schema 映射不足.*debitAmount.*creditAmount/);
+  await assert.rejects(service.generateSql({ question: "本月营业收入是多少", schema, metrics, history: [], context }), /Schema 映射不足.*debitAmount.*creditAmount/);
 });
 
 test("ERP query service refuses a required multi-entity query without a validated join path", async () => {
-  const model: ModelProvider = { async structured() { throw new Error("model should not be called"); } };
+  const model: StructuredModelClient = { async structured() { throw new Error("model should not be called"); } };
   const service = new ErpQueryService(model);
   const schema = ledgerWithAccountSchema();
   const metrics = searchMetrics("本月营业收入是多少").map(toMetricPrompt);
-  await assert.rejects(service.generateSql({ question: "本月营业收入是多少", schema, metrics, history: [] }), /VoucherEntry 与 Account.*没有经过验证的 Join Path/);
+  await assert.rejects(service.generateSql({ question: "本月营业收入是多少", schema, metrics, history: [], context }), /VoucherEntry 与 Account.*没有经过验证的 Join Path/);
 });
 
 test("ERP query service accepts SQL that uses the full validated join path", async () => {
-  const model: ModelProvider = {
+  const model: StructuredModelClient = {
     async structured<T>() {
       return { status: "ready", sql: "SELECT SUM(ve.credit_amount - ve.debit_amount) AS revenue FROM voucher_entry ve LEFT JOIN account a ON ve.account_code = a.code", title: "营业收入" } as T;
     },
@@ -84,7 +86,7 @@ test("ERP query service accepts SQL that uses the full validated join path", asy
     validation: { checked: true, matchRate: 1, rightUniqueRate: 1 },
   };
   schema.joinPaths = [join];
-  const plan = await service.generateSql({ question: "本月营业收入是多少", schema, metrics: searchMetrics("本月营业收入是多少").map(toMetricPrompt), history: [] });
+  const plan = await service.generateSql({ question: "本月营业收入是多少", schema, metrics: searchMetrics("本月营业收入是多少").map(toMetricPrompt), history: [], context });
   assert.match(plan.sql, /LEFT JOIN account/);
 });
 

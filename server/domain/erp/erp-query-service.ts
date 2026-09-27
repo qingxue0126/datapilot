@@ -1,5 +1,6 @@
-import type { ChatTurn } from "../../core/types.js";
-import type { ModelProvider } from "../../llm/model-provider.js";
+import type { ChatTurn, RequestContext } from "../../core/types.js";
+import type { StructuredModelClient } from "../../llm/model-service.js";
+import type { ModelTask } from "../../llm/model-types.js";
 import type { FinanceMetricPrompt } from "./metrics.js";
 import { assertSqlUsesValidatedJoinPaths } from "./schema-mapping/join-policy.js";
 import type { SchemaSearchResult, SemanticEntityMapping } from "./schema-mapping/types.js";
@@ -8,7 +9,7 @@ type SqlPlan = { status?: "ready" | "insufficient"; sql: string; title: string; 
 type Answer = { summary: string };
 
 export class ErpQueryService {
-  constructor(private readonly model: ModelProvider) {}
+  constructor(private readonly model: StructuredModelClient) {}
 
   async generateSql(input: {
     question: string;
@@ -16,7 +17,9 @@ export class ErpQueryService {
     metrics: FinanceMetricPrompt[];
     history: ChatTurn[];
     previousError?: string;
-    model?: string;
+    context: RequestContext;
+    preferredModelId?: string;
+    task?: ModelTask;
   }) {
     validateMetricContext(input.metrics, input.schema);
     validateRequiredJoinPaths(input.question, input.metrics, input.schema);
@@ -88,7 +91,7 @@ export class ErpQueryService {
           previousError: input.previousError,
         }),
       },
-    ], { model: input.model });
+    ], { context: input.context, task: input.task || "text2sql", preferredModelId: input.preferredModelId });
     if (plan.status !== "ready" || !plan.sql?.trim()) {
       const message = String(plan.message || plan.reasoning || "缺少完成查询所需的指标或 Schema 映射");
       if (message.startsWith("口径信息不足：") || message.startsWith("Schema 映射不足：")) throw new Error(message);
@@ -99,7 +102,7 @@ export class ErpQueryService {
     return plan;
   }
 
-  async analyze(input: { question: string; sql: string; rows: Record<string, unknown>[]; rowCount: number; model?: string }) {
+  async analyze(input: { question: string; sql: string; rows: Record<string, unknown>[]; rowCount: number; context: RequestContext; preferredModelId?: string }) {
     const answer = await this.model.structured<Answer>([
       {
         role: "system",
@@ -109,7 +112,7 @@ export class ErpQueryService {
         role: "user",
         content: JSON.stringify({ question: input.question, sql: input.sql, rowCount: input.rowCount, rows: input.rows.slice(0, 50) }),
       },
-    ], { model: input.model });
+    ], { context: input.context, task: "answer", preferredModelId: input.preferredModelId });
     return String(answer.summary || "查询已完成。").slice(0, 2000);
   }
 }

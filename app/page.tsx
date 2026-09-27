@@ -68,7 +68,6 @@ export default function Home() {
   const [interactionNotice, setInteractionNotice] = useState("");
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
-  const [modelsConfigured, setModelsConfigured] = useState(false);
 
   // Authentication bootstrap intentionally runs once; later changes are explicit account actions.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -122,12 +121,13 @@ export default function Home() {
     if (!response.ok) throw new Error(data.error || "无法读取模型列表");
     const items = (data.items || []) as ModelOption[];
     const saved = window.localStorage.getItem("datapilot-model");
-    const selected = items.some((item) => item.id === saved) ? saved! : String(data.defaultModel || items[0]?.id || "");
-    setModels(items); setSelectedModel(selected); setModelsConfigured(Boolean(data.configured));
+    const enabled = items.filter((item) => item.enabled);
+    const selected = enabled.some((item) => item.id === saved) ? saved! : "";
+    setModels(items); setSelectedModel(selected);
   }
 
   function selectModel(id: string) {
-    if (!models.some((model) => model.id === id)) return;
+    if (id && !models.some((model) => model.id === id && model.enabled)) return;
     setSelectedModel(id); window.localStorage.setItem("datapilot-model", id);
   }
 
@@ -382,7 +382,7 @@ export default function Home() {
       {view === "source-detail" && activeSource && <DatasourceDetail source={activeSource} mapping={mapping} loading={mappingLoading} error={mappingError} tab={detailTab} focusedEntity={focusedEntity} onTab={setDetailTab} onBack={() => setView("sources")} onOpenWorkbench={() => openDatabase(activeSource)} onRefresh={() => void openSourceDetail(activeSource, detailTab, focusedEntity)} onSaveDraft={saveMappingDraft} onValidate={validateMappingDraft} onPublish={publishMapping} onLoadVersions={loadMappingVersions} onLoadVersion={loadMappingVersion} onRollback={rollbackMapping} />}
       {view === "database" && activeSource && <DatabaseWorkbench source={activeSource} schema={serverSchema} mode={dbMode} setMode={setDbMode} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} sqlText={sqlText} setSqlText={setSqlText} sqlResult={sqlResult} sqlRunning={sqlRunning} runSql={() => void runSql()} notice={connectionNotice} pendingSql={pendingSql} cancelPending={() => setPendingSql(null)} confirmWrite={() => void runSql(true)} back={() => void openSourceDetail(activeSource)} setNotice={setConnectionNotice} loadSchema={loadSchema} />}
       {view === "knowledge" && <KnowledgeBaseView />}
-      {view === "models" && <ModelManagement models={models} selectedModel={selectedModel} configured={modelsConfigured} onSelect={selectModel} />}
+      {view === "models" && <ModelManagement models={models} selectedModel={selectedModel} onSelect={selectModel} onRefresh={restoreModels} />}
     </section>
     {showAddSource && <ConnectionModal sshEnabled={sshEnabled} setSshEnabled={setSshEnabled} connecting={connecting} notice={connectionNotice} close={() => setShowAddSource(false)} submit={addConnection} />}
     {interactionNotice && <div className="interaction-toast" role="status"><span>{interactionNotice}</span><button aria-label="关闭提示" onClick={() => setInteractionNotice("")}>×</button></div>}

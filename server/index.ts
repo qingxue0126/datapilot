@@ -16,8 +16,10 @@ import { ErpQueryService } from "./domain/erp/erp-query-service.js";
 import { MappingRegistryStore } from "./domain/erp/schema-mapping/mapping-registry.js";
 import { MappingReviewService, type MappingDraftInput } from "./domain/erp/schema-mapping/mapping-review-service.js";
 import type { SchemaSearchResult } from "./domain/erp/schema-mapping/types.js";
-import { DeepSeekModelProvider } from "./llm/model-provider.js";
-import { defaultModelId, modelCatalog, resolveModelId } from "./llm/model-catalog.js";
+import { installModelRoutes } from "./llm/model-routes.js";
+import { ModelRouter } from "./llm/model-router.js";
+import { ModelService } from "./llm/model-service.js";
+import { ModelStore } from "./llm/model-store.js";
 import { installKnowledgeRoutes } from "./knowledge/knowledge-routes.js";
 import { KnowledgeStore } from "./knowledge/knowledge-store.js";
 import { createVectorStore } from "./knowledge/vector-store.js";
@@ -34,7 +36,9 @@ const accounts = new AccountStore();
 const identities = new EnvironmentIdentityProvider(accounts);
 const permissions = new PermissionService();
 const sessions = new SqliteSessionStore();
-const model = new DeepSeekModelProvider();
+const modelStore = new ModelStore();
+const modelRouter = new ModelRouter(modelStore);
+const model = new ModelService(modelStore, modelRouter);
 const mappingRegistry = new MappingRegistryStore();
 const mappingReview = new MappingReviewService(mappingRegistry, permissions);
 const knowledge = new KnowledgeStore();
@@ -61,12 +65,9 @@ app.get("/api/me", (request, response) => {
   } catch (error) { response.status(401).json({ error: errorMessage(error) }); }
 });
 
-app.get("/api/models", (_request, response) => {
-  response.json({ items: modelCatalog(), defaultModel: defaultModelId(), configured: Boolean(process.env.DEEPSEEK_API_KEY?.trim()) });
-});
-
 installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getConnectionItem(datasourceId, context); });
 installKnowledgeRoutes(app, knowledge, vectors, identity);
+installModelRoutes(app, model, permissions, identity);
 
 app.get("/api/connections", (request, response) => {
   try {
@@ -226,8 +227,8 @@ app.post("/api/query", async (request, response) => {
     sessions.get(context, sessionId);
     const datasourceId = String(request.body?.connectionId || "");
     const item = getConnectionItem(datasourceId, context);
-    const selectedModel = resolveModelId(request.body?.model);
-    return response.json(await agent.run({ question, context, sessionId, datasourceId, connection: item.config, model: selectedModel }));
+    const preferredModelId = String(request.body?.model || "").trim() || undefined;
+    return response.json(await agent.run({ question, context, sessionId, datasourceId, connection: item.config, preferredModelId }));
   } catch (error) { return response.status(error instanceof SessionStoreError ? error.status : 400).json({ error: errorMessage(error) }); }
 });
 
