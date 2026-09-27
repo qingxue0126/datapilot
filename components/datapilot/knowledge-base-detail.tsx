@@ -197,7 +197,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     {notice && <p className="knowledge-notice">{notice}</p>}
     {kb.requiresReindex && <div className="knowledge-reindex-warning"><span>Embedding 模型已变更，现有向量需要重建。</span><button onClick={() => void revectorize()} disabled={busy}>重新向量化</button></div>}
     <nav className="knowledge-tabs" aria-label="知识库详情">
-      {([['documents', '文档'], ['chunks', 'Chunk'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => openTab(value)}>{label}</button>)}
+      {([['documents', '文件列表'], ['chunks', '分块结果'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => openTab(value)}>{label}</button>)}
     </nav>
     {tab === "documents" && <DocumentsPanel documents={detail.documents} busy={busy} fileInput={fileInput} uploadParser={uploadParser} setUploadParser={setUploadParser} upload={uploadDocument} openChunks={openChunks} remove={deleteDocument} />}
     {tab === "chunks" && <ChunksPanel document={selectedDocument} documents={detail.documents} chunks={chunks} preview={preview} busy={busy} select={openChunks} reparse={reparseDocument} save={saveChunk} />}
@@ -210,13 +210,13 @@ function DocumentsPanel({ documents, busy, fileInput, uploadParser, setUploadPar
   documents: KnowledgeDocumentData[]; busy: boolean; fileInput: RefObject<HTMLInputElement | null>; uploadParser: ParserType | "auto";
   setUploadParser: (value: ParserType | "auto") => void; upload: (file?: File) => Promise<void>; openChunks: (id: string) => Promise<void>; remove: (document: KnowledgeDocumentData) => Promise<void>;
 }) {
-  return <section className="knowledge-section"><header><div><h3>文档</h3><p>文件 → Parser → Chunk → Metadata → Embedding → Milvus</p></div><div className="knowledge-upload-actions">
-    <select value={uploadParser} onChange={(event) => setUploadParser(event.target.value as ParserType | "auto")}><option value="auto">自动（表格推荐 Table）</option><option value="general">General Parser</option><option value="table">Table Parser</option><option value="qa">QA Parser</option></select>
+  return <section className="knowledge-section"><header><div><h3>文件列表</h3><p>文件 → Parser → Chunk → Metadata → Embedding → Milvus</p></div><div className="knowledge-upload-actions">
+    <select value={uploadParser} aria-label="解析方式" onChange={(event) => setUploadParser(event.target.value as ParserType | "auto")}><option value="auto">Auto</option><option value="general">General Parser</option><option value="table">Table Parser</option><option value="qa">QA Parser</option></select>
     <input ref={fileInput} type="file" hidden accept=".pdf,.docx,.txt,.md,.xlsx,.csv" onChange={(event) => void upload(event.target.files?.[0])} />
     <button className="primary-action" onClick={() => fileInput.current?.click()} disabled={busy}>↑ 上传文档</button>
   </div></header>
   {documents.length === 0 ? <div className="knowledge-document-empty">暂无文档。XLSX / CSV 默认推荐使用 Table Parser。</div> : <div className="knowledge-document-table">
-    <div className="knowledge-document-head"><span>文件名</span><span>类型</span><span>大小</span><span>状态 / Parser</span><span>上传时间</span><span /></div>
+    <div className="knowledge-document-head"><span>文件名</span><span>类型</span><span>大小</span><span>解析</span><span>上传时间</span><span /></div>
     {documents.map((document) => <div className="knowledge-document-row" key={document.id}>
       <button className="document-name" title={document.filename} onClick={() => void openChunks(document.id)}>{document.filename}</button><span>{document.fileType}</span><span>{formatSize(document.size)}</span>
       <span className={`document-status ${document.status}`} title={document.error}>{statusLabels[document.status] || document.status} · {document.parserType} · {document.chunkCount}</span>
