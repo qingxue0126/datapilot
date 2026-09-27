@@ -5,7 +5,7 @@ import { DocumentPipeline, supportedDocumentExtensions, type ParserOptions } fro
 import type { EmbeddingProvider } from "./embedding.js";
 import { lexicalScore } from "./embedding.js";
 import { KnowledgeStore, KnowledgeStoreError, type RetrievalConfig } from "./knowledge-store.js";
-import type { Metadata, VectorStore } from "./vector-store.js";
+import { MilvusUnavailableError, type Metadata, type VectorStore } from "./vector-store.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
 
@@ -184,6 +184,6 @@ function numberInRange(value: unknown, fallback: number, min: number, max: numbe
 
 function knowledgeError(response: { status: (code: number) => { json: (value: unknown) => unknown } }, error: unknown) {
   const multerError = error instanceof multer.MulterError;
-  const status = error instanceof KnowledgeStoreError ? error.status : multerError ? 413 : 400;
+  const status = error instanceof MilvusUnavailableError ? 503 : error instanceof KnowledgeStoreError ? error.status : multerError ? 413 : 400;
   response.status(status).json({ error: error instanceof Error ? error.message : "知识库操作失败" });
 }

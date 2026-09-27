@@ -10,6 +10,14 @@ export type VectorRecord = { id: string; knowledgeBaseId: string; documentId: st
 export type VectorSearchResult = VectorRecord & { score: number };
 export type VectorSearchOptions = { limit: number; metadataFilter?: Metadata };
 
+export class MilvusUnavailableError extends Error {
+  readonly status = 503;
+  constructor(cause?: unknown) {
+    super("Milvus unavailable", cause === undefined ? undefined : { cause });
+    this.name = "MilvusUnavailableError";
+  }
+}
+
 export interface VectorStore {
   readonly provider: "local" | "milvus";
   upsert(context: RequestContext, records: VectorRecord[]): void | Promise<void>;
@@ -59,74 +67,113 @@ export class LocalVectorStore implements VectorStore {
 
 export type MilvusVectorStoreConfig = { address: string; token?: string; database?: string; collection: string };
 type MilvusClientLike = Pick<MilvusClient, "hasCollection" | "createCollection" | "loadCollection" | "upsert" | "delete" | "search" | "closeConnection">;
+type MilvusClientFactory = () => MilvusClientLike;
 
 /** Production vector adapter backed by one ownership-filtered Milvus collection. */
 export class MilvusVectorStore implements VectorStore {
   readonly provider = "milvus" as const;
   private initializedDimension = 0;
-  private readonly client: MilvusClientLike;
-  constructor(readonly config: MilvusVectorStoreConfig, client?: MilvusClientLike) {
-    this.client = client || new MilvusClient({ address: config.address, token: config.token, database: config.database });
+  private client?: MilvusClientLike;
+  private availabilityState: "unknown" | "available" | "unavailable" = "unknown";
+  private readonly clientFactory: MilvusClientFactory;
+
+  constructor(readonly config: MilvusVectorStoreConfig, clientOrFactory?: MilvusClientLike | MilvusClientFactory) {
+    this.clientFactory = typeof clientOrFactory === "function"
+      ? clientOrFactory
+      : clientOrFactory
+        ? () => clientOrFactory
+        : () => new MilvusClient({ address: config.address, token: config.token, database: config.database });
   }
+
+  get availability() { return this.availabilityState; }
 
   async upsert(context: RequestContext, records: VectorRecord[]) {
     if (!records.length) return;
     const dimension = records[0].embedding.length;
-    if (!dimension || records.some((record) => record.embedding.length !== dimension)) throw new Error("写入 Milvus 的向量维度不一致");
-    await this.ensureCollection(dimension);
-    await this.client.upsert({ collection_name: this.config.collection, data: records.map((record) => ({
-      chunk_id: record.id, tenant_id: context.tenantId, account_set_id: context.accountSetId, user_id: context.userId,
-      knowledge_base_id: record.knowledgeBaseId, document_id: record.documentId, content: record.content.slice(0, 65_535),
-      embedding: record.embedding, metadata: record.metadata, enabled: record.enabled,
-    })) });
+    if (!dimension || records.some((record) => record.embedding.length !== dimension)) throw new Error("Milvus vector dimensions must match");
+    await this.withClient("upsert", async (client) => {
+      await this.ensureCollection(client, dimension);
+      await client.upsert({ collection_name: this.config.collection, data: records.map((record) => ({
+        chunk_id: record.id, tenant_id: context.tenantId, account_set_id: context.accountSetId, user_id: context.userId,
+        knowledge_base_id: record.knowledgeBaseId, document_id: record.documentId, content: record.content.slice(0, 65_535),
+        embedding: record.embedding, metadata: record.metadata, enabled: record.enabled,
+      })) });
+    });
   }
+
   async deleteKnowledgeBase(context: RequestContext, knowledgeBaseId: string) {
-    await this.deleteByFilter(ownerFilter(context, knowledgeBaseId));
+    await this.withClient("delete", (client) => this.deleteByFilter(client, ownerFilter(context, knowledgeBaseId)));
   }
   async deleteDocument(context: RequestContext, documentId: string) {
-    await this.deleteByFilter(`${ownerFilter(context)} and document_id == ${literal(documentId)}`);
+    await this.withClient("delete", (client) => this.deleteByFilter(client, `${ownerFilter(context)} and document_id == ${literal(documentId)}`));
   }
   async deleteChunk(context: RequestContext, chunkId: string) {
-    await this.deleteByFilter(`${ownerFilter(context)} and chunk_id == ${literal(chunkId)}`);
+    await this.withClient("delete", (client) => this.deleteByFilter(client, `${ownerFilter(context)} and chunk_id == ${literal(chunkId)}`));
   }
   async search(context: RequestContext, knowledgeBaseId: string, queryEmbedding: number[], options: VectorSearchOptions) {
-    await this.ensureCollection(queryEmbedding.length);
-    const filter = [ownerFilter(context, knowledgeBaseId), "enabled == true", ...metadataExpressions(options.metadataFilter || {})].join(" and ");
-    const response = await this.client.search({ collection_name: this.config.collection, data: queryEmbedding, anns_field: "embedding",
-      limit: options.limit, metric_type: "IP", params: { nprobe: 16 }, filter,
-      output_fields: ["chunk_id", "knowledge_base_id", "document_id", "content", "metadata", "enabled"] });
-    const results = response.results as SearchResultData[];
-    return results.map((item) => ({ id: String(item.chunk_id || item.id), knowledgeBaseId: String(item.knowledge_base_id), documentId: String(item.document_id),
-      content: String(item.content || ""), embedding: [], metadata: normalizeMetadata(item.metadata), enabled: Boolean(item.enabled), score: Number(item.score) }));
+    return this.withClient("search", async (client) => {
+      await this.ensureCollection(client, queryEmbedding.length);
+      const filter = [ownerFilter(context, knowledgeBaseId), "enabled == true", ...metadataExpressions(options.metadataFilter || {})].join(" and ");
+      const response = await client.search({ collection_name: this.config.collection, data: queryEmbedding, anns_field: "embedding",
+        limit: options.limit, metric_type: "IP", params: { nprobe: 16 }, filter,
+        output_fields: ["chunk_id", "knowledge_base_id", "document_id", "content", "metadata", "enabled"] });
+      const results = response.results as SearchResultData[];
+      return results.map((item) => ({ id: String(item.chunk_id || item.id), knowledgeBaseId: String(item.knowledge_base_id), documentId: String(item.document_id),
+        content: String(item.content || ""), embedding: [], metadata: normalizeMetadata(item.metadata), enabled: Boolean(item.enabled), score: Number(item.score) }));
+    });
   }
-  close() { void this.client.closeConnection(); }
+  close() {
+    const client = this.client;
+    this.client = undefined;
+    if (client) void Promise.resolve(client.closeConnection()).catch(() => undefined);
+  }
 
-  private async deleteByFilter(filter: string) {
-    const exists = await this.client.hasCollection({ collection_name: this.config.collection });
-    if (exists.value) await this.client.delete({ collection_name: this.config.collection, filter });
+  private async deleteByFilter(client: MilvusClientLike, filter: string) {
+    const exists = await client.hasCollection({ collection_name: this.config.collection });
+    if (exists.value) await client.delete({ collection_name: this.config.collection, filter });
   }
-  private async ensureCollection(dimension: number) {
+  private async ensureCollection(client: MilvusClientLike, dimension: number) {
     if (this.initializedDimension) {
-      if (this.initializedDimension !== dimension) throw new Error(`Milvus Collection 向量维度为 ${this.initializedDimension}，当前模型返回 ${dimension} 维；请使用匹配的 Collection`);
+      if (this.initializedDimension !== dimension) throw new Error(`Milvus collection dimension is ${this.initializedDimension}, received ${dimension}`);
       return;
     }
-    const exists = await this.client.hasCollection({ collection_name: this.config.collection });
+    const exists = await client.hasCollection({ collection_name: this.config.collection });
     if (!exists.value) {
-      await this.client.createCollection({ collection_name: this.config.collection, consistency_level: "Session", enable_dynamic_field: false,
+      await client.createCollection({ collection_name: this.config.collection, consistency_level: "Session", enable_dynamic_field: false,
         fields: [varchar("chunk_id", 256, true), varchar("tenant_id", 256), varchar("account_set_id", 256), varchar("user_id", 256),
           varchar("knowledge_base_id", 256), varchar("document_id", 256), varchar("content", 65_535),
           { name: "embedding", data_type: DataType.FloatVector, dim: dimension }, { name: "metadata", data_type: DataType.JSON }, { name: "enabled", data_type: DataType.Bool }],
         index_params: { field_name: "embedding", index_name: "embedding_ip", index_type: "HNSW", metric_type: "IP", params: { M: 16, efConstruction: 200 } } });
     }
-    await this.client.loadCollection({ collection_name: this.config.collection });
+    await client.loadCollection({ collection_name: this.config.collection });
     this.initializedDimension = dimension;
+  }
+  private getClient() {
+    if (!this.client) this.client = this.clientFactory();
+    return this.client;
+  }
+  private async withClient<T>(operation: string, action: (client: MilvusClientLike) => Promise<T>): Promise<T> {
+    let client: MilvusClientLike | undefined;
+    try {
+      client = this.getClient();
+      const result = await action(client);
+      this.availabilityState = "available";
+      return result;
+    } catch (error) {
+      this.availabilityState = "unavailable";
+      this.initializedDimension = 0;
+      this.client = undefined;
+      if (client) void Promise.resolve(client.closeConnection()).catch(() => undefined);
+      console.warn(`[knowledge] Milvus unavailable during ${operation}: ${errorMessage(error)}`);
+      throw new MilvusUnavailableError(error);
+    }
   }
 }
 
 export function createVectorStore(): VectorStore {
   const provider = (process.env.VECTOR_STORE_PROVIDER || (process.env.NODE_ENV === "test" ? "local" : "milvus")).toLowerCase();
   if (provider === "local") {
-    if (process.env.NODE_ENV === "production") throw new Error("生产环境必须使用 Milvus，LocalVectorStore 仅允许开发和测试使用");
+    if (process.env.NODE_ENV === "production") throw new Error("Production must use Milvus; LocalVectorStore is restricted to development and tests");
     return new LocalVectorStore();
   }
   return new MilvusVectorStore({ address: process.env.MILVUS_ADDRESS || "http://localhost:19530", token: process.env.MILVUS_TOKEN,
@@ -139,4 +186,5 @@ function metadataExpressions(filter: Metadata) { return Object.entries(filter).m
 function literal(value: MetadataValue) { return typeof value === "string" ? JSON.stringify(value) : String(value); }
 function normalizeMetadata(value: unknown): Metadata { if (!value || typeof value !== "object" || Array.isArray(value)) return {}; return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([, item]) => ["string", "number", "boolean"].includes(typeof item))) as Metadata; }
 function metadataMatches(metadata: Metadata, filter: Metadata) { return Object.entries(filter).every(([key, value]) => metadata[key] === value); }
+function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }
 function cosine(left: number[], right: number[]) { let dot = 0; let leftNorm = 0; let rightNorm = 0; const length = Math.min(left.length, right.length); for (let index = 0; index < length; index += 1) { dot += left[index] * right[index]; leftNorm += left[index] ** 2; rightNorm += right[index] ** 2; } return leftNorm && rightNorm ? dot / Math.sqrt(leftNorm * rightNorm) : 0; }

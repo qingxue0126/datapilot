@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RequestContext } from "../core/types.js";
-import { LocalVectorStore, MilvusVectorStore } from "./vector-store.js";
+import { LocalVectorStore, MilvusUnavailableError, MilvusVectorStore } from "./vector-store.js";
 
 const alice: RequestContext = { tenantId: "tenant-a", accountSetId: "books-a", userId: "alice", role: "tenant_admin", sessionId: "auth-a" };
 
@@ -39,4 +39,30 @@ test("Milvus adapter creates the required schema and scopes every search before 
   assert.match(filter, /tenant_id == "tenant-a"/); assert.match(filter, /account_set_id == "books-a"/); assert.match(filter, /user_id == "alice"/);
   assert.match(filter, /knowledge_base_id == "kb"/); assert.match(filter, /enabled == true/); assert.match(filter, /metadata\["产品"\] == "好会计"/); assert.match(filter, /metadata\["模块"\] == "凭证"/);
   assert.equal(result[0].score, 0.91);
+});
+
+test("Milvus client is lazy and retries with a new client after an unavailable request", async () => {
+  let factoryCalls = 0;
+  const unavailable = {
+    hasCollection: async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:19530"); },
+    createCollection: async () => ({ status: {} }), loadCollection: async () => ({ status: {} }), upsert: async () => ({ status: {} }),
+    delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
+  };
+  const recovered = {
+    hasCollection: async () => ({ value: true }), createCollection: async () => ({ status: {} }), loadCollection: async () => ({ status: {} }),
+    upsert: async () => ({ status: {} }), delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
+  };
+  const vectors = new MilvusVectorStore({ address: "http://milvus:19530", collection: "knowledge" }, () => {
+    factoryCalls += 1;
+    return (factoryCalls === 1 ? unavailable : recovered) as never;
+  });
+
+  assert.equal(factoryCalls, 0);
+  assert.equal(vectors.availability, "unknown");
+  await assert.rejects(() => vectors.search(alice, "kb", [1, 0], { limit: 5 }), MilvusUnavailableError);
+  assert.equal(factoryCalls, 1);
+  assert.equal(vectors.availability, "unavailable");
+  assert.deepEqual(await vectors.search(alice, "kb", [1, 0], { limit: 5 }), []);
+  assert.equal(factoryCalls, 2);
+  assert.equal(vectors.availability, "available");
 });

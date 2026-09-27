@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import express, { type Request } from "express";
+import { AccountStore } from "../auth/account-store.js";
+import { installAuthRoutes } from "../auth/auth-routes.js";
 import type { RequestContext } from "../core/types.js";
 import { TestEmbeddingProvider } from "./embedding.js";
 import { installKnowledgeRoutes } from "./knowledge-routes.js";
 import { KnowledgeStore } from "./knowledge-store.js";
-import { LocalVectorStore } from "./vector-store.js";
+import { LocalVectorStore, MilvusVectorStore } from "./vector-store.js";
 
 test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering, and owner isolation", async () => {
   const store = new KnowledgeStore(":memory:");
@@ -69,3 +74,58 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     server.close(); await once(server, "close"); vectors.close(); store.close();
   }
 });
+
+test("API and auth stay available while Milvus returns 503, then retrieval recovers without restart", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "datapilot-milvus-"));
+  const store = new KnowledgeStore(":memory:");
+  let factoryCalls = 0;
+  const unavailable = {
+    hasCollection: async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:19530"); },
+    createCollection: async () => ({ status: {} }), loadCollection: async () => ({ status: {} }), upsert: async () => ({ status: {} }),
+    delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
+  };
+  const recovered = {
+    hasCollection: async () => ({ value: true }), createCollection: async () => ({ status: {} }), loadCollection: async () => ({ status: {} }),
+    upsert: async () => ({ status: {} }), delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
+  };
+  const vectors = new MilvusVectorStore({ address: "http://milvus:19530", collection: "knowledge" }, () => {
+    factoryCalls += 1;
+    return (factoryCalls === 1 ? unavailable : recovered) as never;
+  });
+  const app = express(); app.use(express.json());
+  installAuthRoutes(app, new AccountStore(join(directory, "accounts.json")));
+  installKnowledgeRoutes(app, store, vectors, new TestEmbeddingProvider(), () => aliceContext);
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
+  const address = server.address(); if (!address || typeof address === "string") throw new Error("Test API did not start");
+  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    assert.equal(factoryCalls, 0, "starting the API must not initialize Milvus");
+    const registered = await fetch(`${base}/api/auth/register`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier: "milvus-test", password: "Secure123", confirmPassword: "Secure123" }),
+    });
+    assert.equal(registered.status, 201);
+    assert.equal(factoryCalls, 0, "auth must not initialize Milvus");
+
+    const created = await fetch(`${base}/api/knowledge-bases`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Recovery test" }),
+    }).then((response) => response.json()) as { knowledgeBase: { id: string } };
+    const retrieve = () => fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}/retrieve`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: "test" }),
+    });
+    const unavailableResponse = await retrieve();
+    assert.equal(unavailableResponse.status, 503);
+    assert.deepEqual(await unavailableResponse.json(), { error: "Milvus unavailable" });
+
+    const recoveredResponse = await retrieve();
+    assert.equal(recoveredResponse.status, 200);
+    assert.deepEqual((await recoveredResponse.json() as { items: unknown[] }).items, []);
+    assert.equal(factoryCalls, 2);
+  } finally {
+    server.close(); await once(server, "close"); vectors.close(); store.close(); rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+const aliceContext: RequestContext = {
+  tenantId: "tenant-a", accountSetId: "books-a", userId: "alice", role: "tenant_admin", sessionId: "auth-session",
+};

@@ -6,7 +6,7 @@ import * as XLSX from "xlsx";
 import type { RequestContext } from "../core/types.js";
 import type { EmbeddingProvider } from "./embedding.js";
 import type { KnowledgeStore, ParserType, RetrievalConfig } from "./knowledge-store.js";
-import type { Metadata, VectorRecord, VectorStore } from "./vector-store.js";
+import { MilvusUnavailableError, type Metadata, type VectorRecord, type VectorStore } from "./vector-store.js";
 
 export const supportedDocumentExtensions = new Set([".pdf", ".docx", ".txt", ".md", ".xlsx", ".csv"]);
 const tableExtensions = new Set([".xlsx", ".csv"]);
@@ -94,6 +94,7 @@ export class DocumentPipeline {
       return this.store.document(context, documentId);
     } catch (error) {
       this.store.setDocumentStatus(context, documentId, "failed", error instanceof Error ? error.message : "文档处理失败");
+      if (error instanceof MilvusUnavailableError) throw error;
       return this.store.document(context, documentId);
     }
   }
