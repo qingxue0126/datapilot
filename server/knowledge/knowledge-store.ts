@@ -8,10 +8,14 @@ import type { Metadata } from "./vector-store.js";
 export type ParserType = "general" | "table" | "qa";
 export type ColumnRole = "index" | "metadata" | "both" | "ignore";
 export type ColumnMode = "auto" | "manual";
+export type ChunkStrategy = "fixed" | "paragraph" | "heading" | "table-row" | "qa-pair";
+export type VectorIndexType = "HNSW";
+export type VectorMetricType = "COSINE" | "IP" | "L2";
 
 export type RetrievalConfig = {
   language: "zh-CN" | "en";
   parserType: ParserType;
+  chunkStrategy: ChunkStrategy;
   chunkSize: number;
   chunkOverlap: number;
   questionColumn: string;
@@ -20,6 +24,10 @@ export type RetrievalConfig = {
   columnMode: ColumnMode;
   columnRoles: Record<string, ColumnRole>;
   embeddingModel: string;
+  indexType: VectorIndexType;
+  metricType: VectorMetricType;
+  hnswM: number;
+  hnswEfConstruction: number;
   topK: number;
   scoreThreshold: number;
   rerank: boolean;
@@ -138,6 +146,10 @@ export class KnowledgeStore {
         updated_at TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS knowledge_chunks_document_idx ON knowledge_chunks (document_id, chunk_index);
+      CREATE TABLE IF NOT EXISTS knowledge_meta (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL
+      );
     `);
     this.ensureColumn("knowledge_bases", "requires_reindex", "INTEGER NOT NULL DEFAULT 0");
     this.ensureColumn("knowledge_documents", "parser_type", "TEXT NOT NULL DEFAULT 'general'");
@@ -147,6 +159,7 @@ export class KnowledgeStore {
     this.ensureColumn("knowledge_chunks", "enabled", "INTEGER NOT NULL DEFAULT 1");
     this.ensureColumn("knowledge_chunks", "updated_at", "TEXT");
     this.database.exec("UPDATE knowledge_chunks SET updated_at = created_at WHERE updated_at IS NULL");
+    this.migrateVectorCollectionScope();
     this.repairDocumentFilenames();
   }
 
@@ -199,11 +212,15 @@ export class KnowledgeStore {
     const description = input.description === undefined ? current.description : String(input.description).trim().slice(0, 500);
     const previousConfig = parseConfig(current.config_json);
     const config = normalizeConfig({ ...previousConfig, ...input.config });
-    const embeddingChanged = config.embeddingModel !== previousConfig.embeddingModel;
+    const vectorConfigChanged = config.embeddingModel !== previousConfig.embeddingModel
+      || config.indexType !== previousConfig.indexType
+      || config.metricType !== previousConfig.metricType
+      || config.hnswM !== previousConfig.hnswM
+      || config.hnswEfConstruction !== previousConfig.hnswEfConstruction;
     this.database.prepare(`
       UPDATE knowledge_bases SET name = ?, description = ?, config_json = ?,
         requires_reindex = CASE WHEN ? THEN 1 ELSE requires_reindex END, updated_at = ? WHERE id = ?
-    `).run(name, description, JSON.stringify(config), embeddingChanged ? 1 : 0, now, id);
+    `).run(name, description, JSON.stringify(config), vectorConfigChanged ? 1 : 0, now, id);
     return this.get(context, id).knowledgeBase;
   }
 
@@ -217,6 +234,14 @@ export class KnowledgeStore {
     this.ownedBase(context, id);
     this.database.prepare("UPDATE knowledge_bases SET requires_reindex = 1, updated_at = ? WHERE id = ?")
       .run(new Date().toISOString(), id);
+  }
+
+  private migrateVectorCollectionScope() {
+    const key = "milvus_collection_scope_v2";
+    const migrated = this.database.prepare("SELECT value FROM knowledge_meta WHERE key = ?").get(key);
+    if (migrated) return;
+    this.database.exec("UPDATE knowledge_bases SET requires_reindex = 1 WHERE id IN (SELECT DISTINCT knowledge_base_id FROM knowledge_chunks)");
+    this.database.prepare("INSERT INTO knowledge_meta (key, value) VALUES (?, ?)").run(key, new Date().toISOString());
   }
 
   delete(context: RequestContext, id: string) {
@@ -379,6 +404,7 @@ export function normalizeDocumentFilename(value: string) {
 export const defaultRetrievalConfig: RetrievalConfig = {
   language: "zh-CN",
   parserType: "general",
+  chunkStrategy: "fixed",
   chunkSize: 800,
   chunkOverlap: 120,
   questionColumn: "问题",
@@ -387,6 +413,10 @@ export const defaultRetrievalConfig: RetrievalConfig = {
   columnMode: "auto",
   columnRoles: {},
   embeddingModel: process.env.NODE_ENV === "production" ? "" : "local-hash-embedding-v1",
+  indexType: "HNSW",
+  metricType: "IP",
+  hnswM: 16,
+  hnswEfConstruction: 200,
   topK: 5,
   scoreThreshold: 0.2,
   rerank: false,
@@ -398,6 +428,7 @@ export function normalizeConfig(input: Partial<RetrievalConfig> = {}): Retrieval
   return {
     language: input.language === "en" ? "en" : "zh-CN",
     parserType: parserType(input.parserType),
+    chunkStrategy: chunkStrategy(input.chunkStrategy, input.parserType),
     chunkSize,
     chunkOverlap: integer(input.chunkOverlap, defaultRetrievalConfig.chunkOverlap, 0, Math.max(0, chunkSize - 1)),
     questionColumn: cleanColumn(input.questionColumn, defaultRetrievalConfig.questionColumn),
@@ -406,6 +437,10 @@ export function normalizeConfig(input: Partial<RetrievalConfig> = {}): Retrieval
     columnMode: input.columnMode === "manual" || (!input.columnMode && Object.keys(input.columnRoles || {}).length > 0) ? "manual" : "auto",
     columnRoles: normalizeColumnRoles(input.columnRoles),
     embeddingModel: cleanModel(input.embeddingModel, defaultRetrievalConfig.embeddingModel),
+    indexType: "HNSW",
+    metricType: metricType(input.metricType),
+    hnswM: integer(input.hnswM, defaultRetrievalConfig.hnswM, 4, 64),
+    hnswEfConstruction: integer(input.hnswEfConstruction, defaultRetrievalConfig.hnswEfConstruction, 8, 512),
     topK: integer(input.topK, defaultRetrievalConfig.topK, 1, 50),
     scoreThreshold: decimal(input.scoreThreshold, defaultRetrievalConfig.scoreThreshold, -1, 1),
     rerank: input.rerank === undefined ? defaultRetrievalConfig.rerank : Boolean(input.rerank),
@@ -448,6 +483,13 @@ function cleanName(value: unknown) { return String(value || "").replace(/\s+/g, 
 function cleanModel(value: unknown, fallback: string) { return String(value ?? fallback).trim().slice(0, 120) || fallback; }
 function cleanColumn(value: unknown, fallback: string) { return String(value || fallback).trim().slice(0, 120) || fallback; }
 function parserType(value: unknown): ParserType { return value === "table" || value === "qa" ? value : "general"; }
+function chunkStrategy(value: unknown, parser: unknown): ChunkStrategy {
+  const type = parserType(parser);
+  if (type === "table") return "table-row";
+  if (type === "qa") return "qa-pair";
+  return value === "paragraph" || value === "heading" ? value : "fixed";
+}
+function metricType(value: unknown): VectorMetricType { return value === "COSINE" || value === "L2" ? value : "IP"; }
 function normalizeColumnRoles(value: unknown): Record<string, ColumnRole> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const allowed = new Set<ColumnRole>(["index", "metadata", "both", "ignore"]);

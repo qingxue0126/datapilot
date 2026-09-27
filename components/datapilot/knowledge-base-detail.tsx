@@ -9,8 +9,10 @@ export type Metadata = Record<string, string | number | boolean>;
 export type ColumnRole = "index" | "metadata" | "both" | "ignore";
 export type RetrievalConfig = {
   language: "zh-CN" | "en";
-  parserType: ParserType; chunkSize: number; chunkOverlap: number; questionColumn: string; answerColumn: string;
-  metadataFields: string[]; columnMode: "auto" | "manual"; columnRoles: Record<string, ColumnRole>; embeddingModel: string; topK: number; scoreThreshold: number; rerank: boolean; rerankModel: string;
+  parserType: ParserType; chunkStrategy: "fixed" | "paragraph" | "heading" | "table-row" | "qa-pair"; chunkSize: number; chunkOverlap: number; questionColumn: string; answerColumn: string;
+  metadataFields: string[]; columnMode: "auto" | "manual"; columnRoles: Record<string, ColumnRole>; embeddingModel: string;
+  indexType: "HNSW"; metricType: "COSINE" | "IP" | "L2"; hnswM: number; hnswEfConstruction: number;
+  topK: number; scoreThreshold: number; rerank: boolean; rerankModel: string;
 };
 export type KnowledgeBaseData = {
   id: string; name: string; description: string; documentCount: number; chunkCount: number; requiresReindex: boolean;
@@ -69,6 +71,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
       const configuredParser = detail.knowledgeBase.config.parserType;
       const parserType = isTable ? (configuredParser === "general" ? "table" : configuredParser) : "general";
       const body = new FormData(); body.append("file", file); body.append("parserType", parserType);
+      body.append("chunkStrategy", detail.knowledgeBase.config.chunkStrategy);
       body.append("questionColumn", detail.knowledgeBase.config.questionColumn); body.append("answerColumn", detail.knowledgeBase.config.answerColumn);
       body.append("metadataFields", JSON.stringify(detail.knowledgeBase.config.metadataFields));
       body.append("columnMode", detail.knowledgeBase.config.columnMode);
@@ -124,22 +127,31 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     const columnMode = String(form.get("columnMode") || "auto");
     const columnRoles = columnMode === "manual" ? Object.fromEntries(columns.map((column) => [column, String(form.get(`columnRole:${column}`) || "index")])) : {};
     const metadataFields = columnMode === "manual" ? Object.entries(columnRoles).filter(([, role]) => role === "metadata" || role === "both").map(([column]) => column) : detail.knowledgeBase.config.metadataFields;
+    const chunkSizeValue = form.get("chunkSize");
+    const chunkOverlapValue = form.get("chunkOverlap");
     const config = {
       language: String(form.get("language")) as RetrievalConfig["language"],
-      parserType: String(form.get("parserType")), chunkSize: Number(form.get("chunkSize")), chunkOverlap: Number(form.get("chunkOverlap")),
-      questionColumn: String(form.get("questionColumn")), answerColumn: String(form.get("answerColumn")),
+      parserType: String(form.get("parserType")), chunkStrategy: String(form.get("chunkStrategy")),
+      chunkSize: chunkSizeValue === null ? detail.knowledgeBase.config.chunkSize : Number(chunkSizeValue),
+      chunkOverlap: chunkOverlapValue === null ? detail.knowledgeBase.config.chunkOverlap : Number(chunkOverlapValue),
+      questionColumn: form.get("questionColumn") === null ? detail.knowledgeBase.config.questionColumn : String(form.get("questionColumn")),
+      answerColumn: form.get("answerColumn") === null ? detail.knowledgeBase.config.answerColumn : String(form.get("answerColumn")),
       metadataFields, columnMode, columnRoles, embeddingModel: String(form.get("embeddingModel")),
-      topK: Number(form.get("topK")), scoreThreshold: Number(form.get("scoreThreshold")),
-      rerank: form.get("rerank") === "on", rerankModel: String(form.get("rerankModel")),
+      indexType: String(form.get("indexType")), metricType: String(form.get("metricType")),
+      hnswM: Number(form.get("hnswM")), hnswEfConstruction: Number(form.get("hnswEfConstruction")),
+      topK: detail.knowledgeBase.config.topK, scoreThreshold: detail.knowledgeBase.config.scoreThreshold,
+      rerank: detail.knowledgeBase.config.rerank, rerankModel: detail.knowledgeBase.config.rerankModel,
     };
     setBusy(true);
     try {
-      const previousModel = detail.knowledgeBase.config.embeddingModel;
+      const previous = detail.knowledgeBase.config;
       const data = await responseJson(await apiRequest(`/api/knowledge-bases/${encodeURIComponent(detail.knowledgeBase.id)}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: String(form.get("name") || kb.name), description: String(form.get("description") || ""), config }),
       }));
       await refresh();
-      setNotice(data.knowledgeBase.requiresReindex && previousModel !== config.embeddingModel ? "Embedding 模型已切换，已有向量需要重新向量化。" : "知识库配置已保存");
+      const vectorChanged = previous.embeddingModel !== config.embeddingModel || previous.metricType !== config.metricType
+        || previous.hnswM !== config.hnswM || previous.hnswEfConstruction !== config.hnswEfConstruction;
+      setNotice(data.knowledgeBase.requiresReindex && vectorChanged ? "向量或索引配置已变更，请重新向量化以重建索引。" : "知识库配置已保存");
     } catch (error) { setNotice(message(error, "保存配置失败")); }
     finally { setBusy(false); }
   }
@@ -151,7 +163,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
       const config = detail.knowledgeBase.config;
       const data = await responseJson(await apiRequest(`/api/documents/${encodeURIComponent(selectedDocument.id)}/reparse`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-          parserType: config.parserType, chunkSize: config.chunkSize, chunkOverlap: config.chunkOverlap,
+          parserType: config.parserType, chunkStrategy: config.chunkStrategy, chunkSize: config.chunkSize, chunkOverlap: config.chunkOverlap,
           questionColumn: config.questionColumn, answerColumn: config.answerColumn, metadataFields: config.metadataFields,
           columnMode: config.columnMode, columnRoles: config.columnRoles,
         }),
@@ -204,7 +216,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
       <button className="danger-action" onClick={() => setPendingDelete({ type: "knowledge-base" })} disabled={busy}>删除知识库</button>
     </div></div>
     {notice && <p className="knowledge-notice">{notice}</p>}
-    {kb.requiresReindex && <div className="knowledge-reindex-warning"><span>Embedding 模型已变更，现有向量需要重建。</span><button onClick={() => void revectorize()} disabled={busy}>重新向量化</button></div>}
+    {kb.requiresReindex && <div className="knowledge-reindex-warning"><span>向量或索引配置已变更，现有向量索引需要重建。</span><button onClick={() => void revectorize()} disabled={busy}>重新向量化</button></div>}
     <nav className="knowledge-tabs" aria-label="知识库详情">
       {([['documents', '文件列表'], ['chunks', '分块结果'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => openTab(value)}>{label}</button>)}
     </nav>
@@ -290,30 +302,50 @@ function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
 }) {
   const config = kb.config;
   const [columnMode, setColumnMode] = useState(config.columnMode || (Object.keys(config.columnRoles || {}).length ? "manual" : "auto"));
+  const [parserType, setParserType] = useState<ParserType>(config.parserType);
+  const [chunkStrategy, setChunkStrategy] = useState(config.chunkStrategy);
+  function selectParser(next: ParserType) {
+    setParserType(next);
+    setChunkStrategy(next === "table" ? "table-row" : next === "qa" ? "qa-pair" : ["fixed", "paragraph", "heading"].includes(chunkStrategy) ? chunkStrategy : "fixed");
+  }
   return <form className="knowledge-settings" key={kb.updatedAt} onSubmit={save}>
-    <section className="knowledge-settings-block"><header><h3>基础信息</h3><p>管理知识库名称、语言与描述。知识库继续遵循当前租户、账套和用户隔离。</p></header><div className="knowledge-settings-fields">
+    <section className="knowledge-settings-block"><header><h3>基本信息</h3><p>管理知识库名称、语言与描述。知识库继续遵循当前租户、账套和用户隔离。</p></header><div className="knowledge-settings-fields">
       <label><span><b>*</b> 名称</span><input name="name" required maxLength={80} defaultValue={kb.name} /></label>
       <label><span>语言</span><select name="language" defaultValue={config.language}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
       <label><span>描述</span><textarea name="description" rows={3} maxLength={500} defaultValue={kb.description} placeholder="请输入知识库描述" /></label>
       <label><span>权限</span><select disabled defaultValue="private"><option value="private">私有（当前租户 / 账套 / 用户）</option></select></label>
     </div></section>
 
-    <section className="knowledge-settings-block"><header><div><h3>向量信息</h3><p>Embedding 模型来自模型管理中已启用的 Embedding 类型模型。</p></div>{kb.requiresReindex && <button type="button" onClick={() => void revectorize()} disabled={busy}>重新向量化</button>}</header><div className="knowledge-settings-fields">
-      <label><span><b>*</b> Embedding 模型</span><select name="embeddingModel" required defaultValue={config.embeddingModel}><option value="" disabled>选择已启用的 Embedding 模型</option>{process.env.NODE_ENV !== "production" && <option value="local-hash-embedding-v1">本地 Hash（仅开发/测试）</option>}{models.map((model) => <option value={model.id} key={model.id}>{model.name} · {model.modelId}</option>)}</select></label>
-      <div className="knowledge-setting-pair"><label><span>TopK</span><input name="topK" type="number" min="1" max="50" defaultValue={config.topK} /></label><label><span>Score Threshold</span><input name="scoreThreshold" type="number" min="-1" max="1" step="0.01" defaultValue={config.scoreThreshold} /></label></div>
-      <label className="knowledge-setting-switch"><span>Rerank</span><span><input name="rerank" type="checkbox" defaultChecked={config.rerank} /> 启用轻量 rerank</span></label>
-      <label><span>Rerank 模型</span><input name="rerankModel" defaultValue={config.rerankModel} /></label>
+    <section className="knowledge-settings-block"><header><h3>解析</h3><p>选择文档解析器。Table 和 QA 会自动识别工作表表头与业务行。</p></header><div className="knowledge-settings-fields">
+      <label><span>Parser Type</span><select name="parserType" value={parserType} onChange={(event) => selectParser(event.target.value as ParserType)}><option value="general">General</option><option value="table">Table</option><option value="qa">QA</option></select></label>
+      {parserType === "qa" && <div className="knowledge-setting-pair"><label><span>问题列</span><input name="questionColumn" defaultValue={config.questionColumn} /></label><label><span>答案列</span><input name="answerColumn" defaultValue={config.answerColumn} /></label></div>}
+      {(parserType === "table" || parserType === "qa") && <p className="knowledge-setting-note">上传 XLSX / CSV 后自动读取 Sheet、表头和行；列角色在下方“元数据”区设置。</p>}
     </div></section>
 
-    <section className="knowledge-settings-block"><header><h3>解析</h3><p>选择内置解析器并配置分块方式；列角色变更在重新解析已有文档后生效。</p></header><div className="knowledge-settings-fields">
-      <label><span>解析方法</span><span className="parser-method"><input type="radio" checked readOnly /> 内置 <input type="radio" disabled /> Pipeline（暂未开放）</span></label>
-      <label><span><b>*</b> 内置 Parser</span><select name="parserType" defaultValue={config.parserType}><option value="general">General</option><option value="table">Table</option><option value="qa">QA</option></select></label>
-      <div className="knowledge-setting-pair"><label><span>Chunk Size</span><input name="chunkSize" type="number" min="100" max="4000" defaultValue={config.chunkSize} /></label><label><span>Chunk Overlap</span><input name="chunkOverlap" type="number" min="0" max="3999" defaultValue={config.chunkOverlap} /></label></div>
-      <div className="knowledge-setting-pair"><label><span>问题列（QA）</span><input name="questionColumn" defaultValue={config.questionColumn} /></label><label><span>答案列（QA）</span><input name="answerColumn" defaultValue={config.answerColumn} /></label></div>
-      <fieldset className="column-role-settings"><legend>Column Mode / Metadata Fields</legend><div className="column-mode"><label><input type="radio" name="columnMode" value="auto" checked={columnMode === "auto"} onChange={() => setColumnMode("auto")} /> Auto</label><label><input type="radio" name="columnMode" value="manual" checked={columnMode === "manual"} onChange={() => setColumnMode("manual")} /> Manual</label></div>
-        {columnMode === "auto" ? <p className="column-mode-description">所有列都会包含在 Chunk 正文中，并同时保存为元数据（RAGFlow 默认方式）。</p> : <><p className="column-mode-description">选择字段进入 Chunk 正文（索引）、仅作为可过滤元数据、两者兼有或忽略。变更对新解析生效；已有文档需要重新解析。</p>
-          {columns.length ? <div className="column-role-list">{columns.map((column) => <label key={column}><span>{column}</span><select name={`columnRole:${column}`} defaultValue={config.columnRoles?.[column] || (config.metadataFields.includes(column) ? "metadata" : "index")}><option value="index">索引</option><option value="metadata">元数据</option><option value="both">索引 + 元数据</option><option value="ignore">忽略</option></select></label>)}</div> : <small>上传 XLSX / CSV 后，这里会显示表头字段。</small>}</>}
+    <section className="knowledge-settings-block"><header><h3>分块</h3><p>General 可按固定长度或段落分块；Table 和 QA 默认按一行业务记录分块。</p></header><div className="knowledge-settings-fields">
+      <label><span>Chunk Strategy</span><select name="chunkStrategy" value={chunkStrategy} onChange={(event) => setChunkStrategy(event.target.value as RetrievalConfig["chunkStrategy"])}>
+        {parserType === "general" ? <><option value="fixed">Fixed</option><option value="paragraph">Paragraph</option><option value="heading" disabled>Heading（预留）</option></> : parserType === "table" ? <option value="table-row">Table Row</option> : <option value="qa-pair">QA Pair</option>}
+      </select></label>
+      {parserType === "general" && (chunkStrategy === "fixed" || chunkStrategy === "paragraph") && <div className="knowledge-setting-pair"><label><span>Chunk Size</span><input name="chunkSize" type="number" min="100" max="4000" defaultValue={config.chunkSize} /></label>{chunkStrategy === "fixed" && <label><span>Chunk Overlap</span><input name="chunkOverlap" type="number" min="0" max="3999" defaultValue={config.chunkOverlap} /></label>}</div>}
+      {(parserType === "table" || parserType === "qa") && <p className="knowledge-setting-note">{parserType === "table" ? "每行业务数据生成一个 Chunk，不使用 Chunk Size / Overlap。" : "每组问题和答案生成一个 Chunk，不使用 Chunk Size / Overlap。"}</p>}
+    </div></section>
+
+    <section className="knowledge-settings-block"><header><h3>元数据</h3><p>控制表格列进入 Chunk 正文、可过滤 Metadata、两者或忽略。</p></header><div className="knowledge-settings-fields">
+      <fieldset className="column-role-settings standalone"><legend>Column Mode / Metadata Fields</legend><div className="column-mode"><label><input type="radio" name="columnMode" value="auto" checked={columnMode === "auto"} onChange={() => setColumnMode("auto")} /> Auto</label><label><input type="radio" name="columnMode" value="manual" checked={columnMode === "manual"} onChange={() => setColumnMode("manual")} /> Manual</label></div>
+        {columnMode === "auto" ? <p className="column-mode-description">所有列都会包含在 Chunk 正文中，并同时保存为元数据（RAGFlow 默认方式）。</p> : <><p className="column-mode-description">Index/Text 进入 Chunk content；Metadata 仅用于过滤；Both 同时进入；Ignore 忽略。已有文档需要重新解析。</p>
+          {columns.length ? <div className="column-role-list">{columns.map((column) => <label key={column}><span>{column}</span><select name={`columnRole:${column}`} defaultValue={config.columnRoles?.[column] || (config.metadataFields.includes(column) ? "metadata" : "index")}><option value="index">Index / Text</option><option value="metadata">Metadata</option><option value="both">Both</option><option value="ignore">Ignore</option></select></label>)}</div> : <small>上传 XLSX / CSV 后，这里会显示表头字段。</small>}</>}
       </fieldset>
+    </div></section>
+
+    <section className="knowledge-settings-block"><header><div><h3>嵌入</h3><p>仅显示模型管理中已启用的 Embedding 模型；向量维度由模型响应自动确定。</p></div>{kb.requiresReindex && <button type="button" onClick={() => void revectorize()} disabled={busy}>重新向量化</button>}</header><div className="knowledge-settings-fields">
+      <label><span><b>*</b> Embedding Model</span><select name="embeddingModel" required defaultValue={config.embeddingModel}><option value="" disabled>选择已启用的 Embedding 模型</option>{process.env.NODE_ENV !== "production" && <option value="local-hash-embedding-v1">本地 Hash（仅开发/测试）</option>}{models.map((model) => <option value={model.id} key={model.id}>{model.name} · {model.modelId}</option>)}</select></label>
+      <label><span>向量维度</span><input value="自动（由 Embedding 模型决定）" readOnly aria-readonly="true" /></label>
+    </div></section>
+
+    <section className="knowledge-settings-block"><header><h3>索引</h3><p>配置当前知识库的 Milvus 向量索引；变更后需要重新向量化并重建索引。</p></header><div className="knowledge-settings-fields">
+      <label><span>Index Type</span><select name="indexType" defaultValue={config.indexType}><option value="HNSW">HNSW</option></select></label>
+      <label><span>Metric Type</span><select name="metricType" defaultValue={config.metricType}><option value="COSINE">COSINE</option><option value="IP">IP</option><option value="L2">L2</option></select></label>
+      <details className="knowledge-index-advanced"><summary>高级参数</summary><div className="knowledge-setting-pair"><label><span>M</span><input name="hnswM" type="number" min="4" max="64" defaultValue={config.hnswM} /></label><label><span>efConstruction</span><input name="hnswEfConstruction" type="number" min="8" max="512" defaultValue={config.hnswEfConstruction} /></label></div></details>
     </div></section>
     <footer className="knowledge-settings-actions"><button className="primary-action" disabled={busy}>{busy ? "保存中…" : "保存配置"}</button></footer>
   </form>;

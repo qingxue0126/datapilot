@@ -54,6 +54,20 @@ test("changing the embedding model marks vectors stale until reindexed", () => {
   } finally { store.close(); }
 });
 
+test("index settings are normalized and mark vectors stale", () => {
+  const store = new KnowledgeStore(":memory:");
+  try {
+    const base = store.create(alice, { name: "FAQ" });
+    assert.deepEqual({ indexType: base.config.indexType, metricType: base.config.metricType, m: base.config.hnswM, ef: base.config.hnswEfConstruction },
+      { indexType: "HNSW", metricType: "IP", m: 16, ef: 200 });
+    const changed = store.update(alice, base.id, { config: { metricType: "COSINE", hnswM: 24, hnswEfConstruction: 256 } });
+    assert.equal(changed.requiresReindex, true);
+    assert.equal(changed.config.metricType, "COSINE");
+    assert.equal(changed.config.hnswM, 24);
+    assert.equal(changed.config.hnswEfConstruction, 256);
+  } finally { store.close(); }
+});
+
 test("chunking honors size and overlap", () => {
   const chunks = chunkText("一".repeat(1200), 500, 100);
   assert.deepEqual(chunks.map((item) => item.length), [500, 500, 400]);

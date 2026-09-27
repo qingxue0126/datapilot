@@ -484,15 +484,21 @@ button:disabled { cursor: not-allowed; }
 .knowledge-setting-switch input, .parser-method input, .column-mode input { width: 17px; height: 17px; margin: 0; accent-color: var(--green); }
 .parser-method input:nth-of-type(2) { margin-left: 28px; }
 .column-role-settings { margin: 14px 0 0 250px; border: 1px solid #dfe7e3; border-radius: 10px; padding: 18px; }
+.column-role-settings.standalone { margin: 14px 0 0; }
 .column-role-settings legend { padding: 0 7px; color: #41574b; font-size: 15px; font-weight: 650; }
 .column-role-settings > p { margin: 13px 0 18px; color: #74847b; font-size: 13px; line-height: 1.6; }
 .column-mode { gap: 24px; }
 .column-role-list { display: grid; gap: 9px; }
 .column-role-list > label { display: grid; grid-template-columns: minmax(150px,1fr) 220px; align-items: center; gap: 15px; color: #52645a; }
 .column-role-list select { min-height: 40px; }
+.knowledge-setting-note { margin: 8px 0 8px 250px; color: #74847b; font-size: 14px; line-height: 1.65; }
+.knowledge-index-advanced { margin: 10px 0 4px 250px; border-top: 1px solid #e5ebe8; padding-top: 12px; }
+.knowledge-index-advanced summary { color: #486358; cursor: pointer; font-size: 14px; font-weight: 650; }
+.knowledge-index-advanced .knowledge-setting-pair { margin-left: 0; }
+.knowledge-settings-fields input[readonly] { color: #7d8983; background: #f4f6f5; }
 .knowledge-settings-actions { position: sticky; bottom: 0; display: flex; justify-content: flex-end; padding: 16px 22px; border: 1px solid #dfe7e3; border-radius: 11px; background: rgba(250,252,250,.94); backdrop-filter: blur(8px); }
 .knowledge-settings-actions .primary-action { min-width: 120px; }
-@media (max-width: 850px) { .knowledge-settings-fields > label { grid-template-columns: 1fr; gap: 8px; }.knowledge-setting-pair, .column-role-settings { margin-left: 0; }.knowledge-setting-pair { grid-template-columns: 1fr; }.column-role-list > label { grid-template-columns: 1fr; gap: 6px; } }
+@media (max-width: 850px) { .knowledge-settings-fields > label { grid-template-columns: 1fr; gap: 8px; }.knowledge-setting-pair, .column-role-settings, .knowledge-setting-note, .knowledge-index-advanced { margin-left: 0; }.knowledge-setting-pair { grid-template-columns: 1fr; }.column-role-list > label { grid-template-columns: 1fr; gap: 6px; } }
 
 /* Model registry */
 .model-management-page { width: min(1040px, calc(100% - 56px)); }

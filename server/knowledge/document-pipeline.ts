@@ -12,7 +12,7 @@ export const supportedDocumentExtensions = new Set([".pdf", ".docx", ".txt", ".m
 const tableExtensions = new Set([".xlsx", ".csv"]);
 const pdf = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<{ text: string }>;
 
-export type ParserOptions = Pick<RetrievalConfig, "parserType" | "chunkSize" | "chunkOverlap" | "questionColumn" | "answerColumn" | "metadataFields"> & { columnMode?: RetrievalConfig["columnMode"]; columnRoles?: RetrievalConfig["columnRoles"] };
+export type ParserOptions = Pick<RetrievalConfig, "parserType" | "chunkSize" | "chunkOverlap" | "questionColumn" | "answerColumn" | "metadataFields"> & { chunkStrategy?: RetrievalConfig["chunkStrategy"]; columnMode?: RetrievalConfig["columnMode"]; columnRoles?: RetrievalConfig["columnRoles"] };
 export type ParsedChunk = { id: string; content: string; metadata: Metadata; enabled: boolean };
 export type ParseResult = { parserType: ParserType; columns: string[]; chunks: ParsedChunk[] };
 export type DocumentPreview =
@@ -60,7 +60,7 @@ export class DocumentPipeline {
       await this.vectors.upsert(context, batch.map((chunk, offset) => ({
         id: chunk.id, knowledgeBaseId, documentId: chunk.documentId, content: chunk.content,
         embedding: vectors[offset], metadata: chunk.metadata, enabled: true,
-      })));
+      })), vectorIndexConfig(base.config));
     }
     this.store.markReindexed(context, knowledgeBaseId);
     return { chunks: enabled.length };
@@ -83,15 +83,16 @@ export class DocumentPipeline {
       }));
       this.store.replaceChunks(context, documentId, chunks);
       this.store.setDocumentStatus(context, documentId, "embedding");
-      await this.vectors.deleteDocument(context, documentId);
+      const base = this.store.get(context, document.knowledgeBaseId).knowledgeBase;
+      await this.vectors.deleteDocument(context, document.knowledgeBaseId, documentId);
       for (let index = 0; index < chunks.length; index += 64) {
         const batch = chunks.slice(index, index + 64);
-        const embeddings = await this.embeddings.embedBatch(context, this.store.get(context, document.knowledgeBaseId).knowledgeBase.config.embeddingModel, batch.map((chunk) => chunk.content));
+        const embeddings = await this.embeddings.embedBatch(context, base.config.embeddingModel, batch.map((chunk) => chunk.content));
         const records: VectorRecord[] = batch.map((chunk, offset) => ({
           id: chunk.id, knowledgeBaseId: document.knowledgeBaseId, documentId, content: chunk.content,
           embedding: embeddings[offset], metadata: chunk.metadata, enabled: chunk.enabled,
         }));
-        await this.vectors.upsert(context, records);
+        await this.vectors.upsert(context, records, vectorIndexConfig(base.config));
       }
       this.store.setDocumentStatus(context, documentId, "ready");
       return this.store.document(context, documentId);
@@ -106,7 +107,8 @@ export class DocumentPipeline {
 export async function parseDocumentChunks(extension: string, buffer: Buffer, options: ParserOptions): Promise<ParseResult> {
   if (options.parserType === "general") {
     const text = normalizeText(await parseGeneralDocument(extension, buffer));
-    return { parserType: "general", columns: [], chunks: chunkText(text, options.chunkSize, options.chunkOverlap).map((content) => ({ id: randomUUID(), content, metadata: {}, enabled: true })) };
+    const contents = options.chunkStrategy === "paragraph" ? chunkParagraphs(text, options.chunkSize) : chunkText(text, options.chunkSize, options.chunkOverlap);
+    return { parserType: "general", columns: [], chunks: contents.map((content) => ({ id: randomUUID(), content, metadata: {}, enabled: true })) };
   }
   if (!tableExtensions.has(extension)) throw new Error("Table/QA Parser 仅适用于 XLSX 或 CSV 文件");
   const sheets = readWorkbook(buffer, extension);
@@ -197,4 +199,13 @@ export function chunkText(text: string, size: number, overlap: number) {
     start = Math.max(start + 1, end - overlap);
   }
   return chunks;
+}
+
+function chunkParagraphs(text: string, size: number) {
+  return text.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean)
+    .flatMap((paragraph) => paragraph.length > size ? chunkText(paragraph, size, 0) : [paragraph]);
+}
+
+function vectorIndexConfig(config: RetrievalConfig) {
+  return { indexType: config.indexType, metricType: config.metricType, hnswM: config.hnswM, hnswEfConstruction: config.hnswEfConstruction };
 }

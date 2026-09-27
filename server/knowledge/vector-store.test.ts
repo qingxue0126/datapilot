@@ -23,6 +23,7 @@ test("Milvus adapter creates the required schema and scopes every search before 
   const client = {
     hasCollection: async () => ({ value: false }),
     createCollection: async (input: Record<string, unknown>) => { calls.create = input; return { status: {} }; },
+    dropCollection: async () => ({ status: {} }),
     loadCollection: async () => ({ status: {} }),
     upsert: async (input: Record<string, unknown>) => { calls.upsert = input; return { status: {} }; },
     delete: async () => ({ status: {} }),
@@ -30,11 +31,14 @@ test("Milvus adapter creates the required schema and scopes every search before 
     closeConnection: async () => undefined,
   };
   const vectors = new MilvusVectorStore({ address: "http://milvus:19530", collection: "knowledge" }, client as never);
-  await vectors.upsert(alice, [{ id: "chunk", knowledgeBaseId: "kb", documentId: "doc", content: "内容", embedding: [1, 0, 0], metadata: { 产品: "好会计" }, enabled: true }]);
+  const indexConfig = { indexType: "HNSW" as const, metricType: "COSINE" as const, hnswM: 24, hnswEfConstruction: 256 };
+  await vectors.upsert(alice, [{ id: "chunk", knowledgeBaseId: "kb", documentId: "doc", content: "内容", embedding: [1, 0, 0], metadata: { 产品: "好会计" }, enabled: true }], indexConfig);
   const fields = calls.create?.fields as { name: string }[];
   assert.deepEqual(fields.map((field) => field.name), ["chunk_id", "tenant_id", "account_set_id", "user_id", "knowledge_base_id", "document_id", "content", "embedding", "metadata", "enabled"]);
+  assert.equal(calls.create?.collection_name, "knowledge_kb");
+  assert.deepEqual(calls.create?.index_params, { field_name: "embedding", index_name: "embedding_hnsw_cosine", index_type: "HNSW", metric_type: "COSINE", params: { M: 24, efConstruction: 256 } });
   assert.equal((calls.upsert?.data as unknown[]).length, 1);
-  const result = await vectors.search(alice, "kb", [1, 0, 0], { limit: 5, metadataFilter: { 产品: "好会计", 模块: "凭证" } });
+  const result = await vectors.search(alice, "kb", [1, 0, 0], { limit: 5, metadataFilter: { 产品: "好会计", 模块: "凭证" }, indexConfig });
   const filter = String(calls.search?.filter);
   assert.match(filter, /tenant_id == "tenant-a"/); assert.match(filter, /account_set_id == "books-a"/); assert.match(filter, /user_id == "alice"/);
   assert.match(filter, /knowledge_base_id == "kb"/); assert.match(filter, /enabled == true/); assert.match(filter, /metadata\["产品"\] == "好会计"/); assert.match(filter, /metadata\["模块"\] == "凭证"/);
@@ -46,11 +50,11 @@ test("Milvus client is lazy and retries with a new client after an unavailable r
   const unavailable = {
     hasCollection: async () => { throw new Error("connect ECONNREFUSED 127.0.0.1:19530"); },
     createCollection: async () => ({ status: {} }), loadCollection: async () => ({ status: {} }), upsert: async () => ({ status: {} }),
-    delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
+    dropCollection: async () => ({ status: {} }), delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
   };
   const recovered = {
     hasCollection: async () => ({ value: true }), createCollection: async () => ({ status: {} }), loadCollection: async () => ({ status: {} }),
-    upsert: async () => ({ status: {} }), delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
+    dropCollection: async () => ({ status: {} }), upsert: async () => ({ status: {} }), delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
   };
   const vectors = new MilvusVectorStore({ address: "http://milvus:19530", collection: "knowledge" }, () => {
     factoryCalls += 1;
@@ -65,4 +69,23 @@ test("Milvus client is lazy and retries with a new client after an unavailable r
   assert.deepEqual(await vectors.search(alice, "kb", [1, 0], { limit: 5 }), []);
   assert.equal(factoryCalls, 2);
   assert.equal(vectors.availability, "available");
+});
+
+test("Milvus reindex drops and recreates only the knowledge-base collection with new index settings", async () => {
+  const calls: { dropped?: string; created?: Record<string, unknown> } = {};
+  let collectionExists = true;
+  const client = {
+    hasCollection: async () => ({ value: collectionExists }),
+    dropCollection: async (input: { collection_name: string }) => { calls.dropped = input.collection_name; collectionExists = false; return { status: {} }; },
+    createCollection: async (input: Record<string, unknown>) => { calls.created = input; collectionExists = true; return { status: {} }; },
+    loadCollection: async () => ({ status: {} }), upsert: async () => ({ status: {} }), delete: async () => ({ status: {} }),
+    search: async () => ({ results: [] }), closeConnection: async () => undefined,
+  };
+  const vectors = new MilvusVectorStore({ address: "http://milvus:19530", collection: "knowledge" }, client as never);
+  await vectors.deleteKnowledgeBase(alice, "kb-one");
+  await vectors.upsert(alice, [{ id: "chunk", knowledgeBaseId: "kb-one", documentId: "doc", content: "内容", embedding: [1, 0], metadata: {}, enabled: true }],
+    { indexType: "HNSW", metricType: "L2", hnswM: 32, hnswEfConstruction: 300 });
+  assert.equal(calls.dropped, "knowledge_kb_one");
+  assert.equal(calls.created?.collection_name, "knowledge_kb_one");
+  assert.deepEqual(calls.created?.index_params, { field_name: "embedding", index_name: "embedding_hnsw_l2", index_type: "HNSW", metric_type: "L2", params: { M: 32, efConstruction: 300 } });
 });

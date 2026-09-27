@@ -32,8 +32,21 @@ test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval te
   assert.doesNotMatch(component, /window\.confirm/);
   assert.doesNotMatch(component, /<option value="auto">Auto<\/option>/);
   assert.doesNotMatch(component, /状态 \/ Parser/);
-  for (const label of ["基础信息", "向量信息", "解析方法", "Column Mode", "索引 + 元数据", "私有（当前租户 / 账套 / 用户）"]) assert.ok(component.includes(label));
+  for (const label of ["基本信息", "解析", "分块", "元数据", "嵌入", "索引", "Chunk Strategy", "Column Mode", "Index / Text", "Metric Type", "私有（当前租户 / 账套 / 用户）"]) assert.ok(component.includes(label));
+  for (const strategy of ["Fixed", "Paragraph", "Heading（预留）", "Table Row", "QA Pair"]) assert.ok(component.includes(strategy));
   assert.ok(component.includes("所有列都会包含在 Chunk 正文中，并同时保存为元数据（RAGFlow 默认方式）。"));
   assert.ok(component.includes('columnMode === "auto" ?'));
   assert.ok(component.includes("已有文档需要重新解析"));
+});
+
+test("knowledge configuration uses the six-section order without retrieval controls", () => {
+  const configPanel = detail.slice(detail.indexOf("function ConfigPanel"), detail.indexOf("function RetrievalPanel"));
+  const sections = ["基本信息", "解析", "分块", "元数据", "嵌入", "索引"];
+  let previous = -1;
+  for (const section of sections) {
+    const position = configPanel.indexOf(`<h3>${section}</h3>`);
+    assert.ok(position > previous, `${section} section must follow the requested order`);
+    previous = position;
+  }
+  for (const retrievalSetting of ["TopK", "Score Threshold", "Rerank 模型"]) assert.ok(!configPanel.includes(retrievalSetting));
 });

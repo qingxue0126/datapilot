@@ -78,3 +78,13 @@ test("Table Parser auto mode indexes every column and stores every column as met
     assert.equal(result.chunks[0].metadata[column], firstRow[column]);
   }
 });
+
+test("General Paragraph strategy keeps paragraphs as independent chunks", async () => {
+  const result = await parseDocumentChunks(".txt", Buffer.from("第一段内容。\n\n第二段内容。"), {
+    parserType: "general", chunkStrategy: "paragraph", chunkSize: 100, chunkOverlap: 20,
+    questionColumn: "问题", answerColumn: "答案", metadataFields: [],
+  });
+  assert.equal(result.chunks.length, 2);
+  assert.equal(result.chunks[0].content, "第一段内容。");
+  assert.equal(result.chunks[1].content, "第二段内容。");
+});

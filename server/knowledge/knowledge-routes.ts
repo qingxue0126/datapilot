@@ -85,8 +85,8 @@ export function installKnowledgeRoutes(
 
   app.delete("/api/documents/:id", async (request, response) => {
     try {
-      const context = resolveIdentity(request); store.document(context, request.params.id);
-      await vectors.deleteDocument(context, request.params.id); store.deleteDocument(context, request.params.id); response.status(204).end();
+      const context = resolveIdentity(request); const document = store.document(context, request.params.id);
+      await vectors.deleteDocument(context, document.knowledgeBaseId, request.params.id); store.deleteDocument(context, request.params.id); response.status(204).end();
     } catch (error) { knowledgeError(response, error); }
   });
 
@@ -106,7 +106,7 @@ export function installKnowledgeRoutes(
         await vectors.upsert(context, [{
           id: chunk.id, knowledgeBaseId: chunk.knowledgeBaseId, documentId: chunk.documentId,
           content: chunk.content, embedding, metadata: chunk.metadata, enabled: chunk.enabled,
-        }]);
+        }], vectorIndexConfig(base.config));
       } catch (error) { store.markRequiresReindex(context, chunk.knowledgeBaseId); throw error; }
       response.json({ chunk });
     } catch (error) { knowledgeError(response, error); }
@@ -128,7 +128,7 @@ export function installKnowledgeRoutes(
       const scoreThreshold = numberInRange(request.body?.scoreThreshold, config.scoreThreshold, -1, 1, false);
       const metadataFilter = cleanMetadata(request.body?.metadataFilter);
       const queryEmbedding = await embeddings.embed(context, config.embeddingModel, query);
-      let items = await vectors.search(context, request.params.id, queryEmbedding, { limit: Math.max(topK * 3, topK), metadataFilter });
+      let items = await vectors.search(context, request.params.id, queryEmbedding, { limit: Math.max(topK * 3, topK), metadataFilter, indexConfig: vectorIndexConfig(config) });
       if (config.rerank) items = items.map((item) => ({ ...item, score: item.score * 0.72 + lexicalScore(query, item.content) * 0.28 })).sort((a, b) => b.score - a.score);
       const documents = new Map(detail.documents.map((document) => [document.id, document]));
       response.json({
@@ -160,6 +160,7 @@ function parserOptions(value: unknown): Partial<ParserOptions> {
   const body = value as Record<string, unknown>;
   const result: Partial<ParserOptions> = {};
   if (["general", "table", "qa"].includes(String(body.parserType))) result.parserType = body.parserType as ParserOptions["parserType"];
+  if (["fixed", "paragraph", "heading", "table-row", "qa-pair"].includes(String(body.chunkStrategy))) result.chunkStrategy = body.chunkStrategy as ParserOptions["chunkStrategy"];
   if (body.chunkSize !== undefined) result.chunkSize = Number(body.chunkSize);
   if (body.chunkOverlap !== undefined) result.chunkOverlap = Number(body.chunkOverlap);
   if (body.questionColumn !== undefined) result.questionColumn = String(body.questionColumn);
@@ -168,6 +169,10 @@ function parserOptions(value: unknown): Partial<ParserOptions> {
   if (body.columnMode === "auto" || body.columnMode === "manual") result.columnMode = body.columnMode;
   if (body.columnRoles !== undefined) result.columnRoles = columnRoleMap(body.columnRoles);
   return result;
+}
+
+function vectorIndexConfig(config: RetrievalConfig) {
+  return { indexType: config.indexType, metricType: config.metricType, hnswM: config.hnswM, hnswEfConstruction: config.hnswEfConstruction };
 }
 
 function stringArray(value: unknown) {
