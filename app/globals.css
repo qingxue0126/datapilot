@@ -393,3 +393,25 @@ button:disabled { cursor: not-allowed; }
 .model-table-wrap { overflow-x: auto; }.model-table { width: 100%; border-collapse: collapse; font-size: 12px; }.model-table th { padding: 11px 14px; color: #7b8982; background: #f6f8f7; text-align: left; font-size: 10px; font-weight: 600; white-space: nowrap; }.model-table td { padding: 14px; border-top: 1px solid #edf1ef; vertical-align: top; }.model-table tbody tr:first-child td { border-top: 0; }.model-table td strong,.model-table td span,.model-table td code,.model-table td > small { display: block; }.model-table td strong { color: #31483d; }.model-table td code,.model-table td > small { max-width: 180px; margin-top: 5px; overflow: hidden; color: #829087; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }.model-table .default-tag { display: inline-block; margin-left: 6px; border-radius: 8px; padding: 2px 6px; color: #267254; background: #e5f2eb; font-size: 8px; }.capability-tags { display: flex; flex-wrap: wrap; gap: 4px; }.capability-tags small { border-radius: 5px; padding: 3px 6px; color: #526d60; background: #edf3f0; font-size: 8px; }.status-toggle { border: 0; border-radius: 10px; padding: 5px 9px; color: #7a8780; background: #eef1ef; cursor: pointer; }.status-toggle.enabled { color: #257151; background: #def0e7; }.test-state { position: relative; padding-left: 11px; white-space: nowrap; }.test-state::before { position: absolute; top: 5px; left: 0; width: 6px; height: 6px; border-radius: 50%; background: #aab2ae; content: ""; }.test-state.success::before { background: #3aa174; }.test-state.failed::before { background: #c65b55; }.model-actions { display: flex; flex-wrap: wrap; gap: 5px; min-width: 145px; }.model-actions button,.routing-row > button { border: 1px solid #d5dfda; border-radius: 6px; padding: 5px 7px; color: #37634f; background: white; font-size: 9px; cursor: pointer; }.model-actions button:disabled { opacity: .45; cursor: default; }.model-actions .danger { color: #a44943; }.empty-cell { padding: 34px !important; color: #849189; text-align: center; }
 .routing-section { margin-top: 20px; }.routing-list { display: grid; }.routing-row { display: grid; grid-template-columns: minmax(155px,1.5fr) repeat(2,minmax(130px,1.2fr)) repeat(3,minmax(82px,.7fr)) auto; gap: 10px; align-items: end; padding: 13px 18px; border-top: 1px solid #edf1ef; }.routing-row:first-child { border-top: 0; }.routing-task strong,.routing-task small { display: block; }.routing-task strong { color: #345345; font-size: 12px; }.routing-task small { margin-top: 4px; color: #89958e; font-size: 9px; }.routing-row label { display: grid; gap: 4px; color: #7b8982; font-size: 9px; }.routing-row select,.routing-row input { min-width: 0; width: 100%; border: 1px solid #d7e0dc; border-radius: 6px; outline: 0; padding: 7px; color: #40584c; background: white; font-size: 10px; }.routing-row > button { padding: 8px 10px; }.model-checks { display: flex; flex-wrap: wrap; gap: 10px 18px; margin: 4px 0 14px; padding: 13px; border-radius: 8px; background: #f2f6f4; }.source-modal .model-checks label { display: flex; align-items: center; gap: 6px; margin: 0; }.source-modal .model-checks input { width: 14px; height: 14px; margin: 0; accent-color: var(--green); }.source-modal label small { color: #8b9690; font-size: 9px; font-weight: 400; }
 @media (max-width: 1100px) { .routing-row { grid-template-columns: 1fr 1fr 1fr; }.routing-task { grid-column: 1 / -1; }.routing-row > button { justify-self: start; } }
+
+/* Larger, more readable type for the model registry workspace. */
+.model-management-page .model-add { font-size: 14px; }
+.model-management-page .model-list-section > header { padding: 20px 22px; }
+.model-management-page .model-list-section h3 { font-size: 18px; }
+.model-management-page .model-list-section header p { font-size: 14px; line-height: 1.55; }
+.model-management-page .model-list-section header small { font-size: 13px; }
+.model-management-page .model-table { font-size: 14px; }
+.model-management-page .model-table th { font-size: 12px; }
+.model-management-page .model-table td code,
+.model-management-page .model-table td > small { font-size: 12px; }
+.model-management-page .model-table .default-tag,
+.model-management-page .capability-tags small { font-size: 11px; }
+.model-management-page .status-toggle,
+.model-management-page .test-state { font-size: 13px; }
+.model-management-page .model-actions button,
+.model-management-page .routing-row > button { font-size: 12px; }
+.model-management-page .routing-task strong { font-size: 14px; }
+.model-management-page .routing-task small { font-size: 12px; }
+.model-management-page .routing-row label { font-size: 12px; }
+.model-management-page .routing-row select,
+.model-management-page .routing-row input { font-size: 13px; }
