@@ -21,6 +21,9 @@ export type KnowledgeChunkData = {
   id: string; documentId: string; chunkIndex: number; content: string; metadata: Metadata; enabled: boolean;
   characterCount: number; tokenCount: number; updatedAt: string;
 };
+type DocumentPreview =
+  | { kind: "table"; sheets: { name: string; columns: string[]; rows: Metadata[] }[] }
+  | { kind: "text"; text: string };
 export type KnowledgeDetailData = { knowledgeBase: KnowledgeBaseData; documents: KnowledgeDocumentData[] };
 type RetrievalItem = { rank: number; chunkId: string; documentId: string; filename: string; chunkIndex: number; score: number; content: string; metadata: Metadata };
 type EmbeddingModel = { id: string; name: string; modelId: string; modelType: string; enabled: boolean };
@@ -36,6 +39,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   const [tab, setTab] = useState<Tab>("documents");
   const [selectedDocumentId, setSelectedDocumentId] = useState(detail.documents[0]?.id || "");
   const [chunks, setChunks] = useState<KnowledgeChunkData[]>([]);
+  const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [models, setModels] = useState<EmbeddingModel[]>([]);
   const [query, setQuery] = useState("");
   const [metadataFilter, setMetadataFilter] = useState("");
@@ -73,8 +77,12 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   async function openChunks(documentId: string, chunkId?: string) {
     setBusy(true); setSelectedDocumentId(documentId); setTab("chunks");
     try {
-      const data = await responseJson(await apiRequest(`/api/documents/${encodeURIComponent(documentId)}/chunks`));
+      const [data, previewData] = await Promise.all([
+        responseJson(await apiRequest(`/api/documents/${encodeURIComponent(documentId)}/chunks`)),
+        responseJson(await apiRequest(`/api/documents/${encodeURIComponent(documentId)}/preview`)),
+      ]);
       setChunks(data.items || []);
+      setPreview(previewData.preview || null);
       if (chunkId) window.setTimeout(() => document.getElementById(`chunk-${chunkId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
     } catch (error) { setNotice(message(error, "无法读取 Chunk")); }
     finally { setBusy(false); }
@@ -85,7 +93,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     setBusy(true);
     try {
       await requestEmpty(`/api/documents/${encodeURIComponent(document.id)}`, { method: "DELETE" });
-      if (selectedDocumentId === document.id) { setSelectedDocumentId(""); setChunks([]); }
+      if (selectedDocumentId === document.id) { setSelectedDocumentId(""); setChunks([]); setPreview(null); }
       await refresh(); await refreshList(); setNotice("文档已删除");
     } catch (error) { setNotice(message(error, "删除文档失败")); }
     finally { setBusy(false); }
@@ -184,7 +192,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
       {([['documents', '文档'], ['chunks', 'Chunk'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => setTab(value)}>{label}</button>)}
     </nav>
     {tab === "documents" && <DocumentsPanel documents={detail.documents} busy={busy} fileInput={fileInput} uploadParser={uploadParser} setUploadParser={setUploadParser} upload={uploadDocument} openChunks={openChunks} remove={deleteDocument} />}
-    {tab === "chunks" && <ChunksPanel document={selectedDocument} documents={detail.documents} chunks={chunks} busy={busy} select={openChunks} reparse={reparseDocument} save={saveChunk} />}
+    {tab === "chunks" && <ChunksPanel document={selectedDocument} documents={detail.documents} chunks={chunks} preview={preview} busy={busy} select={openChunks} reparse={reparseDocument} save={saveChunk} />}
     {tab === "config" && <ConfigPanel kb={kb} columns={columns} models={models} busy={busy} save={saveConfig} revectorize={revectorize} />}
     {tab === "retrieval" && <RetrievalPanel config={kb.config} query={query} setQuery={setQuery} metadataFilter={metadataFilter} setMetadataFilter={setMetadataFilter} results={results} busy={busy} retrieve={retrieve} locate={openChunks} />}
   </div>;
@@ -209,27 +217,48 @@ function DocumentsPanel({ documents, busy, fileInput, uploadParser, setUploadPar
   </section>;
 }
 
-function ChunksPanel({ document, documents, chunks, busy, select, reparse, save }: {
-  document?: KnowledgeDocumentData; documents: KnowledgeDocumentData[]; chunks: KnowledgeChunkData[]; busy: boolean;
+function ChunksPanel({ document, documents, chunks, preview, busy, select, reparse, save }: {
+  document?: KnowledgeDocumentData; documents: KnowledgeDocumentData[]; chunks: KnowledgeChunkData[]; preview: DocumentPreview | null; busy: boolean;
   select: (id: string) => Promise<void>; reparse: () => Promise<void>;
   save: (chunk: KnowledgeChunkData, content: string, metadata: string, enabled: boolean) => Promise<void>;
 }) {
-  return <section className="knowledge-section"><header><div><h3>Chunk</h3><p>查看和维护文档分块；禁用后不会参与检索。</p></div><div className="knowledge-upload-actions">
-    <select value={document?.id || ""} onChange={(event) => void select(event.target.value)}><option value="" disabled>选择文档</option>{documents.map((item) => <option key={item.id} value={item.id}>{item.filename}</option>)}</select>
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  const filtered = chunks.filter((chunk) => `${chunk.content} ${JSON.stringify(chunk.metadata)}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const visible = filtered.slice((Math.min(page, pageCount) - 1) * pageSize, Math.min(page, pageCount) * pageSize);
+  return <section className="knowledge-section chunk-workspace"><header><div><h3>切片结果</h3><p>查看用于 Embedding 和召回的 Chunk；禁用后不会参与检索。</p></div><div className="knowledge-upload-actions">
+    <select value={document?.id || ""} onChange={(event) => { setPage(1); void select(event.target.value); }}><option value="" disabled>选择文档</option>{documents.map((item) => <option key={item.id} value={item.id}>{item.filename}</option>)}</select>
     <button onClick={() => void reparse()} disabled={busy || !document}>重新解析文档</button>
   </div></header>
-  {!document ? <div className="knowledge-document-empty">请先选择一个文档。</div> : chunks.length === 0 ? <div className="knowledge-document-empty">该文档暂无 Chunk。</div> : <div className="chunk-list">
-    {chunks.map((chunk) => <ChunkEditor key={`${chunk.id}-${chunk.updatedAt}`} chunk={chunk} busy={busy} save={save} />)}
+  {!document ? <div className="knowledge-document-empty">请先选择一个文档。</div> : <div className="chunk-split-layout">
+    <DocumentPreviewPanel key={document.id} document={document} preview={preview} />
+    <div className="chunk-results-panel">
+      <div className="chunk-toolbar"><strong>共 {filtered.length} 条</strong><label>⌕<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="搜索 Chunk" /></label></div>
+      {chunks.length === 0 ? <div className="knowledge-document-empty">该文档暂无 Chunk。</div> : visible.length === 0 ? <div className="knowledge-document-empty">没有匹配的 Chunk。</div> : <div className="chunk-list">
+        {visible.map((chunk) => <ChunkEditor key={`${chunk.id}-${chunk.updatedAt}`} chunk={chunk} busy={busy} save={save} />)}
+      </div>}
+      <footer className="chunk-pagination"><span>第 {Math.min(page, pageCount)} / {pageCount} 页</span><button onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1}>上一页</button><button onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={page >= pageCount}>下一页</button></footer>
+    </div>
   </div>}</section>;
 }
 
 function ChunkEditor({ chunk, busy, save }: { chunk: KnowledgeChunkData; busy: boolean; save: (chunk: KnowledgeChunkData, content: string, metadata: string, enabled: boolean) => Promise<void> }) {
   const [content, setContent] = useState(chunk.content); const [metadata, setMetadata] = useState(JSON.stringify(chunk.metadata, null, 2)); const [enabled, setEnabled] = useState(chunk.enabled);
-  return <article id={`chunk-${chunk.id}`} className={`chunk-card ${enabled ? "" : "disabled"}`}><header><div><strong>Chunk #{chunk.chunkIndex + 1}</strong><small>{chunk.characterCount} 字符 · 约 {chunk.tokenCount} tokens · {chunk.id}</small></div><label><input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /> 启用</label></header>
-    <label>内容<textarea rows={6} value={content} onChange={(event) => setContent(event.target.value)} /></label>
-    <label>Metadata<textarea className="metadata-editor" rows={4} value={metadata} onChange={(event) => setMetadata(event.target.value)} /></label>
-    <footer><button className="primary-action" onClick={() => void save(chunk, content, metadata, enabled)} disabled={busy}>保存 Chunk</button></footer>
+  const [editing, setEditing] = useState(false);
+  async function persist() { await save(chunk, content, metadata, enabled); setEditing(false); }
+  return <article id={`chunk-${chunk.id}`} className={`chunk-card ${enabled ? "" : "disabled"}`}><header><div><strong>Chunk #{chunk.chunkIndex + 1}</strong><small>{chunk.characterCount} 字符 · 约 {chunk.tokenCount} tokens</small></div><div className="chunk-card-actions"><button onClick={() => setEditing((value) => !value)}>{editing ? "取消" : "编辑"}</button><label className="chunk-switch"><input type="checkbox" checked={enabled} onChange={(event) => { const next = event.target.checked; setEnabled(next); void save(chunk, content, metadata, next); }} /><span /></label></div></header>
+    {editing ? <><label>内容<textarea rows={6} value={content} onChange={(event) => setContent(event.target.value)} /></label><label>Metadata<textarea className="metadata-editor" rows={4} value={metadata} onChange={(event) => setMetadata(event.target.value)} /></label><footer><button className="primary-action" onClick={() => void persist()} disabled={busy}>保存 Chunk</button></footer></> : <><p className="chunk-content">{content}</p><dl className="chunk-metadata">{Object.entries(chunk.metadata).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl></>}
   </article>;
+}
+
+function DocumentPreviewPanel({ document, preview }: { document: KnowledgeDocumentData; preview: DocumentPreview | null }) {
+  const [sheetIndex, setSheetIndex] = useState(0);
+  const sheet = preview?.kind === "table" ? preview.sheets[Math.min(sheetIndex, Math.max(0, preview.sheets.length - 1))] : undefined;
+  return <aside className="document-preview-panel"><header><h3>{document.filename}</h3><p>{formatSize(document.size)} · 上传于 {formatTime(document.createdAt)}</p></header><div className="document-preview-body">
+    {!preview ? <div className="knowledge-document-empty">正在加载预览…</div> : preview.kind === "text" ? <pre>{preview.text}</pre> : sheet ? <div className="sheet-preview"><table><thead><tr><th>#</th>{sheet.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{sheet.rows.map((row, index) => <tr key={index}><th>{index + 2}</th>{sheet.columns.map((column) => <td key={column}>{String(row[column] ?? "")}</td>)}</tr>)}</tbody></table></div> : <div className="knowledge-document-empty">无可预览内容</div>}
+  </div>{preview?.kind === "table" && preview.sheets.length > 0 && <footer className="sheet-tabs">{preview.sheets.map((item, index) => <button key={item.name} className={index === sheetIndex ? "active" : ""} onClick={() => setSheetIndex(index)}>{item.name}</button>)}</footer>}</aside>;
 }
 
 function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {

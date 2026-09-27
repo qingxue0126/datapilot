@@ -45,6 +45,12 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     assert.equal(chunks.items[0].metadata["产品"], "好会计");
     assert.match(chunks.items[0].content, /问题：如何删除凭证/);
 
+    const previewResponse = await fetch(`${base}/api/documents/${uploadedBody.document.id}/preview`);
+    assert.equal(previewResponse.status, 200);
+    const preview = await previewResponse.json() as { preview: { kind: string; sheets: { rows: Record<string, unknown>[] }[] } };
+    assert.equal(preview.preview.kind, "table");
+    assert.equal(preview.preview.sheets[0].rows.length, 2);
+
     const retrieve = (body: object) => fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}/retrieve`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
@@ -65,6 +71,7 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     for (const headers of [{ "x-test-user": "bob" }, { "x-test-tenant": "tenant-b" }, { "x-test-books": "books-b" }] as Record<string, string>[]) {
       assert.equal((await fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}`, { headers })).status, 404);
       assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/chunks`, { headers })).status, 404);
+      assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/preview`, { headers })).status, 404);
       assert.equal((await fetch(`${base}/api/chunks/${chunkId}`, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) })).status, 404);
     }
 

@@ -15,6 +15,9 @@ const pdf = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buf
 export type ParserOptions = Pick<RetrievalConfig, "parserType" | "chunkSize" | "chunkOverlap" | "questionColumn" | "answerColumn" | "metadataFields">;
 export type ParsedChunk = { id: string; content: string; metadata: Metadata; enabled: boolean };
 export type ParseResult = { parserType: ParserType; columns: string[]; chunks: ParsedChunk[] };
+export type DocumentPreview =
+  | { kind: "table"; sheets: { name: string; columns: string[]; rows: Metadata[] }[] }
+  | { kind: "text"; text: string };
 
 export class DocumentPipeline {
   constructor(
@@ -130,6 +133,16 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
     throw new Error(`QA Parser 未找到问题列“${options.questionColumn}”或答案列“${options.answerColumn}”`);
   }
   return { parserType: options.parserType, columns, chunks };
+}
+
+export async function parseDocumentPreview(extension: string, buffer: Buffer, rowLimit = 100): Promise<DocumentPreview> {
+  if (tableExtensions.has(extension)) {
+    return {
+      kind: "table",
+      sheets: readWorkbook(buffer, extension).map((sheet) => ({ ...sheet, rows: sheet.rows.slice(0, rowLimit) })),
+    };
+  }
+  return { kind: "text", text: normalizeText(await parseGeneralDocument(extension, buffer)).slice(0, 50_000) };
 }
 
 async function parseGeneralDocument(extension: string, buffer: Buffer) {

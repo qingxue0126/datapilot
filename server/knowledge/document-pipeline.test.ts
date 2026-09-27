@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as XLSX from "xlsx";
-import { parseDocumentChunks } from "./document-pipeline.js";
+import { parseDocumentChunks, parseDocumentPreview } from "./document-pipeline.js";
 
 function workbookBuffer(rows: Record<string, string>[]) {
   const workbook = XLSX.utils.book_new();
@@ -38,4 +38,14 @@ test("QA Parser rejects missing configured question or answer columns", async ()
   await assert.rejects(() => parseDocumentChunks(".xlsx", workbookBuffer(rows), {
     parserType: "qa", chunkSize: 800, chunkOverlap: 120, questionColumn: "不存在", answerColumn: "答案", metadataFields: [],
   }), /未找到问题列/);
+});
+
+test("document preview preserves workbook sheets, columns, and row values", async () => {
+  const preview = await parseDocumentPreview(".xlsx", workbookBuffer(rows));
+  assert.equal(preview.kind, "table");
+  if (preview.kind !== "table") return;
+  assert.equal(preview.sheets.length, 1);
+  assert.equal(preview.sheets[0].columns.length, 5);
+  assert.equal(preview.sheets[0].rows.length, 2);
+  assert.deepEqual(preview.sheets[0].rows[0], rows[0]);
 });

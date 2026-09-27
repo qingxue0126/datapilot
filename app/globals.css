@@ -411,7 +411,39 @@ button:disabled { cursor: not-allowed; }
 .retrieval-empty { font-size: 15px; }
 .knowledge-create-dialog header p, .knowledge-create-dialog label { font-size: 14px; line-height: 1.5; }
 .knowledge-create-dialog input, .knowledge-create-dialog textarea, .knowledge-create-dialog footer button { font-size: 15px; }
-@media (max-width: 1050px) { .knowledge-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.knowledge-lower-grid { grid-template-columns: 1fr; }.knowledge-document-table { overflow-x: auto; }.knowledge-document-head, .knowledge-document-row { min-width: 780px; } }
+.chunk-workspace { overflow: hidden; }
+.chunk-split-layout { display: grid; grid-template-columns: minmax(0, .95fr) minmax(0, 1.25fr); min-height: 650px; max-height: calc(100vh - 285px); }
+.document-preview-panel { min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; border-right: 1px solid #dfe7e3; background: #fff; }
+.document-preview-panel > header { padding: 20px; border-bottom: 1px solid #e4eae7; }
+.document-preview-panel > header h3 { overflow: hidden; margin: 0; color: #263c32; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.document-preview-panel > header p { margin: 6px 0 0; color: #7c8b83; font-size: 14px; }
+.document-preview-body { min-height: 0; overflow: auto; padding: 18px; }
+.document-preview-body pre { margin: 0; color: #34483e; font: 14px/1.7 var(--font-geist-mono); white-space: pre-wrap; }
+.sheet-preview { min-width: max-content; border: 1px solid #dbe4df; border-radius: 6px; background: white; }
+.sheet-preview table { border-collapse: collapse; font-size: 14px; }
+.sheet-preview th, .sheet-preview td { min-width: 125px; max-width: 240px; border-right: 1px solid #e1e7e4; border-bottom: 1px solid #e1e7e4; padding: 9px 11px; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.sheet-preview thead th { position: sticky; top: 0; z-index: 1; color: white; background: #19755a; font-weight: 700; }
+.sheet-preview tr > th:first-child { min-width: 44px; width: 44px; color: #738078; background: #f0f3f1; text-align: center; }
+.sheet-preview thead tr > th:first-child { color: white; background: #17664f; }
+.sheet-tabs { display: flex; gap: 2px; overflow-x: auto; border-top: 1px solid #dfe7e3; padding: 0 18px; background: #f6f8f7; }
+.sheet-tabs button { border: 0; border-top: 2px solid transparent; padding: 12px 18px; color: #607168; background: transparent; cursor: pointer; }
+.sheet-tabs button.active { border-top-color: var(--green); color: #245f49; background: white; font-weight: 700; }
+.chunk-results-panel { min-width: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: #f7f8f7; }
+.chunk-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid #e1e7e4; padding: 14px 18px; background: white; }
+.chunk-toolbar strong { font-size: 15px; }.chunk-toolbar label { display: flex; align-items: center; gap: 7px; border: 1px solid #d4ddd8; border-radius: 8px; padding: 0 10px; color: #74827b; background: #f8faf9; }
+.chunk-toolbar input { width: 190px; border: 0; outline: 0; padding: 9px 0; background: transparent; }
+.chunk-results-panel .chunk-list { min-height: 0; overflow-y: auto; align-content: start; }
+.chunk-results-panel .chunk-card { background: #f1f3f2; box-shadow: none; }
+.chunk-card-actions { display: flex !important; grid-auto-flow: column; align-items: center; gap: 10px !important; }
+.chunk-card-actions > button { border: 0; color: #267153; background: transparent; cursor: pointer; }
+.chunk-content { margin: 4px 0 0; color: #263c32; font-size: 16px; line-height: 1.7; white-space: pre-wrap; }
+.chunk-metadata { display: flex; flex-wrap: wrap; gap: 6px; margin: 13px 0 0; }
+.chunk-metadata div { display: flex; gap: 5px; border-radius: 6px; padding: 5px 8px; background: #e2ebe6; font-size: 13px; }
+.chunk-metadata dt { color: #63746b; font-weight: 700; }.chunk-metadata dd { margin: 0; color: #315544; }
+.chunk-switch { position: relative; display: inline-flex !important; width: 38px; height: 22px; cursor: pointer; }
+.chunk-switch input { position: absolute; opacity: 0; pointer-events: none; }.chunk-switch span { width: 100%; border-radius: 12px; background: #aeb9b3; transition: .16s ease; }.chunk-switch span::after { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: white; content: ""; transition: .16s ease; box-shadow: 0 1px 3px rgba(0,0,0,.2); }.chunk-switch input:checked + span { background: #22a982; }.chunk-switch input:checked + span::after { transform: translateX(16px); }
+.chunk-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid #dfe7e3; padding: 12px 18px; background: white; }.chunk-pagination span { margin-right: 8px; color: #687970; font-size: 14px; }.chunk-pagination button { border: 1px solid #d4ddd8; border-radius: 7px; padding: 7px 11px; color: #385f4e; background: white; cursor: pointer; }.chunk-pagination button:disabled { opacity: .4; cursor: default; }
+@media (max-width: 1050px) { .knowledge-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.knowledge-lower-grid { grid-template-columns: 1fr; }.knowledge-document-table { overflow-x: auto; }.knowledge-document-head, .knowledge-document-row { min-width: 780px; }.chunk-split-layout { grid-template-columns: 1fr; max-height: none; }.document-preview-panel { min-height: 520px; border-right: 0; border-bottom: 1px solid #dfe7e3; }.chunk-results-panel .chunk-list { max-height: 680px; } }
 @media (max-width: 720px) { .knowledge-page { width: calc(100% - 28px); }.knowledge-grid { grid-template-columns: 1fr; }.knowledge-detail-heading { align-items: flex-start; flex-direction: column; }.knowledge-section > header { align-items: flex-start; flex-direction: column; }.knowledge-upload-actions { align-items: stretch; flex-direction: column; width: 100%; }.retrieval-config, .retrieval-test-grid { grid-template-columns: 1fr; }.retrieval-config .span-two, .retrieval-config > button, .retrieval-test-grid .span-two, .retrieval-test-grid button { grid-column: 1; }.knowledge-tabs { overflow-x: auto; }.knowledge-reindex-warning { align-items: flex-start; flex-direction: column; } }
 
 /* Model registry */

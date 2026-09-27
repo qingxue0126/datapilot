@@ -1,7 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import multer from "multer";
 import type { RequestContext } from "../core/types.js";
-import { DocumentPipeline, supportedDocumentExtensions, type ParserOptions } from "./document-pipeline.js";
+import { DocumentPipeline, parseDocumentPreview, supportedDocumentExtensions, type ParserOptions } from "./document-pipeline.js";
 import type { EmbeddingProvider } from "./embedding.js";
 import { lexicalScore } from "./embedding.js";
 import { KnowledgeStore, KnowledgeStoreError, type RetrievalConfig } from "./knowledge-store.js";
@@ -64,6 +64,15 @@ export function installKnowledgeRoutes(
     try {
       const context = resolveIdentity(request);
       response.json({ document: store.document(context, request.params.id), items: store.listChunks(context, request.params.id) });
+    } catch (error) { knowledgeError(response, error); }
+  });
+
+  app.get("/api/documents/:id/preview", async (request, response) => {
+    try {
+      const context = resolveIdentity(request);
+      const document = store.document(context, request.params.id);
+      const source = store.documentSource(context, request.params.id);
+      response.json({ document, preview: await parseDocumentPreview(`.${document.fileType.toLowerCase()}`, source) });
     } catch (error) { knowledgeError(response, error); }
   });
 
