@@ -40,6 +40,30 @@ test("QA Parser rejects missing configured question or answer columns", async ()
   }), /未找到问题列/);
 });
 
+test("QA Parser preserves configured Excel header names in chunk metadata", async () => {
+  const source = workbookBuffer([{
+    Porduct: "好会计", Module: "基础档案", Question_TyPe: "会计科目",
+    Question: "如何增加外币科目？", Answer: "进入设置后新增外币核算科目。",
+  }]);
+  const result = await parseDocumentChunks(".xlsx", source, {
+    parserType: "qa", chunkSize: 800, chunkOverlap: 120,
+    questionColumn: "Question", answerColumn: "Answer", metadataFields: [],
+    columnMode: "manual",
+    columnRoles: {
+      Porduct: "metadata", Module: "both", Question_TyPe: "metadata",
+      Question: "index", Answer: "index",
+    },
+  });
+
+  assert.equal(result.chunks.length, 1);
+  assert.equal(result.chunks[0].content, "问题：如何增加外币科目？\n答案：进入设置后新增外币核算科目。");
+  assert.equal(result.chunks[0].metadata.Porduct, "好会计");
+  assert.equal(result.chunks[0].metadata.Module, "基础档案");
+  assert.equal(result.chunks[0].metadata.Question_TyPe, "会计科目");
+  assert.equal(result.chunks[0].metadata.Question, undefined);
+  assert.equal(result.chunks[0].metadata.Answer, undefined);
+});
+
 test("document preview preserves workbook sheets, columns, and row values", async () => {
   const preview = await parseDocumentPreview(".xlsx", workbookBuffer(rows));
   assert.equal(preview.kind, "table");

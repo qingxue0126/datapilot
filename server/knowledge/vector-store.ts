@@ -59,10 +59,15 @@ export class LocalVectorStore implements VectorStore {
     const rows = this.database.prepare(`SELECT id,knowledge_base_id,document_id,content,embedding_json,metadata_json,enabled FROM knowledge_vectors
       WHERE knowledge_base_id=? AND tenant_id=? AND account_set_id=? AND user_id=? AND enabled=1`)
       .all(knowledgeBaseId, context.tenantId, context.accountSetId, context.userId) as unknown as VectorRow[];
-    return rows.map((row) => ({ id: row.id, knowledgeBaseId: row.knowledge_base_id, documentId: row.document_id, content: row.content,
-      embedding: JSON.parse(row.embedding_json) as number[], metadata: JSON.parse(row.metadata_json) as Metadata, enabled: Boolean(row.enabled),
-      score: cosine(queryEmbedding, JSON.parse(row.embedding_json) as number[]) }))
-      .filter((item) => metadataMatches(item.metadata, options.metadataFilter || {})).sort((a, b) => b.score - a.score).slice(0, options.limit);
+    const metadataFilter = options.metadataFilter || {};
+    return rows.map((row) => ({ row, metadata: JSON.parse(row.metadata_json) as Metadata }))
+      .filter((item) => metadataMatches(item.metadata, metadataFilter))
+      .map(({ row, metadata }) => {
+        const embedding = JSON.parse(row.embedding_json) as number[];
+        return { id: row.id, knowledgeBaseId: row.knowledge_base_id, documentId: row.document_id, content: row.content,
+          embedding, metadata, enabled: Boolean(row.enabled), score: cosine(queryEmbedding, embedding) };
+      })
+      .sort((a, b) => b.score - a.score).slice(0, options.limit);
   }
   close() { this.database.close(); }
 }

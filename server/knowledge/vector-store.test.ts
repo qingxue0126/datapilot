@@ -45,6 +45,24 @@ test("Milvus adapter creates the required schema and scopes every search before 
   assert.equal(result[0].score, 0.91);
 });
 
+test("local vector adapter filters configured Excel metadata before scoring candidates", async () => {
+  const vectors = new LocalVectorStore(":memory:");
+  try {
+    await vectors.upsert(alice, [
+      { id: "match", knowledgeBaseId: "kb", documentId: "doc", content: "问题：如何增加外币科目？\n答案：进入设置。", embedding: [1, 0],
+        metadata: { Porduct: "好会计", Module: "基础档案", Question_TyPe: "会计科目" }, enabled: true },
+      { id: "other", knowledgeBaseId: "kb", documentId: "doc", content: "其他问题", embedding: [1, 0],
+        metadata: { Porduct: "好会计", Module: "总账", Question_TyPe: "月末处理" }, enabled: true },
+    ]);
+    const result = await vectors.search(alice, "kb", [1, 0], {
+      limit: 5,
+      metadataFilter: { Porduct: "好会计", Module: "基础档案", Question_TyPe: "会计科目" },
+    });
+    assert.deepEqual(result.map((item) => item.id), ["match"]);
+    assert.equal(result[0].content, "问题：如何增加外币科目？\n答案：进入设置。");
+  } finally { vectors.close(); }
+});
+
 test("Milvus client is lazy and retries with a new client after an unavailable request", async () => {
   let factoryCalls = 0;
   const unavailable = {

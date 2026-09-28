@@ -45,7 +45,15 @@ export class DocumentPipeline {
     const source = this.store.documentSource(context, documentId);
     const base = this.store.get(context, document.knowledgeBaseId).knowledgeBase;
     const extension = `.${document.fileType.toLowerCase()}`;
-    const parserType = parserOverrides.parserType || document.parserType || base.config.parserType;
+    const requestedParser = parserOverrides.parserType || base.config.parserType;
+    // Spreadsheet uploads are parsed as structured rows even when the knowledge
+    // base still has the default `general` parser. Preserve the document's
+    // Table/QA parser on reparse instead of accidentally degrading it to text.
+    const parserType = tableExtensions.has(extension)
+      ? requestedParser === "table" || requestedParser === "qa"
+        ? requestedParser
+        : document.parserType === "qa" ? "qa" : "table"
+      : "general";
     return this.run(context, documentId, extension, source, { ...base.config, ...parserOverrides, parserType });
   }
 
@@ -118,10 +126,9 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
     sheet.rows.forEach((row, index) => {
       const rowNumber = index + 2;
       const metadata: Metadata = { sheet: sheet.name, row: rowNumber };
-      const columnRoles = options.columnRoles || {};
-      const roleFields = Object.entries(columnRoles).filter(([, role]) => role === "metadata" || role === "both").map(([field]) => field);
-      const metadataFields = options.columnMode === "auto" ? sheet.columns : [...new Set([...options.metadataFields, ...roleFields])];
-      for (const field of metadataFields) if (row[field] !== undefined && row[field] !== "") metadata[field] = row[field];
+      for (const field of metadataColumns(sheet.columns, options)) {
+        if (row[field] !== undefined && row[field] !== "") metadata[field] = row[field];
+      }
       if (options.parserType === "qa") {
         const question = displayValue(row[options.questionColumn]);
         const answer = displayValue(row[options.answerColumn]);
@@ -129,6 +136,7 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
         chunks.push({ id: randomUUID(), content: `问题：${question}\n答案：${answer}`.trim(), metadata, enabled: true });
         return;
       }
+      const columnRoles = options.columnRoles || {};
       const configuredRoles = options.columnMode === "manual" || (!options.columnMode && Object.keys(columnRoles).length > 0);
       const indexedColumns = configuredRoles ? sheet.columns.filter((column) => ["index", "both"].includes(columnRoles[column])) : sheet.columns;
       const content = indexedColumns.map((column) => [column, displayValue(row[column])] as const)
@@ -140,6 +148,17 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
     throw new Error(`QA Parser 未找到问题列“${options.questionColumn}”或答案列“${options.answerColumn}”`);
   }
   return { parserType: options.parserType, columns, chunks };
+}
+
+function metadataColumns(columns: string[], options: ParserOptions) {
+  if (options.columnMode === "auto") return columns;
+  const configured = new Set(options.metadataFields.map((field) => field.trim()).filter(Boolean));
+  for (const [field, role] of Object.entries(options.columnRoles || {})) {
+    if (role === "metadata" || role === "both") configured.add(field.trim());
+  }
+  // Match against actual workbook headers so exact source spelling and casing
+  // are retained in both SQLite chunk metadata and Milvus dynamic JSON.
+  return columns.filter((column) => configured.has(column));
 }
 
 export async function parseDocumentPreview(extension: string, buffer: Buffer, rowLimit = 100): Promise<DocumentPreview> {

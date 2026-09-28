@@ -96,6 +96,20 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
 
     const reparsed = await fetch(`${base}/api/documents/${uploadedBody.document.id}/reparse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parserType: "table", metadataFields: ["产品"] }) });
     assert.equal(reparsed.status, 200); assert.equal((await reparsed.json() as { document: { status: string } }).document.status, "ready");
+
+    const preservedParser = await fetch(`${base}/api/documents/${uploadedBody.document.id}/reparse`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parserType: "general", questionColumn: "问题", answerColumn: "答案", metadataFields: ["产品", "模块"] }),
+    });
+    assert.equal(preservedParser.status, 200);
+    const preservedDocument = await preservedParser.json() as { document: { parserType: string; status: string } };
+    assert.equal(preservedDocument.document.parserType, "table");
+    assert.equal(preservedDocument.document.status, "ready");
+    const preservedChunks = await fetch(`${base}/api/documents/${uploadedBody.document.id}/chunks`).then((response) => response.json()) as {
+      items: { metadata: Record<string, unknown> }[];
+    };
+    assert.equal(preservedChunks.items[0].metadata["产品"], "好会计");
+    assert.equal(preservedChunks.items[0].metadata["模块"], "凭证");
   } finally {
     server.close(); await once(server, "close"); vectors.close(); store.close();
   }
