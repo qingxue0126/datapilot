@@ -1,4 +1,4 @@
-import type { ChatRequest, ChatResponse, RuntimeModelConfig } from "./model-types.js";
+import type { ChatRequest, ChatResponse, MultimodalChatRequest, RerankRequest, RerankResponse, RuntimeModelConfig } from "./model-types.js";
 
 type OpenAIResponse = { choices?: { message?: { content?: string } }[]; error?: { message?: string }; message?: string };
 type OpenAIEmbeddingResponse = { data?: { index: number; embedding: number[] }[]; error?: { message?: string }; message?: string };
@@ -8,22 +8,52 @@ export interface ModelProvider {
   chat(model: RuntimeModelConfig, request: ChatRequest): Promise<ChatResponse>;
   testConnection(model: RuntimeModelConfig): Promise<ChatResponse>;
   embed?(model: RuntimeModelConfig, texts: string[]): Promise<number[][]>;
+  rerank?(model: RuntimeModelConfig, request: RerankRequest): Promise<RerankResponse>;
+  vision?(model: RuntimeModelConfig, request: MultimodalChatRequest): Promise<ChatResponse>;
+  multimodalChat?(model: RuntimeModelConfig, request: MultimodalChatRequest): Promise<ChatResponse>;
+  multimodalEmbed?(model: RuntimeModelConfig, inputs: { text?: string; imageUrl?: string }[]): Promise<number[][]>;
+  multimodalRerank?(model: RuntimeModelConfig, request: RerankRequest): Promise<RerankResponse>;
 }
 
 /** OpenAI, Qwen, DeepSeek, GLM, vLLM and Ollama can all use this compatible adapter. */
 export class OpenAICompatibleProvider implements ModelProvider {
   async chat(model: RuntimeModelConfig, request: ChatRequest): Promise<ChatResponse> {
+    return this.sendChat(model, request.messages, request.temperature, request.timeout, request.maxTokens,
+      Boolean(request.structured && model.supportsStructuredOutput));
+  }
+
+  async multimodalChat(model: RuntimeModelConfig, request: MultimodalChatRequest): Promise<ChatResponse> {
+    return this.sendChat(model, request.messages, request.temperature, request.timeout, request.maxTokens, false);
+  }
+
+  async vision(model: RuntimeModelConfig, request: MultimodalChatRequest): Promise<ChatResponse> {
+    return this.multimodalChat(model, request);
+  }
+
+  async rerank(): Promise<RerankResponse> {
+    throw new Error("当前 Provider 未实现 Rerank 协议");
+  }
+
+  async multimodalEmbed(): Promise<number[][]> {
+    throw new Error("当前 Provider 未实现 Multimodal Embedding 协议");
+  }
+
+  async multimodalRerank(): Promise<RerankResponse> {
+    throw new Error("当前 Provider 未实现 Multimodal Rerank 协议");
+  }
+
+  private async sendChat(model: RuntimeModelConfig, messages: ChatRequest["messages"] | MultimodalChatRequest["messages"], temperature: number, timeout: number, maxTokens?: number, structured = false): Promise<ChatResponse> {
     const startedAt = Date.now();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), request.timeout);
+    const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
       const response = await fetch(chatEndpoint(model.baseUrl), {
         method: "POST", headers, signal: controller.signal,
-        body: JSON.stringify({ model: model.modelId, messages: request.messages, temperature: request.temperature,
-          ...(request.maxTokens ? { max_tokens: request.maxTokens } : {}),
-          ...(request.structured && model.supportsStructuredOutput ? { response_format: { type: "json_object" } } : {}) }),
+        body: JSON.stringify({ model: model.modelId, messages, temperature,
+          ...(maxTokens ? { max_tokens: maxTokens } : {}),
+          ...(structured ? { response_format: { type: "json_object" } } : {}) }),
       });
       const raw = await response.text();
       const body = parseResponse(raw);
@@ -32,18 +62,24 @@ export class OpenAICompatibleProvider implements ModelProvider {
       if (!content) throw new Error("模型未返回有效内容");
       return { content, latencyMs: Date.now() - startedAt };
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") throw new Error(`模型请求超时（${request.timeout}ms）`);
+      if (error instanceof Error && error.name === "AbortError") throw new Error(`模型请求超时（${timeout}ms）`);
       throw error;
     } finally { clearTimeout(timer); }
   }
 
   async testConnection(model: RuntimeModelConfig) {
-    if (model.modelType === "embedding") {
-      const startedAt = Date.now();
-      await this.embed(model, ["DataPilot connection test"]);
-      return { content: "OK", latencyMs: Date.now() - startedAt };
-    }
-    return this.chat(model, { messages: [{ role: "user", content: "Reply only with OK." }], temperature: 0, timeout: model.timeout, maxTokens: 8 });
+    const startedAt = Date.now();
+    if (model.modelType === "embedding") await this.embed(model, ["DataPilot connection test"]);
+    else if (model.modelType === "llm") return this.chat(model, { messages: [{ role: "user", content: "Reply only with OK." }], temperature: 0, timeout: model.timeout, maxTokens: 8 });
+    else if (model.modelType === "vision" || model.modelType === "multimodal_llm") {
+      const request: MultimodalChatRequest = { temperature: 0, timeout: model.timeout, maxTokens: 8, messages: [{ role: "user", content: [
+        { type: "text", text: "Describe this image with one word." }, { type: "image_url", image_url: { url: testImageDataUrl } },
+      ] }] };
+      return model.modelType === "vision" ? this.vision(model, request) : this.multimodalChat(model, request);
+    } else if (model.modelType === "rerank") await this.rerank();
+    else if (model.modelType === "multimodal_embedding") await this.multimodalEmbed();
+    else await this.multimodalRerank();
+    return { content: "OK", latencyMs: Date.now() - startedAt };
   }
 
   async embed(model: RuntimeModelConfig, texts: string[]) {
@@ -65,6 +101,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
     } finally { clearTimeout(timer); }
   }
 }
+
+const testImageDataUrl = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 
 export class ModelProviderRegistry {
   private readonly compatible = new OpenAICompatibleProvider();

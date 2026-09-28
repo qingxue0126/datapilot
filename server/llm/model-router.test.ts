@@ -17,3 +17,12 @@ test("model router resolves task primary, fallback and an explicit preferred mod
   assert.equal(resolved.primary.id, primary.id); assert.equal(resolved.fallback?.id, fallback.id);
   assert.equal(router.getModel(context, "text2sql", fallback.id).primary.id, fallback.id);
 });
+
+test("model router excludes embedding and rerank models and prefers a text LLM", () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 13));
+  store.create(context, { ...config("embedding"), modelType: "embedding" });
+  store.create(context, { ...config("rerank"), modelType: "rerank" });
+  store.create(context, { ...config("multimodal"), modelType: "multimodal_llm" });
+  const llm = store.create(context, { ...config("llm"), modelType: "llm" });
+  assert.equal(new ModelRouter(store).getModel(context, "text2sql").primary.id, llm.id);
+});

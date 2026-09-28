@@ -48,3 +48,28 @@ test("embedding calls use only enabled embedding model configurations", async ()
   assert.deepEqual(await service.embedBatch(context, embedding.id, ["a", "b"]), [[1, 0], [1, 1]]);
   await assert.rejects(() => service.embed(context, chat.id, "a"), /Embedding 模型/);
 });
+
+test("connection testing uses the embeddings endpoint for embedding models", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 14));
+  const embedding = store.create(context, { ...config("embedding-connect"), modelType: "embedding" });
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({ data: [{ index: 0, embedding: [1, 0] }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+  };
+  try {
+    const service = new ModelService(store, new ModelRouter(store));
+    assert.equal((await service.testConnection(context, embedding.id)).success, true);
+    assert.equal(requestedUrl, "https://api.example.test/v1/embeddings");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("unsupported rerank connection testing returns an explicit protocol error", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 15));
+  const rerank = store.create(context, { ...config("rerank-connect"), modelType: "rerank" });
+  const service = new ModelService(store, new ModelRouter(store));
+  const result = await service.testConnection(context, rerank.id);
+  assert.equal(result.success, false);
+  assert.match(result.error || "", /未实现 Rerank 协议/);
+});

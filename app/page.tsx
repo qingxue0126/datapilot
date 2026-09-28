@@ -123,13 +123,13 @@ export default function Home() {
     if (!response.ok) throw new Error(data.error || "无法读取模型列表");
     const items = (data.items || []) as ModelOption[];
     const saved = window.localStorage.getItem("datapilot-model");
-    const enabled = items.filter((item) => item.enabled && item.modelType === "chat");
+    const enabled = items.filter((item) => item.enabled && item.modelType === "llm");
     const selected = enabled.some((item) => item.id === saved) ? saved! : "";
     setModels(items); setSelectedModel(selected);
   }
 
   function selectModel(id: string) {
-    if (id && !models.some((model) => model.id === id && model.enabled && model.modelType === "chat")) return;
+    if (id && !models.some((model) => model.id === id && model.enabled && model.modelType === "llm")) return;
     setSelectedModel(id); window.localStorage.setItem("datapilot-model", id);
   }
 

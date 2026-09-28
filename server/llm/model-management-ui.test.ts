@@ -17,3 +17,12 @@ test("model management UI configures all required task routes", () => {
   for (const field of ["primaryModelId", "fallbackModelId", "temperature", "timeout", "maxRetries"]) assert.match(component, new RegExp(field));
   assert.match(component, /按任务路由/);
 });
+
+test("model management UI exposes seven types, capabilities and type-specific fields", () => {
+  for (const type of ["llm", "embedding", "rerank", "vision", "multimodal_llm", "multimodal_embedding", "multimodal_rerank"]) assert.match(component, new RegExp(type));
+  for (const field of ["capabilities", "embeddingDimension", "maxInputTokens", "topN"]) assert.match(component, new RegExp(field));
+  assert.match(component, /按模型类型筛选/);
+  assert.match(component, /showsContext/);
+  assert.match(component, /showsEmbedding/);
+  assert.match(component, /showsRerank/);
+});

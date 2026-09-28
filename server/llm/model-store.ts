@@ -3,10 +3,19 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { RequestContext } from "../core/types.js";
-import { modelProviders, modelTasks, modelTypes, type ModelConfig, type ModelConfigInput, type ModelRoute, type ModelTask, type RuntimeModelConfig } from "./model-types.js";
+import { isChatCapableModel, modelCapabilities, modelProviders, modelTasks, normalizeModelType, type ModelCapability, type ModelConfig, type ModelConfigInput, type ModelRoute, type ModelTask, type RuntimeModelConfig } from "./model-types.js";
 
 type ModelRow = Record<string, unknown>;
 type RouteRow = Record<string, unknown>;
+type ValidatedModelInput = Omit<ModelConfigInput, "modelType" | "capabilities" | "contextWindow" | "embeddingDimension" | "maxInputTokens" | "topN" | "temperature"> & {
+  modelType: ModelConfig["modelType"];
+  capabilities: ModelCapability[];
+  contextWindow: number;
+  embeddingDimension: number | null;
+  maxInputTokens: number | null;
+  topN: number | null;
+  temperature: number;
+};
 
 export class ModelStoreError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -46,11 +55,12 @@ export class ModelStore {
     const now = new Date().toISOString();
     this.database.prepare(`INSERT INTO model_configs (
       id,tenant_id,account_set_id,user_id,name,model_type,provider,model_id,base_url,api_key_encrypted,context_window,timeout,max_retries,temperature,
-      supports_tools,supports_structured_output,supports_vision,enabled,created_at,updated_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-      id, context.tenantId, context.accountSetId, context.userId, value.name, value.modelType || "chat", value.provider, value.modelId, value.baseUrl,
+      supports_tools,supports_structured_output,supports_vision,capabilities_json,embedding_dimension,max_input_tokens,top_n,enabled,created_at,updated_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      id, context.tenantId, context.accountSetId, context.userId, value.name, value.modelType || "llm", value.provider, value.modelId, value.baseUrl,
       encryptSecret(value.apiKey || "", this.encryptionKey), value.contextWindow, value.timeout, value.maxRetries, value.temperature,
-      flag(value.supportsTools), flag(value.supportsStructuredOutput), flag(value.supportsVision), flag(value.enabled), now, now,
+      flag(value.supportsTools), flag(value.supportsStructuredOutput), flag(value.supportsVision), JSON.stringify(value.capabilities || []), value.embeddingDimension, value.maxInputTokens, value.topN,
+      flag(value.enabled), now, now,
     );
     return this.get(context, id);
   }
@@ -58,20 +68,25 @@ export class ModelStore {
   update(context: RequestContext, id: string, input: Partial<ModelConfigInput> & { clearApiKey?: boolean }): ModelConfig {
     const current = this.getRow(context, id);
     const merged = validateModelInput({
-      name: input.name ?? String(current.name), modelType: input.modelType ?? String(current.model_type || "chat") as ModelConfigInput["modelType"], provider: input.provider ?? String(current.provider) as ModelConfigInput["provider"],
+      name: input.name ?? String(current.name), modelType: input.modelType ?? String(current.model_type || "llm") as ModelConfigInput["modelType"], provider: input.provider ?? String(current.provider) as ModelConfigInput["provider"],
       modelId: input.modelId ?? String(current.model_id), baseUrl: input.baseUrl ?? String(current.base_url),
       apiKey: input.apiKey || decryptSecret(String(current.api_key_encrypted || ""), this.encryptionKey),
       contextWindow: input.contextWindow ?? Number(current.context_window), timeout: input.timeout ?? Number(current.timeout),
       maxRetries: input.maxRetries ?? Number(current.max_retries), temperature: input.temperature ?? Number(current.temperature),
+      embeddingDimension: input.embeddingDimension === undefined ? nullableNumber(current.embedding_dimension) : input.embeddingDimension,
+      maxInputTokens: input.maxInputTokens === undefined ? nullableNumber(current.max_input_tokens) : input.maxInputTokens,
+      topN: input.topN === undefined ? nullableNumber(current.top_n) : input.topN,
+      capabilities: input.capabilities ?? parseCapabilities(current.capabilities_json),
       supportsTools: input.supportsTools ?? Boolean(current.supports_tools),
       supportsStructuredOutput: input.supportsStructuredOutput ?? Boolean(current.supports_structured_output),
       supportsVision: input.supportsVision ?? Boolean(current.supports_vision), enabled: input.enabled ?? Boolean(current.enabled),
     });
     const secret = input.clearApiKey ? "" : (input.apiKey?.trim() ? input.apiKey.trim() : decryptSecret(String(current.api_key_encrypted || ""), this.encryptionKey));
     const now = new Date().toISOString();
-    this.database.prepare(`UPDATE model_configs SET name=?,model_type=?,provider=?,model_id=?,base_url=?,api_key_encrypted=?,context_window=?,timeout=?,max_retries=?,temperature=?,supports_tools=?,supports_structured_output=?,supports_vision=?,enabled=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?`).run(
-      merged.name, merged.modelType || "chat", merged.provider, merged.modelId, merged.baseUrl, encryptSecret(secret, this.encryptionKey), merged.contextWindow, merged.timeout,
-      merged.maxRetries, merged.temperature, flag(merged.supportsTools), flag(merged.supportsStructuredOutput), flag(merged.supportsVision), flag(merged.enabled), now,
+    this.database.prepare(`UPDATE model_configs SET name=?,model_type=?,provider=?,model_id=?,base_url=?,api_key_encrypted=?,context_window=?,timeout=?,max_retries=?,temperature=?,supports_tools=?,supports_structured_output=?,supports_vision=?,capabilities_json=?,embedding_dimension=?,max_input_tokens=?,top_n=?,enabled=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?`).run(
+      merged.name, merged.modelType || "llm", merged.provider, merged.modelId, merged.baseUrl, encryptSecret(secret, this.encryptionKey), merged.contextWindow, merged.timeout,
+      merged.maxRetries, merged.temperature, flag(merged.supportsTools), flag(merged.supportsStructuredOutput), flag(merged.supportsVision), JSON.stringify(merged.capabilities || []),
+      merged.embeddingDimension, merged.maxInputTokens, merged.topN, flag(merged.enabled), now,
       id, context.tenantId, context.accountSetId, context.userId,
     );
     return this.get(context, id);
@@ -102,7 +117,7 @@ export class ModelStore {
     const route = validateRoute({ ...current, ...input, task });
     for (const id of [route.primaryModelId, route.fallbackModelId]) if (id) {
       const model = this.get(context, id);
-      if (model.modelType !== "chat") throw new ModelStoreError("任务路由只能选择 Chat 模型");
+      if (!isChatCapableModel(model)) throw new ModelStoreError("任务路由只能选择 LLM 或 Multimodal LLM");
     }
     if (route.primaryModelId && route.primaryModelId === route.fallbackModelId) throw new ModelStoreError("主模型和备用模型不能相同");
     const now = new Date().toISOString();
@@ -126,6 +141,7 @@ export class ModelStore {
     this.create(context, {
       name: "DeepSeek Chat", provider: "deepseek", modelId: process.env.DEEPSEEK_MODEL || "deepseek-chat",
       baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com", apiKey: process.env.DEEPSEEK_API_KEY || "",
+      modelType: "llm", capabilities: ["chat", "reasoning", "tool_calling", "structured_output", "text2sql", "long_context"],
       contextWindow: 64_000, timeout: 60_000, maxRetries: 2, temperature: 0,
       supportsTools: true, supportsStructuredOutput: true, supportsVision: false, enabled: true,
     });
@@ -134,9 +150,10 @@ export class ModelStore {
   private migrate() {
     this.database.exec(`CREATE TABLE IF NOT EXISTS model_configs (
       id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, account_set_id TEXT NOT NULL, user_id TEXT NOT NULL,
-      name TEXT NOT NULL, model_type TEXT NOT NULL DEFAULT 'chat', provider TEXT NOT NULL, model_id TEXT NOT NULL, base_url TEXT NOT NULL, api_key_encrypted TEXT NOT NULL,
+      name TEXT NOT NULL, model_type TEXT NOT NULL DEFAULT 'llm', provider TEXT NOT NULL, model_id TEXT NOT NULL, base_url TEXT NOT NULL, api_key_encrypted TEXT NOT NULL,
       context_window INTEGER NOT NULL, timeout INTEGER NOT NULL, max_retries INTEGER NOT NULL, temperature REAL NOT NULL,
       supports_tools INTEGER NOT NULL DEFAULT 0, supports_structured_output INTEGER NOT NULL DEFAULT 0, supports_vision INTEGER NOT NULL DEFAULT 0,
+      capabilities_json TEXT NOT NULL DEFAULT '[]', embedding_dimension INTEGER, max_input_tokens INTEGER, top_n INTEGER,
       enabled INTEGER NOT NULL DEFAULT 1, last_test_status TEXT, last_test_latency_ms INTEGER, last_test_error TEXT, last_tested_at TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
@@ -149,7 +166,12 @@ export class ModelStore {
       FOREIGN KEY(fallback_model_id) REFERENCES model_configs(id) ON DELETE SET NULL
     );`);
     const columns = this.database.prepare("PRAGMA table_info(model_configs)").all() as { name: string }[];
-    if (!columns.some((column) => column.name === "model_type")) this.database.exec("ALTER TABLE model_configs ADD COLUMN model_type TEXT NOT NULL DEFAULT 'chat'");
+    if (!columns.some((column) => column.name === "model_type")) this.database.exec("ALTER TABLE model_configs ADD COLUMN model_type TEXT NOT NULL DEFAULT 'llm'");
+    if (!columns.some((column) => column.name === "capabilities_json")) this.database.exec("ALTER TABLE model_configs ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '[]'");
+    if (!columns.some((column) => column.name === "embedding_dimension")) this.database.exec("ALTER TABLE model_configs ADD COLUMN embedding_dimension INTEGER");
+    if (!columns.some((column) => column.name === "max_input_tokens")) this.database.exec("ALTER TABLE model_configs ADD COLUMN max_input_tokens INTEGER");
+    if (!columns.some((column) => column.name === "top_n")) this.database.exec("ALTER TABLE model_configs ADD COLUMN top_n INTEGER");
+    this.database.exec("UPDATE model_configs SET model_type = 'llm' WHERE model_type = 'chat'");
   }
 }
 
@@ -157,29 +179,61 @@ const selectModels = "SELECT * FROM model_configs";
 function flag(value: boolean) { return value ? 1 : 0; }
 function clean(value: unknown, field: string) { const text = String(value || "").trim(); if (!text) throw new ModelStoreError(`${field} 不能为空`); return text; }
 function numeric(value: unknown, field: string, min: number, max: number) { const number = Number(value); if (!Number.isFinite(number) || number < min || number > max) throw new ModelStoreError(`${field} 必须在 ${min}-${max} 之间`); return number; }
-function validateModelInput(input: ModelConfigInput): ModelConfigInput {
-  const modelType = input.modelType || "chat";
-  if (!modelTypes.includes(modelType)) throw new ModelStoreError("不支持的模型类型");
+function validateModelInput(input: ModelConfigInput): ValidatedModelInput {
+  const modelType = normalizeModelType(input.modelType);
   const provider = clean(input.provider, "provider") as ModelConfigInput["provider"];
   if (!modelProviders.includes(provider)) throw new ModelStoreError("不支持的 Provider");
   const baseUrl = clean(input.baseUrl, "baseUrl").replace(/\/$/, "");
   try { new URL(baseUrl); } catch { throw new ModelStoreError("baseUrl 必须是有效 URL"); }
-  return { ...input, name: clean(input.name, "name").slice(0, 100), modelType, provider, modelId: clean(input.modelId, "modelId").slice(0, 200), baseUrl,
-    apiKey: input.apiKey?.trim() || "", contextWindow: Math.floor(numeric(input.contextWindow, "contextWindow", 1, 10_000_000)),
+  const capabilities = normalizeCapabilities(input.capabilities, modelType, input);
+  return { ...input, name: clean(input.name, "name").slice(0, 100), modelType, capabilities, provider, modelId: clean(input.modelId, "modelId").slice(0, 200), baseUrl,
+    apiKey: input.apiKey?.trim() || "", contextWindow: Math.floor(numeric(input.contextWindow ?? 64_000, "contextWindow", 1, 10_000_000)),
+    embeddingDimension: optionalInteger(input.embeddingDimension, "embeddingDimension", 1, 1_000_000),
+    maxInputTokens: optionalInteger(input.maxInputTokens, "maxInputTokens", 1, 10_000_000), topN: optionalInteger(input.topN, "topN", 1, 10_000),
     timeout: Math.floor(numeric(input.timeout, "timeout", 1000, 600_000)), maxRetries: Math.floor(numeric(input.maxRetries, "maxRetries", 0, 10)),
-    temperature: numeric(input.temperature, "temperature", 0, 2), supportsTools: Boolean(input.supportsTools),
-    supportsStructuredOutput: Boolean(input.supportsStructuredOutput), supportsVision: Boolean(input.supportsVision), enabled: Boolean(input.enabled) };
+    temperature: numeric(input.temperature ?? 0, "temperature", 0, 2), supportsTools: capabilities.includes("tool_calling"),
+    supportsStructuredOutput: capabilities.includes("structured_output"), supportsVision: capabilities.some((item) => ["vision", "image_understanding", "ocr", "chart_understanding", "document_understanding"].includes(item)), enabled: Boolean(input.enabled) };
 }
 function publicModel(row: ModelRow, key: Buffer): ModelConfig {
   const secret = String(row.api_key_encrypted || "");
   const apiKey = secret ? decryptSecret(secret, key) : "";
-  return { id: String(row.id), name: String(row.name), modelType: String(row.model_type || "chat") as ModelConfig["modelType"], provider: String(row.provider) as ModelConfig["provider"], modelId: String(row.model_id), baseUrl: String(row.base_url),
+  const modelType = normalizeModelType(row.model_type);
+  const capabilities = normalizeCapabilities(parseCapabilities(row.capabilities_json), modelType, {
+    supportsTools: Boolean(row.supports_tools), supportsStructuredOutput: Boolean(row.supports_structured_output), supportsVision: Boolean(row.supports_vision),
+  });
+  return { id: String(row.id), name: String(row.name), modelType, capabilities, provider: String(row.provider) as ModelConfig["provider"], modelId: String(row.model_id), baseUrl: String(row.base_url),
     apiKeyMasked: maskSecret(apiKey), apiKeyConfigured: Boolean(apiKey),
-    contextWindow: Number(row.context_window), timeout: Number(row.timeout), maxRetries: Number(row.max_retries), temperature: Number(row.temperature),
+    contextWindow: Number(row.context_window), embeddingDimension: nullableNumber(row.embedding_dimension), maxInputTokens: nullableNumber(row.max_input_tokens), topN: nullableNumber(row.top_n),
+    timeout: Number(row.timeout), maxRetries: Number(row.max_retries), temperature: Number(row.temperature),
     supportsTools: Boolean(row.supports_tools), supportsStructuredOutput: Boolean(row.supports_structured_output), supportsVision: Boolean(row.supports_vision), enabled: Boolean(row.enabled),
     lastTestStatus: row.last_test_status as ModelConfig["lastTestStatus"] || null, lastTestLatencyMs: row.last_test_latency_ms == null ? null : Number(row.last_test_latency_ms),
     lastTestError: row.last_test_error == null ? null : String(row.last_test_error), lastTestedAt: row.last_tested_at == null ? null : String(row.last_tested_at),
     createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
+}
+
+function optionalInteger(value: unknown, field: string, min: number, max: number) {
+  if (value === undefined || value === null || value === "") return null;
+  return Math.floor(numeric(value, field, min, max));
+}
+function nullableNumber(value: unknown) { return value === undefined || value === null ? null : Number(value); }
+function parseCapabilities(value: unknown): ModelCapability[] {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed.filter((item): item is ModelCapability => modelCapabilities.includes(item as ModelCapability)) : [];
+  } catch { return []; }
+}
+function normalizeCapabilities(value: unknown, modelType: ModelConfig["modelType"], legacy: Partial<Pick<ModelConfigInput, "supportsTools" | "supportsStructuredOutput" | "supportsVision">>) {
+  const result = new Set<ModelCapability>(parseCapabilities(value));
+  const base: Partial<Record<ModelConfig["modelType"], ModelCapability[]>> = {
+    llm: ["chat"], embedding: ["text_embedding"], rerank: ["text_rerank"], vision: ["vision", "image_understanding"],
+    multimodal_llm: ["chat", "vision", "image_understanding"], multimodal_embedding: ["text_embedding", "image_embedding", "multimodal_embedding"],
+    multimodal_rerank: ["text_rerank", "multimodal_rerank"],
+  };
+  for (const capability of base[modelType] || []) result.add(capability);
+  if (legacy.supportsTools) result.add("tool_calling");
+  if (legacy.supportsStructuredOutput) result.add("structured_output");
+  if (legacy.supportsVision) result.add("vision");
+  return [...result];
 }
 
 function routeFromRow(row: RouteRow): ModelRoute {

@@ -2,7 +2,7 @@ import type { RequestContext } from "../core/types.js";
 import { ModelProviderRegistry } from "./model-provider.js";
 import type { ModelRouter } from "./model-router.js";
 import type { ModelStore } from "./model-store.js";
-import type { ChatMessage, ModelConfigInput, ModelTask, RuntimeModelConfig } from "./model-types.js";
+import { isTextEmbeddingModel, type ChatMessage, type ModelConfigInput, type ModelTask, type RuntimeModelConfig } from "./model-types.js";
 
 export type StructuredOptions = { context: RequestContext; task: ModelTask; preferredModelId?: string };
 export interface StructuredModelClient { structured<T>(messages: ChatMessage[], options: StructuredOptions): Promise<T>; }
@@ -16,12 +16,12 @@ export class ModelService implements StructuredModelClient {
   delete(context: RequestContext, id: string) { this.store.delete(context, id); }
   routes(context: RequestContext) { return this.store.listRoutes(context); }
   saveRoute(context: RequestContext, task: ModelTask, input: Parameters<ModelStore["saveRoute"]>[2]) { return this.store.saveRoute(context, task, input); }
-  embeddingModels(context: RequestContext) { return this.store.list(context).filter((model) => model.enabled && model.modelType === "embedding"); }
+  embeddingModels(context: RequestContext) { return this.store.list(context).filter((model) => model.enabled && isTextEmbeddingModel(model)); }
 
   async embedBatch(context: RequestContext, modelId: string, texts: string[]) {
     if (!texts.length) return [];
     const model = this.store.runtime(context, modelId);
-    if (!model.enabled || model.modelType !== "embedding") throw new Error("所选模型不是已启用的 Embedding 模型");
+    if (!model.enabled || !isTextEmbeddingModel(model)) throw new Error("所选模型不是已启用的 Embedding 模型");
     const provider = this.providers.get(model.provider);
     if (!provider.embed) throw new Error("当前 Provider 不支持 Embedding");
     return provider.embed(model, texts);

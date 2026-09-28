@@ -3,12 +3,12 @@ import type { PermissionService } from "../auth/permission-service.js";
 import type { RequestContext } from "../core/types.js";
 import type { ModelService } from "./model-service.js";
 import { ModelStoreError } from "./model-store.js";
-import { modelTasks, type ModelTask } from "./model-types.js";
+import { isChatCapableModel, modelTasks, type ModelTask } from "./model-types.js";
 
 export function installModelRoutes(app: Express, service: ModelService, permissions: PermissionService, identity: (request: Request) => RequestContext) {
   app.get("/api/models", (request, response) => handle(response, () => {
     const context = identity(request); permissions.require(context, "model:read"); const items = service.list(context);
-    return { items, defaultModel: items.find((item) => item.enabled && item.modelType === "chat")?.id || null };
+    return { items, defaultModel: items.find((item) => item.enabled && item.modelType === "llm")?.id || items.find((item) => item.enabled && isChatCapableModel(item))?.id || null };
   }));
   app.post("/api/models", (request, response) => handle(response, () => {
     const context = identity(request); permissions.require(context, "model:manage"); return service.create(context, request.body);

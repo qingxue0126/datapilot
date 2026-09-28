@@ -5,6 +5,7 @@ import test from "node:test";
 const page = readFileSync(new URL("../../app/page.tsx", import.meta.url), "utf8");
 const list = readFileSync(new URL("../../components/datapilot/knowledge-base.tsx", import.meta.url), "utf8");
 const detail = readFileSync(new URL("../../components/datapilot/knowledge-base-detail.tsx", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 const component = `${list}\n${detail}`;
 
 test("sidebar exposes knowledge base as a primary navigation item", () => {
@@ -49,4 +50,11 @@ test("knowledge configuration uses the six-section order without retrieval contr
     previous = position;
   }
   for (const retrievalSetting of ["TopK", "Score Threshold", "Rerank 模型"]) assert.ok(!configPanel.includes(retrievalSetting));
+});
+
+test("chunk preview and results expose independent visible scroll regions", () => {
+  assert.match(styles, /\.document-preview-body[^}]*overflow:\s*auto/);
+  assert.match(styles, /\.chunk-results-panel \.chunk-list[^}]*overflow-y:\s*auto/);
+  assert.match(styles, /scrollbar-gutter:\s*stable/);
+  assert.match(styles, /\.document-preview-body::\-webkit-scrollbar/);
 });
