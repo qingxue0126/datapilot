@@ -23,10 +23,12 @@ test("knowledge store scopes bases, documents, and chunks to the full owner cont
     store.setDocumentStatus(alice, document.id, "ready");
     assert.equal(store.get(alice, knowledgeBase.id).knowledgeBase.chunkCount, 1);
     assert.equal(store.get(alice, knowledgeBase.id).knowledgeBase.config.topK, 8);
+    assert.deepEqual([...store.metadataSchema(alice, knowledgeBase.id).get("产品") || []], ["string"]);
     assert.equal(store.list(bob).length, 0);
     assert.throws(() => store.get(bob, knowledgeBase.id), (error: KnowledgeStoreError) => error.status === 404);
     assert.throws(() => store.document(bob, document.id), (error: KnowledgeStoreError) => error.status === 404);
     assert.throws(() => store.listChunks(bob, document.id), (error: KnowledgeStoreError) => error.status === 404);
+    assert.throws(() => store.metadataSchema(bob, knowledgeBase.id), (error: KnowledgeStoreError) => error.status === 404);
     assert.throws(() => store.updateChunk(bob, "chunk-1", { enabled: false }), (error: KnowledgeStoreError) => error.status === 404);
   } finally { store.close(); }
 });

@@ -59,6 +59,25 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     const result = await retrieved.json() as { items: { rank: number; filename: string; metadata: Record<string, unknown> }[] };
     assert.equal(result.items.length, 1); assert.equal(result.items[0].rank, 1); assert.equal(result.items[0].filename, "高频问题.csv");
 
+    const v1Retrieve = (body: object, headers: Record<string, string> = {}) => fetch(`${base}/api/v1/knowledge/retrieve`, {
+      method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body),
+    });
+    const v1Response = await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "好会计怎么删除凭证", filters: { 产品: "好会计", 模块: "凭证" }, top_k: 3, score_threshold: -1, rerank: true });
+    assert.equal(v1Response.status, 200);
+    const v1Result = await v1Response.json() as { items: { chunk_id: string; content: string; metadata: Record<string, unknown>; source: { filename: string } }[] };
+    assert.equal(v1Result.items.length, 1);
+    assert.match(v1Result.items[0].content, /答案：打开凭证列表后选择删除/);
+    assert.equal(v1Result.items[0].metadata["产品"], "好会计");
+    assert.equal(v1Result.items[0].source.filename, "高频问题.csv");
+    assert.equal((await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "报表", filters: {}, top_k: 5, score_threshold: -1 }).then((response) => response.json()) as { items: unknown[] }).items.length, 2);
+    const invalidField = await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "凭证", filters: { 不存在字段: "值" } });
+    assert.equal(invalidField.status, 400);
+    assert.match((await invalidField.json() as { error: string }).error, /过滤字段不存在/);
+    const invalidValue = await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "凭证", filters: { 产品: ["好会计"] } });
+    assert.equal(invalidValue.status, 400);
+    assert.match((await invalidValue.json() as { error: string }).error, /仅支持字符串、有限数字或布尔值/);
+    assert.equal((await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "凭证" }, { "x-test-user": "bob" })).status, 404);
+
     const chunkId = chunks.items[0].id;
     const disabled = await fetch(`${base}/api/chunks/${chunkId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) });
     assert.equal(disabled.status, 200);

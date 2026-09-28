@@ -89,6 +89,7 @@ type ChunkRow = {
   id: string; knowledge_base_id: string; document_id: string; chunk_index: number; content: string;
   metadata_json: string; enabled: number; created_at: string; updated_at: string;
 };
+type ChunkMetadataRow = { metadata_json: string };
 
 export class KnowledgeStoreError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -320,6 +321,21 @@ export class KnowledgeStore {
       FROM knowledge_chunks WHERE knowledge_base_id = ? ORDER BY document_id, chunk_index
     `).all(knowledgeBaseId) as unknown as ChunkRow[];
     return rows.map(toChunk);
+  }
+
+  metadataSchema(context: RequestContext, knowledgeBaseId: string) {
+    this.ownedBase(context, knowledgeBaseId);
+    const rows = this.database.prepare("SELECT metadata_json FROM knowledge_chunks WHERE knowledge_base_id=?")
+      .all(knowledgeBaseId) as unknown as ChunkMetadataRow[];
+    const schema = new Map<string, Set<string>>();
+    for (const row of rows) {
+      const metadata = JSON.parse(row.metadata_json) as Metadata;
+      for (const [field, value] of Object.entries(metadata)) {
+        const types = schema.get(field) || new Set<string>();
+        types.add(typeof value); schema.set(field, types);
+      }
+    }
+    return schema;
   }
 
   chunk(context: RequestContext, id: string) { return toChunk(this.ownedChunk(context, id)); }

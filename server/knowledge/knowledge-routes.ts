@@ -3,8 +3,8 @@ import multer from "multer";
 import type { RequestContext } from "../core/types.js";
 import { DocumentPipeline, parseDocumentPreview, supportedDocumentExtensions, type ParserOptions } from "./document-pipeline.js";
 import type { EmbeddingProvider } from "./embedding.js";
-import { lexicalScore } from "./embedding.js";
 import { KnowledgeStore, KnowledgeStoreError, type RetrievalConfig } from "./knowledge-store.js";
+import { KnowledgeRetrievalService, validateMetadata } from "./retrieval-service.js";
 import { MilvusUnavailableError, type Metadata, type VectorStore } from "./vector-store.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
@@ -17,6 +17,7 @@ export function installKnowledgeRoutes(
   resolveIdentity: (request: Request) => RequestContext,
 ) {
   const pipeline = new DocumentPipeline(store, vectors, embeddings);
+  const retrieval = new KnowledgeRetrievalService(store, vectors, embeddings);
 
   app.get("/api/knowledge-bases", (request, response) => {
     try { response.json({ items: store.list(resolveIdentity(request)), vectorStore: vectors.provider }); }
@@ -119,32 +120,43 @@ export function installKnowledgeRoutes(
 
   app.post("/api/knowledge-bases/:id/retrieve", async (request, response) => {
     try {
-      const context = resolveIdentity(request); const detail = store.get(context, request.params.id);
-      const query = String(request.body?.query || "").trim();
-      if (!query) throw new KnowledgeStoreError("检索内容不能为空");
-      if (detail.knowledgeBase.requiresReindex) throw new KnowledgeStoreError("Embedding 模型已变更，请先重新向量化", 409);
-      const config = detail.knowledgeBase.config;
-      const topK = numberInRange(request.body?.topK, config.topK, 1, 50, true);
-      const scoreThreshold = numberInRange(request.body?.scoreThreshold, config.scoreThreshold, -1, 1, false);
-      const metadataFilter = cleanMetadata(request.body?.metadataFilter);
-      const queryEmbedding = await embeddings.embed(context, config.embeddingModel, query);
-      let items = await vectors.search(context, request.params.id, queryEmbedding, { limit: Math.max(topK * 3, topK), metadataFilter, indexConfig: vectorIndexConfig(config) });
-      if (config.rerank) items = items.map((item) => ({ ...item, score: item.score * 0.72 + lexicalScore(query, item.content) * 0.28 })).sort((a, b) => b.score - a.score);
-      const documents = new Map(detail.documents.map((document) => [document.id, document]));
+      const result = await retrieval.retrieve(resolveIdentity(request), {
+        knowledgeBaseId: request.params.id,
+        query: request.body?.query,
+        topK: legacyNumber(request.body?.topK),
+        scoreThreshold: legacyNumber(request.body?.scoreThreshold),
+        filters: validateMetadata(request.body?.metadataFilter),
+      });
       response.json({
-        items: items.filter((item) => item.score >= scoreThreshold).slice(0, topK).map((item, index) => ({
-          rank: index + 1,
-          chunkId: item.id,
-          documentId: item.documentId,
-          filename: documents.get(item.documentId)?.filename || String(item.metadata.filename || "未知文件"),
-          chunkIndex: Number(item.metadata.chunkIndex || 0),
+        items: result.items,
+        config: { ...result.config, topK: result.topK, scoreThreshold: result.scoreThreshold },
+        metadataFilter: result.filters,
+        vectorStore: result.vectorStore,
+      });
+    } catch (error) { knowledgeError(response, error); }
+  });
+
+  app.post("/api/v1/knowledge/retrieve", async (request, response) => {
+    try {
+      const result = await retrieval.retrieve(resolveIdentity(request), {
+        knowledgeBaseId: request.body?.knowledge_base_id,
+        query: request.body?.query,
+        filters: validateMetadata(request.body?.filters),
+        topK: request.body?.top_k,
+        scoreThreshold: request.body?.score_threshold,
+        rerank: request.body?.rerank,
+      });
+      response.json({
+        items: result.items.map((item) => ({
+          chunk_id: item.chunkId,
           content: item.content,
           score: item.score,
           metadata: item.metadata,
+          document_id: item.documentId,
+          filename: item.filename,
+          chunk_index: item.chunkIndex,
+          source: { document_id: item.documentId, filename: item.filename, file_type: item.fileType, chunk_index: item.chunkIndex },
         })),
-        config: { ...config, topK, scoreThreshold },
-        metadataFilter,
-        vectorStore: vectors.provider,
       });
     } catch (error) { knowledgeError(response, error); }
   });
@@ -196,19 +208,10 @@ function columnRoleMap(value: unknown): NonNullable<ParserOptions["columnRoles"]
 }
 
 function cleanMetadata(value: unknown): Metadata {
-  if (value === undefined || value === null || value === "") return {};
-  if (typeof value !== "object" || Array.isArray(value)) throw new KnowledgeStoreError("Metadata 必须是对象");
-  const entries = Object.entries(value);
-  if (entries.length > 100) throw new KnowledgeStoreError("Metadata 字段不能超过 100 个");
-  if (entries.some(([, item]) => !["string", "number", "boolean"].includes(typeof item))) throw new KnowledgeStoreError("Metadata 值仅支持字符串、数字或布尔值");
-  return Object.fromEntries(entries) as Metadata;
+  return validateMetadata(value, "Metadata");
 }
 
-function numberInRange(value: unknown, fallback: number, min: number, max: number, integer: boolean) {
-  const number = value === undefined ? fallback : Number(value);
-  const normalized = Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
-  return integer ? Math.round(normalized) : normalized;
-}
+function legacyNumber(value: unknown) { return value === undefined ? undefined : Number(value); }
 
 function knowledgeError(response: { status: (code: number) => { json: (value: unknown) => unknown } }, error: unknown) {
   const multerError = error instanceof multer.MulterError;
