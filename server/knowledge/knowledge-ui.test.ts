@@ -25,8 +25,11 @@ test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval te
   assert.match(component, /api\/documents\/.*\/preview/);
   assert.match(component, /chunk-split-layout/);
   assert.match(component, /document-preview-panel/);
-  assert.match(component, /placeholder="搜索 Chunk"/);
+  assert.match(component, /placeholder="搜索"/);
   assert.match(component, /chunk-switch/);
+  for (const label of ["全文", "摘要", "选择当前页", "Text", "条/页"]) assert.ok(component.includes(label));
+  assert.match(component, /pageSize = 50/);
+  assert.match(component, /tab === "chunks".*chunk-page/s);
   assert.match(component, /value === "chunks" && selectedDocumentId/);
   assert.match(component, /openChunks\(selectedDocumentId\)/);
   for (const label of ["文件列表", "分块结果", "上传时间", "元数据", "解析", "分块数", "确认删除"]) assert.match(component, new RegExp(label));

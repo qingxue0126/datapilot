@@ -210,6 +210,12 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   }
 
   const kb = detail.knowledgeBase;
+  if (tab === "chunks") return <div className="module-content knowledge-page chunk-page">
+    <button className="knowledge-back chunk-page-back" onClick={() => setTab("documents")}>← 返回</button>
+    {notice && <p className="knowledge-notice">{notice}</p>}
+    {kb.requiresReindex && <div className="knowledge-reindex-warning"><span>向量或索引配置已变更，现有向量索引需要重建。</span><button onClick={() => void revectorize()} disabled={busy}>重新向量化</button></div>}
+    <ChunksPanel key={selectedDocumentId || "empty"} document={selectedDocument} documents={detail.documents} chunks={chunks} preview={preview} busy={busy} select={openChunks} reparse={reparseDocument} save={saveChunk} />
+  </div>;
   return <div className="module-content knowledge-page">
     <button className="knowledge-back" onClick={back}>← 返回知识库</button>
     <div className="module-heading knowledge-detail-heading"><div><span className="eyebrow">KNOWLEDGE BASE</span><h2>{kb.name}</h2><p>{kb.description || "管理文档、Chunk、解析配置与检索测试。"}</p></div><div>
@@ -221,7 +227,6 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
       {([['documents', '文件列表'], ['chunks', '分块结果'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => openTab(value)}>{label}</button>)}
     </nav>
     {tab === "documents" && <DocumentsPanel documents={detail.documents} metadataFields={kb.config.columnMode === "auto" ? columns : kb.config.metadataFields} busy={busy} fileInput={fileInput} upload={uploadDocument} openChunks={openChunks} remove={(document) => setPendingDelete({ type: "document", document })} />}
-    {tab === "chunks" && <ChunksPanel document={selectedDocument} documents={detail.documents} chunks={chunks} preview={preview} busy={busy} select={openChunks} reparse={reparseDocument} save={saveChunk} />}
     {tab === "config" && <ConfigPanel kb={kb} columns={columns} models={models} busy={busy} save={saveConfig} revectorize={revectorize} />}
     {tab === "retrieval" && <RetrievalPanel config={kb.config} query={query} setQuery={setQuery} metadataFilter={metadataFilter} setMetadataFilter={setMetadataFilter} results={results} busy={busy} retrieve={retrieve} locate={openChunks} />}
     {pendingDelete && <ConfirmDialog
@@ -260,10 +265,29 @@ function ChunksPanel({ document, documents, chunks, preview, busy, select, repar
 }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const pageSize = 20;
-  const filtered = chunks.filter((chunk) => `${chunk.content} ${JSON.stringify(chunk.metadata)}`.toLowerCase().includes(search.trim().toLowerCase()));
+  const [enabledOnly, setEnabledOnly] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const pageSize = 50;
+  const filtered = chunks.filter((chunk) => (!enabledOnly || chunk.enabled) && `${chunk.content} ${JSON.stringify(chunk.metadata)}`.toLowerCase().includes(search.trim().toLowerCase()));
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visible = filtered.slice((Math.min(page, pageCount) - 1) * pageSize, Math.min(page, pageCount) * pageSize);
+  const currentPageSelected = visible.length > 0 && visible.every((chunk) => selectedIds.has(chunk.id));
+  function toggleCurrentPage(checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const chunk of visible) {
+        if (checked) next.add(chunk.id); else next.delete(chunk.id);
+      }
+      return next;
+    });
+  }
+  function toggleOne(id: string, checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id); else next.delete(id);
+      return next;
+    });
+  }
   return <section className="knowledge-section chunk-workspace"><header><div><h3>切片结果</h3><p>查看用于 Embedding 和召回的 Chunk；禁用后不会参与检索。</p></div><div className="knowledge-upload-actions">
     <select value={document?.id || ""} onChange={(event) => { setPage(1); void select(event.target.value); }}><option value="" disabled>选择文档</option>{documents.map((item) => <option key={item.id} value={item.id}>{item.filename}</option>)}</select>
     <button onClick={() => void reparse()} disabled={busy || !document}>重新解析文档</button>
@@ -271,20 +295,20 @@ function ChunksPanel({ document, documents, chunks, preview, busy, select, repar
   {!document ? <div className="knowledge-document-empty">请先选择一个文档。</div> : <div className="chunk-split-layout">
     <DocumentPreviewPanel key={document.id} document={document} preview={preview} />
     <div className="chunk-results-panel">
-      <div className="chunk-toolbar"><strong>共 {filtered.length} 条</strong><label>⌕<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="搜索 Chunk" /></label></div>
+      <div className="chunk-toolbar"><div className="chunk-view-modes"><button className="active">全文</button><button disabled title="当前解析器未生成摘要切片">摘要</button></div><div className="chunk-toolbar-actions"><button className={enabledOnly ? "active" : ""} onClick={() => { setEnabledOnly((value) => !value); setPage(1); }} title="仅显示已启用的 Chunk">▽</button><label>⌕<input value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} placeholder="搜索" /></label><button disabled title="新增 Chunk 接口暂未开放">＋</button></div><label className="chunk-select-page"><input type="checkbox" checked={currentPageSelected} onChange={(event) => toggleCurrentPage(event.target.checked)} />选择当前页</label></div>
       {chunks.length === 0 ? <div className="knowledge-document-empty">该文档暂无 Chunk。</div> : visible.length === 0 ? <div className="knowledge-document-empty">没有匹配的 Chunk。</div> : <div className="chunk-list">
-        {visible.map((chunk) => <ChunkEditor key={`${chunk.id}-${chunk.updatedAt}`} chunk={chunk} busy={busy} save={save} />)}
+        {visible.map((chunk) => <ChunkEditor key={`${chunk.id}-${chunk.updatedAt}`} chunk={chunk} selected={selectedIds.has(chunk.id)} toggleSelected={(checked) => toggleOne(chunk.id, checked)} busy={busy} save={save} />)}
       </div>}
-      <footer className="chunk-pagination"><span>第 {Math.min(page, pageCount)} / {pageCount} 页</span><button onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1}>上一页</button><button onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={page >= pageCount}>下一页</button></footer>
+      <footer className="chunk-pagination"><span>总共 {filtered.length} 条</span><button aria-label="上一页" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1}>‹</button>{Array.from({ length: Math.min(pageCount, 5) }, (_, index) => index + 1).map((number) => <button key={number} className={number === Math.min(page, pageCount) ? "active" : ""} onClick={() => setPage(number)}>{number}</button>)}<button aria-label="下一页" onClick={() => setPage((value) => Math.min(pageCount, value + 1))} disabled={page >= pageCount}>›</button><small>{pageSize}条/页</small></footer>
     </div>
   </div>}</section>;
 }
 
-function ChunkEditor({ chunk, busy, save }: { chunk: KnowledgeChunkData; busy: boolean; save: (chunk: KnowledgeChunkData, content: string, metadata: string, enabled: boolean) => Promise<void> }) {
+function ChunkEditor({ chunk, selected, toggleSelected, busy, save }: { chunk: KnowledgeChunkData; selected: boolean; toggleSelected: (checked: boolean) => void; busy: boolean; save: (chunk: KnowledgeChunkData, content: string, metadata: string, enabled: boolean) => Promise<void> }) {
   const [content, setContent] = useState(chunk.content); const [metadata, setMetadata] = useState(JSON.stringify(chunk.metadata, null, 2)); const [enabled, setEnabled] = useState(chunk.enabled);
   const [editing, setEditing] = useState(false);
   async function persist() { await save(chunk, content, metadata, enabled); setEditing(false); }
-  return <article id={`chunk-${chunk.id}`} className={`chunk-card ${enabled ? "" : "disabled"}`}><header><div><strong>Chunk #{chunk.chunkIndex + 1}</strong><small>{chunk.characterCount} 字符 · 约 {chunk.tokenCount} tokens</small></div><div className="chunk-card-actions"><button onClick={() => setEditing((value) => !value)}>{editing ? "取消" : "编辑"}</button><label className="chunk-switch"><input type="checkbox" checked={enabled} onChange={(event) => { const next = event.target.checked; setEnabled(next); void save(chunk, content, metadata, next); }} /><span /></label></div></header>
+  return <article id={`chunk-${chunk.id}`} className={`chunk-card ${enabled ? "" : "disabled"}`}><span className="chunk-type-badge">Text</span><header><label className="chunk-row-selector"><input type="checkbox" checked={selected} onChange={(event) => toggleSelected(event.target.checked)} /></label><div><strong>Chunk #{chunk.chunkIndex + 1}</strong><small>{chunk.characterCount} 字符 · 约 {chunk.tokenCount} tokens</small></div><div className="chunk-card-actions"><button onClick={() => setEditing((value) => !value)}>{editing ? "取消" : "编辑"}</button><label className="chunk-switch"><input type="checkbox" checked={enabled} onChange={(event) => { const next = event.target.checked; setEnabled(next); void save(chunk, content, metadata, next); }} /><span /></label></div></header>
     {editing ? <><label>内容<textarea rows={6} value={content} onChange={(event) => setContent(event.target.value)} /></label><label>Metadata<textarea className="metadata-editor" rows={4} value={metadata} onChange={(event) => setMetadata(event.target.value)} /></label><footer><button className="primary-action" onClick={() => void persist()} disabled={busy}>保存 Chunk</button></footer></> : <><p className="chunk-content">{content}</p><dl className="chunk-metadata">{Object.entries(chunk.metadata).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl></>}
   </article>;
 }
@@ -292,7 +316,7 @@ function ChunkEditor({ chunk, busy, save }: { chunk: KnowledgeChunkData; busy: b
 function DocumentPreviewPanel({ document, preview }: { document: KnowledgeDocumentData; preview: DocumentPreview | null }) {
   const [sheetIndex, setSheetIndex] = useState(0);
   const sheet = preview?.kind === "table" ? preview.sheets[Math.min(sheetIndex, Math.max(0, preview.sheets.length - 1))] : undefined;
-  return <aside className="document-preview-panel"><header><h3>{document.filename}</h3><p>{formatSize(document.size)} · 上传于 {formatTime(document.createdAt)}</p></header><div className="document-preview-body">
+  return <aside className="document-preview-panel"><header><div><h3>{document.filename}</h3><p>{formatSize(document.size)} · 上传于 {formatTime(document.createdAt)}</p></div><div className="preview-modes"><button className="active">▧ 预览</button><button disabled>Artifact</button></div></header><div className="document-preview-body">
     {!preview ? <div className="knowledge-document-empty">正在加载预览…</div> : preview.kind === "text" ? <pre>{preview.text}</pre> : sheet ? <div className="sheet-preview"><table><thead><tr><th>#</th>{sheet.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{sheet.rows.map((row, index) => <tr key={index}><th>{index + 2}</th>{sheet.columns.map((column) => <td key={column}>{String(row[column] ?? "")}</td>)}</tr>)}</tbody></table></div> : <div className="knowledge-document-empty">无可预览内容</div>}
   </div>{preview?.kind === "table" && preview.sheets.length > 0 && <footer className="sheet-tabs">{preview.sheets.map((item, index) => <button key={item.name} className={index === sheetIndex ? "active" : ""} onClick={() => setSheetIndex(index)}>{item.name}</button>)}</footer>}</aside>;
 }
