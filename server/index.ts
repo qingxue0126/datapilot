@@ -211,7 +211,7 @@ app.post("/api/database/query", async (request, response) => {
     const operation = prepareSql(requestedSql);
     permissions.require(context, operation.isWrite ? "database:write" : "database:read");
     const item = getConnectionItem(String(request.body?.connectionId || ""), context);
-    const sql = !operation.isWrite && context.role !== "tenant_admin"
+    const sql = !operation.isWrite && context.role !== "tenant_admin" && context.role !== "tenant_owner"
       ? assertAgentSql(requestedSql, permissions.policy(context))
       : requestedSql;
     response.json(await executeSql(item.config, sql, request.body?.confirm === true));

@@ -20,7 +20,7 @@ export class EnvironmentIdentityProvider implements IdentityProvider {
     if (!secret) return this.accounts!.authenticate(token).context;
     const claims = verifyJwt(request, secret);
     const role = claims.role as Role;
-    if (!(["tenant_admin", "finance_analyst", "finance_viewer"] as string[]).includes(role)) throw new Error("无效的用户角色");
+    if (!(["tenant_owner", "tenant_admin", "finance_analyst", "finance_viewer"] as string[]).includes(role)) throw new Error("无效的用户角色");
     return {
       tenantId: safeId(claims.tenant_id, "租户"),
       accountSetId: safeId(claims.account_set_id, "账套"),

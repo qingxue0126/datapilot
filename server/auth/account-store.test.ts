@@ -90,3 +90,39 @@ test("registered accounts receive isolated tenant and account-set contexts", asy
     assert.ok(new PermissionService().policy(firstContext).capabilities.includes("connection:manage"));
   } finally { item.cleanup(); }
 });
+
+test("member, owner, and root receive the expected account-center permissions", async () => {
+  const item = fixture();
+  try {
+    const root = await item.store.register("root-admin", "Secure123", "Secure123");
+    const owner = await item.store.register("team-owner", "Secure123", "Secure123");
+    const member = await item.store.register("ordinary-member", "Secure123", "Secure123");
+    assert.equal(item.store.accountCenter(root.token).user.isRoot, true);
+    assert.equal(item.store.accountCenter(root.token).admin?.scope, "platform");
+    assert.equal(item.store.accountCenter(owner.token).user.role, "tenant_owner");
+    assert.equal(item.store.accountCenter(owner.token).admin?.scope, "tenant");
+
+    item.store.inviteMember(root.token, { identifier: "ordinary-member", role: "finance_viewer" });
+    item.store.switchTeam(member.token, root.user.tenantId);
+    const memberCenter = item.store.accountCenter(member.token);
+    assert.equal(memberCenter.user.role, "finance_viewer");
+    assert.equal(memberCenter.user.canManageTenant, false);
+    assert.equal(memberCenter.admin, undefined);
+    assert.throws(() => item.store.createTeam(member.token, "越权团队"), (error: AuthError) => error.status === 403);
+  } finally { item.cleanup(); }
+});
+
+test("team switching is limited to memberships and owner management stays tenant-scoped", async () => {
+  const item = fixture();
+  try {
+    const root = await item.store.register("root-admin", "Secure123", "Secure123");
+    const owner = await item.store.register("owner-two", "Secure123", "Secure123");
+    assert.throws(() => item.store.switchTeam(owner.token, root.user.tenantId), (error: AuthError) => error.status === 403);
+    assert.throws(() => item.store.inviteMember(owner.token, { identifier: "someone", tenantId: root.user.tenantId }), (error: AuthError) => error.status === 403);
+
+    item.store.inviteMember(root.token, { identifier: "owner-two", role: "finance_analyst" });
+    const switched = item.store.switchTeam(owner.token, root.user.tenantId);
+    assert.equal(switched.user.tenantId, root.user.tenantId);
+    assert.equal(item.store.authenticate(owner.token).context.tenantId, root.user.tenantId);
+  } finally { item.cleanup(); }
+});

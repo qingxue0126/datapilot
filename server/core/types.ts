@@ -1,4 +1,4 @@
-export type Role = "tenant_admin" | "finance_analyst" | "finance_viewer";
+export type Role = "tenant_owner" | "tenant_admin" | "finance_analyst" | "finance_viewer";
 
 export type RequestContext = {
   tenantId: string;

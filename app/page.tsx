@@ -129,6 +129,16 @@ export default function Home() {
     resetAuthenticatedState();
   }
 
+  async function accountContextChanged(user: AuthUser) {
+    const teamChanged = currentUser?.tenantId !== user.tenantId;
+    setCurrentUser(user);
+    if (!teamChanged) return;
+    setSources([]); setActiveSourceId(""); setResult(null); setMapping(null); setAnalysisSessions([]); setActiveSessionId(""); setMessages([]); setView("chat");
+    await restoreModels();
+    const restored = await restoreConnections();
+    await restoreAnalyses(restored);
+  }
+
   function resetAuthenticatedState() {
     setCurrentUser(null); setSources([]); setActiveSourceId(""); setResult(null); setMapping(null); setQuestion(""); setAnalysisSessions([]); setActiveSessionId(""); setMessages([]); setModels([]); setSelectedModel(""); setAuthMode("login"); setAuthError("");
   }
@@ -389,7 +399,7 @@ export default function Home() {
       </div>
       <div className="sidebar-footer">
         <CurrentDatasourceShortcut source={activeSource} onOpen={() => activeSource ? void openSourceDetail(activeSource) : setView("sources")} />
-        <div className="sidebar-bottom"><UserAccountMenu user={currentUser} onLogout={logout} onDelete={deleteAccount} /></div>
+        <div className="sidebar-bottom"><UserAccountMenu user={currentUser} onLogout={logout} onDelete={deleteAccount} onContextChanged={accountContextChanged} /></div>
       </div>
     </aside>
 

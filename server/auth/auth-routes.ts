@@ -31,6 +31,43 @@ export function installAuthRoutes(app: Express, accounts: AccountStore) {
     catch (error) { authFailure(response, error); }
   });
 
+  app.get("/api/auth/account-center", (request, response) => {
+    try { response.json(accounts.accountCenter(sessionToken(request))); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.patch("/api/auth/profile", (request, response) => {
+    try { response.json({ user: accounts.updateProfile(sessionToken(request), request.body?.displayName) }); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.post("/api/auth/password", async (request, response) => {
+    try {
+      await accounts.changePassword(sessionToken(request), request.body?.currentPassword, request.body?.newPassword, request.body?.confirmPassword);
+      response.status(204).end();
+    } catch (error) { authFailure(response, error); }
+  });
+
+  app.post("/api/auth/teams/switch", (request, response) => {
+    try { response.json(accounts.switchTeam(sessionToken(request), request.body?.tenantId)); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.post("/api/auth/admin/teams", (request, response) => {
+    try { response.status(201).json({ team: accounts.createTeam(sessionToken(request), request.body?.name) }); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.post("/api/auth/admin/invitations", (request, response) => {
+    try { response.status(201).json(accounts.inviteMember(sessionToken(request), request.body || {})); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.patch("/api/auth/admin/members/:userId", (request, response) => {
+    try { response.json({ membership: accounts.updateMemberRole(sessionToken(request), request.params.userId, request.body || {}) }); }
+    catch (error) { authFailure(response, error); }
+  });
+
   app.delete("/api/auth/account", (request, response) => {
     try {
       if (request.body?.confirmation !== "DELETE") throw new AuthError("请输入 DELETE 确认注销账户", 400);
