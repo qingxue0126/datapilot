@@ -24,7 +24,12 @@ export class ModelService implements StructuredModelClient {
     if (!model.enabled || !isTextEmbeddingModel(model)) throw new Error("所选模型不是已启用的 Embedding 模型");
     const provider = this.providers.get(model.provider);
     if (!provider.embed) throw new Error("当前 Provider 不支持 Embedding");
-    return provider.embed(model, texts);
+    const vectors: number[][] = [];
+    const batchSize = embeddingBatchSize(model);
+    for (let index = 0; index < texts.length; index += batchSize) {
+      vectors.push(...await embedWithAdaptiveBatching(provider.embed.bind(provider), model, texts.slice(index, index + batchSize)));
+    }
+    return vectors;
   }
 
   async embed(context: RequestContext, modelId: string, text: string) {
@@ -73,6 +78,35 @@ export class ModelService implements StructuredModelClient {
     }
     throw lastError instanceof Error ? lastError : new Error("模型调用失败");
   }
+}
+
+function embeddingBatchSize(model: RuntimeModelConfig) {
+  // DashScope text embedding v2 accepts at most 25 input texts per request.
+  // Check the URL too because older saved models may use the generic
+  // OpenAI-compatible provider while still targeting DashScope.
+  if (model.provider === "qwen" || /dashscope\.aliyuncs\.com/i.test(model.baseUrl)) return 25;
+  return 64;
+}
+
+async function embedWithAdaptiveBatching(
+  embed: (model: RuntimeModelConfig, texts: string[]) => Promise<number[][]>,
+  model: RuntimeModelConfig,
+  texts: string[],
+): Promise<number[][]> {
+  try {
+    return await embed(model, texts);
+  } catch (error) {
+    if (texts.length <= 1 || !isEmbeddingBatchLimitError(error)) throw error;
+    const middle = Math.ceil(texts.length / 2);
+    const left = await embedWithAdaptiveBatching(embed, model, texts.slice(0, middle));
+    const right = await embedWithAdaptiveBatching(embed, model, texts.slice(middle));
+    return [...left, ...right];
+  }
+}
+
+function isEmbeddingBatchLimitError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /batch(?:\s|_)*size|too many (?:inputs|items)|input(?:s)?[^\n]*(?:limit|maximum)|not be larger than/i.test(message);
 }
 
 function stripFence(value: string) { return value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""); }

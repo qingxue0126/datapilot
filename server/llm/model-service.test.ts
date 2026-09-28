@@ -49,6 +49,55 @@ test("embedding calls use only enabled embedding model configurations", async ()
   await assert.rejects(() => service.embed(context, chat.id, "a"), /Embedding 模型/);
 });
 
+test("Qwen embeddings are split into batches of at most 25 while preserving order", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 17));
+  const embedding = store.create(context, {
+    ...config("qwen-embedding"),
+    modelType: "embedding",
+    provider: "qwen",
+    modelId: "text-embedding-v2",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  });
+  const batchSizes: number[] = [];
+  const provider: ModelProvider = {
+    async chat() { throw new Error("unused"); },
+    async testConnection() { return { content: "OK", latencyMs: 1 }; },
+    async embed(_model, texts) {
+      batchSizes.push(texts.length);
+      return texts.map((text) => [Number(text)]);
+    },
+  };
+  const service = new ModelService(store, new ModelRouter(store), { get: () => provider } as unknown as ModelProviderRegistry);
+  const texts = Array.from({ length: 53 }, (_, index) => String(index));
+
+  const vectors = await service.embedBatch(context, embedding.id, texts);
+
+  assert.deepEqual(batchSizes, [25, 25, 3]);
+  assert.deepEqual(vectors, texts.map((text) => [Number(text)]));
+});
+
+test("embedding batches shrink automatically when a provider reports a smaller limit", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 18));
+  const embedding = store.create(context, { ...config("limited-embedding"), modelType: "embedding" });
+  const successfulBatches: number[] = [];
+  const provider: ModelProvider = {
+    async chat() { throw new Error("unused"); },
+    async testConnection() { return { content: "OK", latencyMs: 1 }; },
+    async embed(_model, texts) {
+      if (texts.length > 8) throw new Error("batch size is invalid, maximum input limit is 8");
+      successfulBatches.push(texts.length);
+      return texts.map((text) => [Number(text)]);
+    },
+  };
+  const service = new ModelService(store, new ModelRouter(store), { get: () => provider } as unknown as ModelProviderRegistry);
+  const texts = Array.from({ length: 20 }, (_, index) => String(index));
+
+  const vectors = await service.embedBatch(context, embedding.id, texts);
+
+  assert.deepEqual(successfulBatches, [5, 5, 5, 5]);
+  assert.deepEqual(vectors, texts.map((text) => [Number(text)]));
+});
+
 test("connection testing uses the embeddings endpoint for embedding models", async () => {
   const store = new ModelStore(":memory:", Buffer.alloc(32, 14));
   const embedding = store.create(context, { ...config("embedding-connect"), modelType: "embedding" });
