@@ -53,7 +53,7 @@ test("knowledge configuration uses the six-section order without retrieval contr
 });
 
 test("chunk preview and results expose independent visible scroll regions", () => {
-  assert.match(styles, /\.document-preview-body[^}]*overflow:\s*auto/);
+  assert.match(styles, /\.document-preview-body[^}]*overflow:\s*scroll/);
   assert.match(styles, /\.chunk-results-panel \.chunk-list[^}]*overflow-y:\s*auto/);
   assert.match(styles, /scrollbar-gutter:\s*stable/);
   assert.match(styles, /\.document-preview-body::\-webkit-scrollbar/);

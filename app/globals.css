@@ -417,7 +417,7 @@ button:disabled { cursor: not-allowed; }
 .document-preview-panel > header { padding: 20px; border-bottom: 1px solid #e4eae7; }
 .document-preview-panel > header h3 { overflow: hidden; margin: 0; color: #263c32; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
 .document-preview-panel > header p { margin: 6px 0 0; color: #7c8b83; font-size: 14px; }
-.document-preview-body { min-width: 0; min-height: 0; overflow: auto; padding: 18px; scrollbar-color: #94a79d #edf2ef; scrollbar-gutter: stable both-edges; scrollbar-width: auto; }
+.document-preview-body { min-width: 0; min-height: 0; overflow: scroll; padding: 18px; scrollbar-color: #71887c #e4ebe7; scrollbar-gutter: stable; scrollbar-width: auto; }
 .document-preview-body pre { margin: 0; color: #34483e; font: 14px/1.7 var(--font-geist-mono); white-space: pre-wrap; }
 .sheet-preview { min-width: max-content; border: 1px solid #dbe4df; border-radius: 6px; background: white; }
 .sheet-preview table { border-collapse: collapse; font-size: 14px; }
