@@ -34,6 +34,19 @@ function apiFetch(path: string, init: RequestInit = {}) {
   return fetch(`${API_BASE}${path}`, { ...init, credentials: "include" });
 }
 
+async function apiFetchWithRetry(path: string, init: RequestInit = {}, attempts = 3) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await apiFetch(path, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts) await new Promise((resolve) => window.setTimeout(resolve, 400 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export default function Home() {
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -83,9 +96,12 @@ export default function Home() {
 
   async function restoreSession() {
     try {
-      const response = await apiFetch("/api/auth/me");
+      const response = await apiFetchWithRetry("/api/auth/me");
       if (!response.ok) return;
       const data = await response.json(); setCurrentUser(data.user); await restoreModels(); const restored = await restoreConnections(); await restoreAnalyses(restored);
+    } catch (caught) {
+      setCurrentUser(null);
+      setAuthError(caught instanceof TypeError ? "无法连接 DataPilot API，请确认服务已启动后刷新页面。" : message(caught, "会话恢复失败，请稍后重试。"));
     } finally { setAuthLoading(false); }
   }
 

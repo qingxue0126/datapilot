@@ -52,8 +52,12 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
   useEffect(() => { void loadRoutes(); }, []);
 
   async function loadRoutes() {
-    const response = await apiFetch("/api/model-routes"); const data = await response.json();
-    if (response.ok) setRoutes(data.items || []); else setNotice(data.error || "无法读取模型路由");
+    try {
+      const response = await apiFetch("/api/model-routes"); const data = await response.json();
+      if (response.ok) setRoutes(data.items || []); else setNotice(data.error || "无法读取模型路由");
+    } catch (error) {
+      setNotice(errorMessage(error));
+    }
   }
   async function saveModel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy("save"); setNotice("");
@@ -151,4 +155,7 @@ function value(data: FormData, key: string) { return String(data.get(key) || "")
 function number(data: FormData, key: string) { return Number(data.get(key)); }
 function optionalNumber(data: FormData, key: string) { const raw = value(data, key); return raw ? Number(raw) : null; }
 function providerLabel(id: string) { return providers.find(([value]) => value === id)?.[1] || id; }
-function errorMessage(error: unknown) { return error instanceof Error ? error.message : "操作失败"; }
+function errorMessage(error: unknown) {
+  if (error instanceof TypeError && /fetch/i.test(error.message)) return "无法连接 DataPilot API，请稍后重试。";
+  return error instanceof Error ? error.message : "操作失败";
+}

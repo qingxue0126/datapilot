@@ -26,3 +26,8 @@ test("model management UI exposes seven types, capabilities and type-specific fi
   assert.match(component, /showsEmbedding/);
   assert.match(component, /showsRerank/);
 });
+
+test("model route bootstrap handles an unavailable API", () => {
+  assert.match(component, /async function loadRoutes\(\) \{[\s\S]*?catch \(error\)/);
+  assert.match(component, /无法连接 DataPilot API/);
+});

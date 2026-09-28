@@ -28,3 +28,9 @@ test("all application API calls include cookie credentials", () => {
   assert.match(page, /credentials: "include"/);
   assert.doesNotMatch(page.replace(/function apiFetch[\s\S]*?\n}/, ""), /fetch\(/);
 });
+
+test("session bootstrap retries and handles an unavailable API", () => {
+  assert.match(page, /apiFetchWithRetry\("\/api\/auth\/me"\)/);
+  assert.match(page, /catch \(caught\) \{/);
+  assert.match(page, /无法连接 DataPilot API/);
+});
