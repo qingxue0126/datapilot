@@ -2,7 +2,7 @@ import type { RequestContext } from "../core/types.js";
 import { ModelProviderRegistry } from "./model-provider.js";
 import type { ModelRouter } from "./model-router.js";
 import type { ModelStore } from "./model-store.js";
-import { isTextEmbeddingModel, type ChatMessage, type ModelConfigInput, type ModelTask, type RuntimeModelConfig } from "./model-types.js";
+import { isChatCapableModel, isTextEmbeddingModel, type ChatMessage, type ModelConfigInput, type ModelTask, type RuntimeModelConfig } from "./model-types.js";
 
 export type StructuredOptions = { context: RequestContext; task: ModelTask; preferredModelId?: string };
 export interface StructuredModelClient { structured<T>(messages: ChatMessage[], options: StructuredOptions): Promise<T>; }
@@ -44,6 +44,17 @@ export class ModelService implements StructuredModelClient {
       this.store.setTestResult(context, id, response);
       return response;
     }
+  }
+
+  async chat(context: RequestContext, modelId: string, messages: ChatMessage[]) {
+    const model = this.store.runtime(context, modelId);
+    if (!model.enabled || !isChatCapableModel(model)) throw new Error("所选模型不是已启用的 LLM 模型");
+    return this.providers.get(model.provider).chat(model, {
+      messages,
+      temperature: model.temperature,
+      timeout: model.timeout,
+      maxTokens: Math.min(4000, model.contextWindow),
+    });
   }
 
   async structured<T>(messages: ChatMessage[], options: StructuredOptions): Promise<T> {

@@ -9,13 +9,14 @@ import { DatasourceDetail } from "../components/datapilot/datasource-detail";
 import { erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
 import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
 import { DatasourceSwitcher } from "../components/datapilot/datasource-switcher";
-import { ChatBubbleIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon } from "../components/datapilot/icons";
+import { AgentWorkflowIcon, ChatBubbleIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon } from "../components/datapilot/icons";
+import { AgentStudio } from "../components/datapilot/agent-studio";
 import { KnowledgeBaseView } from "../components/datapilot/knowledge-base";
 import { ModelManagement, ModelSelector, type ModelOption } from "../components/datapilot/model-management";
 import { RecentAnalyses } from "../components/datapilot/recent-analyses";
 import type { AnalysisMessage, AnalysisSession, AnalysisSessionDetail, DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
 
-type View = "chat" | "sources" | "source-detail" | "database" | "knowledge" | "models";
+type View = "chat" | "agents" | "sources" | "source-detail" | "database" | "knowledge" | "models";
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
 type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; rowCount: number; executionMs: number; requiresConfirmation?: boolean; operation?: string; affectedRows?: number };
 type PendingSql = { sql: string; operation: string; origin: "natural" | "console" };
@@ -273,6 +274,7 @@ export default function Home() {
   const chatHasConversation = view === "chat" && messages.length > 0;
   const viewTitles: Record<View, [string, string]> = {
     chat: [activeSession?.title || "分析工作区", "连续追问，完整上下文仅在当前分析中生效"], sources: ["数据源", "查看数据库连接与 ERP Schema 理解状态"],
+    agents: ["智能体", "编排、发布并运行可复用的业务工作流"],
     "source-detail": [activeSource?.name || "数据源详情", "ERP Schema Mapping、Join Path 与验证结果"],
     database: [activeSource?.name || "数据库编辑台", "浏览数据结构并通过自然语言或 SQL 操作数据"],
     knowledge: ["知识库", "管理文档、检索配置与向量检索测试"],
@@ -390,6 +392,7 @@ export default function Home() {
       <button className="brand" aria-label="打开当前分析" onClick={() => setView("chat")}><span>DataPilot</span></button>
       <button className="new-chat" onClick={startAnalysis}><span className="nav-icon">＋</span><span>新建分析</span></button>
       <nav aria-label="主导航">
+        <button className={`nav-item ${view === "agents" ? "active" : ""}`} onClick={() => setView("agents")}><span className="nav-icon"><AgentWorkflowIcon /></span>智能体</button>
         <button className={`nav-item ${view === "sources" || view === "source-detail" ? "active" : ""}`} onClick={() => setView("sources")}><span className="nav-icon"><ServerStackIcon /></span>数据源</button>
         <button className={`nav-item ${view === "knowledge" ? "active" : ""}`} onClick={() => setView("knowledge")}><span className="nav-icon"><KnowledgeDatabaseIcon /></span>知识库</button>
         <button className={`nav-item ${view === "models" ? "active" : ""}`} onClick={() => setView("models")}><span className="nav-icon"><ModelCubeIcon /></span>模型管理</button>
@@ -405,6 +408,7 @@ export default function Home() {
 
     <section className={`workspace ${chatHasConversation ? "chat-conversation-active" : ""}`}>{!chatHasConversation && <header className="topbar"><div><h1>{viewTitles[view][0]}</h1><p>{viewTitles[view][1]}</p></div><div className="top-actions"><span className="connection"><i className={activeSource?.status === "connected" ? "" : "offline"} />{activeSource ? sourceState(activeSource).title : "等待连接"}</span><button aria-label="帮助" title="帮助中心" onClick={() => setInteractionNotice("帮助中心功能开发中")}>?</button></div></header>}
       {view === "chat" && <ChatView session={activeSession} messages={messages} createAnalysis={startAnalysis} sources={sources} activeSource={activeSource} activeSourceId={activeSourceId} selectSource={selectQuerySource} models={models} selectedModel={selectedModel} selectModel={selectModel} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} openSources={() => setView("sources")} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}
+      {view === "agents" && <AgentStudio models={models} />}
       {view === "sources" && <SourcesView sources={sources} activeSourceId={activeSourceId} testingSource={testingSource} notice={connectionNotice} add={() => { setConnectionNotice(""); setShowAddSource(true); }} open={(source) => void openSourceDetail(source)} test={testConnection} workbench={openDatabase} remove={removeSource} />}
       {view === "source-detail" && activeSource && <DatasourceDetail source={activeSource} mapping={mapping} loading={mappingLoading} error={mappingError} tab={detailTab} focusedEntity={focusedEntity} onTab={setDetailTab} onBack={() => setView("sources")} onOpenWorkbench={() => openDatabase(activeSource)} onRefresh={() => void openSourceDetail(activeSource, detailTab, focusedEntity)} onSaveDraft={saveMappingDraft} onValidate={validateMappingDraft} onPublish={publishMapping} onLoadVersions={loadMappingVersions} onLoadVersion={loadMappingVersion} onRollback={rollbackMapping} />}
       {view === "database" && activeSource && <DatabaseWorkbench source={activeSource} schema={serverSchema} mode={dbMode} setMode={setDbMode} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} sqlText={sqlText} setSqlText={setSqlText} sqlResult={sqlResult} sqlRunning={sqlRunning} runSql={() => void runSql()} notice={connectionNotice} pendingSql={pendingSql} cancelPending={() => setPendingSql(null)} confirmWrite={() => void runSql(true)} back={() => void openSourceDetail(activeSource)} setNotice={setConnectionNotice} loadSchema={loadSchema} />}

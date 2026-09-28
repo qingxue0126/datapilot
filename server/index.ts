@@ -29,6 +29,9 @@ import { DatabaseQueryTool } from "./tools/database-query-tool.js";
 import { MetricSearchTool } from "./tools/metric-search-tool.js";
 import { SchemaSearchTool } from "./tools/schema-search-tool.js";
 import { ToolRegistry } from "./tools/tool-registry.js";
+import { WorkflowEngine } from "./workflow/workflow-engine.js";
+import { installWorkflowRoutes } from "./workflow/workflow-routes.js";
+import { WorkflowStore } from "./workflow/workflow-store.js";
 
 const app = express();
 const port = Number(process.env.API_PORT || 3001);
@@ -50,6 +53,13 @@ const tools = new ToolRegistry()
   .register(new SchemaSearchTool(permissions, mappingRegistry))
   .register(new DatabaseQueryTool(permissions));
 const agent = new DataAgent(tools, permissions, sessions, new ErpQueryService(model));
+const workflows = new WorkflowStore();
+const workflowEngine = new WorkflowEngine({
+  store: workflows,
+  models: model,
+  permissions,
+  connection: (context, id) => getConnectionItem(id, context).config,
+});
 
 app.use(cors({ origin: process.env.WEB_ORIGIN || "http://localhost:3000", credentials: true }));
 app.use(express.json({ limit: "2mb" }));
@@ -70,6 +80,7 @@ app.get("/api/me", (request, response) => {
 installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getConnectionItem(datasourceId, context); });
 installKnowledgeRoutes(app, knowledge, vectors, embeddings, identity);
 installModelRoutes(app, model, permissions, identity);
+installWorkflowRoutes(app, workflows, workflowEngine, identity);
 
 app.get("/api/connections", (request, response) => {
   try {

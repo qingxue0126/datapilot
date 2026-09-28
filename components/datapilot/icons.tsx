@@ -65,3 +65,21 @@ export function ModelCubeIcon({ className = "" }: { className?: string }) {
     <path d="m4.4 7.6 7.6 4.3 7.6-4.3M12 12v8.7" />
   </svg>;
 }
+
+export function AgentWorkflowIcon({ className = "" }: { className?: string }) {
+  return <svg
+    className={`sidebar-nav-icon ${className}`.trim()}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="3" y="4" width="6" height="5" rx="1.3" />
+    <rect x="15" y="15" width="6" height="5" rx="1.3" />
+    <path d="M9 6.5h3a3 3 0 0 1 3 3v3a3 3 0 0 0 3 3" />
+    <circle cx="15" cy="9.5" r="1.5" />
+  </svg>;
+}

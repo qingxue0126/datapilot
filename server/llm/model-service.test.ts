@@ -65,6 +65,27 @@ test("connection testing uses the embeddings endpoint for embedding models", asy
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("DeepSeek LLM connection test disables thinking and accepts a reasoning response", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 16));
+  const model = store.create(context, {
+    ...config("deepseek-connect"),
+    provider: "deepseek",
+    modelId: "deepseek-v4-flash",
+  });
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> = {};
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ choices: [{ message: { reasoning_content: "OK" } }] }), { status: 200 });
+  };
+  try {
+    const service = new ModelService(store, new ModelRouter(store));
+    assert.equal((await service.testConnection(context, model.id)).success, true);
+    assert.deepEqual(requestBody.thinking, { type: "disabled" });
+    assert.equal(requestBody.max_tokens, 32);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("unsupported rerank connection testing returns an explicit protocol error", async () => {
   const store = new ModelStore(":memory:", Buffer.alloc(32, 15));
   const rerank = store.create(context, { ...config("rerank-connect"), modelType: "rerank" });

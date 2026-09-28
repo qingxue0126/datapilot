@@ -1,6 +1,10 @@
 import type { ChatRequest, ChatResponse, MultimodalChatRequest, RerankRequest, RerankResponse, RuntimeModelConfig } from "./model-types.js";
 
-type OpenAIResponse = { choices?: { message?: { content?: string } }[]; error?: { message?: string }; message?: string };
+type OpenAIResponse = {
+  choices?: { message?: { content?: string | null; reasoning_content?: string | null } }[];
+  error?: { message?: string };
+  message?: string;
+};
 type OpenAIEmbeddingResponse = { data?: { index: number; embedding: number[] }[]; error?: { message?: string }; message?: string };
 
 /** Unified protocol implemented by every model vendor adapter. */
@@ -42,7 +46,15 @@ export class OpenAICompatibleProvider implements ModelProvider {
     throw new Error("当前 Provider 未实现 Multimodal Rerank 协议");
   }
 
-  private async sendChat(model: RuntimeModelConfig, messages: ChatRequest["messages"] | MultimodalChatRequest["messages"], temperature: number, timeout: number, maxTokens?: number, structured = false): Promise<ChatResponse> {
+  private async sendChat(
+    model: RuntimeModelConfig,
+    messages: ChatRequest["messages"] | MultimodalChatRequest["messages"],
+    temperature: number,
+    timeout: number,
+    maxTokens?: number,
+    structured = false,
+    disableThinking = false,
+  ): Promise<ChatResponse> {
     const startedAt = Date.now();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
@@ -53,12 +65,19 @@ export class OpenAICompatibleProvider implements ModelProvider {
         method: "POST", headers, signal: controller.signal,
         body: JSON.stringify({ model: model.modelId, messages, temperature,
           ...(maxTokens ? { max_tokens: maxTokens } : {}),
-          ...(structured ? { response_format: { type: "json_object" } } : {}) }),
+          ...(structured ? { response_format: { type: "json_object" } } : {}),
+          // DeepSeek may spend a short test's entire output budget on reasoning.
+          // Connection tests only need a final answer, so explicitly disable it.
+          ...(disableThinking ? { thinking: { type: "disabled" } } : {}) }),
       });
       const raw = await response.text();
       const body = parseResponse(raw);
       if (!response.ok) throw new Error(`模型请求失败（${response.status}）：${safeError(body)}`);
-      const content = body.choices?.[0]?.message?.content;
+      const message = body.choices?.[0]?.message;
+      // Some compatible reasoning APIs can return reasoning_content before content.
+      // Treat it as a valid response for connection diagnostics rather than reporting
+      // a false negative when the HTTP request itself succeeded.
+      const content = message?.content?.trim() || message?.reasoning_content?.trim();
       if (!content) throw new Error("模型未返回有效内容");
       return { content, latencyMs: Date.now() - startedAt };
     } catch (error) {
@@ -70,7 +89,18 @@ export class OpenAICompatibleProvider implements ModelProvider {
   async testConnection(model: RuntimeModelConfig) {
     const startedAt = Date.now();
     if (model.modelType === "embedding") await this.embed(model, ["DataPilot connection test"]);
-    else if (model.modelType === "llm") return this.chat(model, { messages: [{ role: "user", content: "Reply only with OK." }], temperature: 0, timeout: model.timeout, maxTokens: 8 });
+    else if (model.modelType === "llm") {
+      const messages: ChatRequest["messages"] = [{ role: "user", content: "Reply only with OK." }];
+      return this.sendChat(
+        model,
+        messages,
+        0,
+        model.timeout,
+        32,
+        false,
+        model.provider === "deepseek",
+      );
+    }
     else if (model.modelType === "vision" || model.modelType === "multimodal_llm") {
       const request: MultimodalChatRequest = { temperature: 0, timeout: model.timeout, maxTokens: 8, messages: [{ role: "user", content: [
         { type: "text", text: "Describe this image with one word." }, { type: "image_url", image_url: { url: testImageDataUrl } },
