@@ -95,13 +95,14 @@ export function installKnowledgeRoutes(
     try {
       const context = resolveIdentity(request);
       const current = store.chunk(context, request.params.id);
-      const input: { content?: string; metadata?: Metadata; enabled?: boolean } = {};
+      const input: { content?: string; embeddingContent?: string; metadata?: Metadata; enabled?: boolean } = {};
       if (request.body?.content !== undefined) input.content = String(request.body.content);
       if (request.body?.metadata !== undefined) input.metadata = cleanMetadata(request.body.metadata);
       if (request.body?.enabled !== undefined) input.enabled = Boolean(request.body.enabled);
-      const nextContent = input.content === undefined ? current.content : input.content;
+      const nextEmbeddingContent = input.content === undefined ? current.embeddingContent : input.content;
       const base = store.get(context, current.knowledgeBaseId).knowledgeBase;
-      const embedding = await embeddings.embed(context, base.config.embeddingModel, nextContent);
+      const embedding = await embeddings.embed(context, base.config.embeddingModel, nextEmbeddingContent);
+      if (input.content !== undefined) input.embeddingContent = nextEmbeddingContent;
       const chunk = store.updateChunk(context, request.params.id, input);
       try {
         await vectors.upsert(context, [{
@@ -201,8 +202,18 @@ function columnRoleMap(value: unknown): NonNullable<ParserOptions["columnRoles"]
   if (!source || typeof source !== "object" || Array.isArray(source)) return {};
   const result: NonNullable<ParserOptions["columnRoles"]> = {};
   for (const [column, role] of Object.entries(source as Record<string, unknown>)) {
-    const normalized = String(role);
-    if (normalized === "index" || normalized === "metadata" || normalized === "both" || normalized === "ignore") result[column] = normalized;
+    if (role === "index" || role === "metadata" || role === "both" || role === "ignore") {
+      result[column] = role;
+      continue;
+    }
+    if (role && typeof role === "object" && !Array.isArray(role)) {
+      const attributes = role as Record<string, unknown>;
+      result[column] = {
+        content: attributes.content === true,
+        embedding: attributes.embedding === true,
+        metadata: attributes.metadata === true,
+      };
+    }
   }
   return result;
 }

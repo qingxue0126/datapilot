@@ -16,7 +16,7 @@ test("sidebar exposes knowledge base as a primary navigation item", () => {
 });
 
 test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval testing", () => {
-  for (const label of ["新建知识库", "新增文件", "重新解析文档", "Metadata Fields", "Embedding 模型", "重新向量化", "检索测试", "Score Threshold", "定位 Chunk"]) {
+  for (const label of ["新建知识库", "新增文件", "重新解析文档", "Field Attributes", "Embedding 模型", "重新向量化", "检索测试", "Score Threshold", "定位 Chunk"]) {
     assert.match(component, new RegExp(label));
   }
   assert.match(component, /\.pdf,\.docx,\.txt,\.md,\.xlsx,\.csv/);
@@ -37,9 +37,9 @@ test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval te
   assert.doesNotMatch(component, /window\.confirm/);
   assert.doesNotMatch(component, /<option value="auto">Auto<\/option>/);
   assert.doesNotMatch(component, /状态 \/ Parser/);
-  for (const label of ["基本信息", "解析", "分块", "元数据", "嵌入", "索引", "Chunk Strategy", "Column Mode", "Index / Text", "Metric Type", "私有（当前租户 / 账套 / 用户）"]) assert.ok(component.includes(label));
+  for (const label of ["基本信息", "解析", "分块", "元数据", "嵌入", "索引", "Chunk Strategy", "Column Mode", "Content", "Embedding", "Metadata", "Ignore", "Metric Type", "私有（当前租户 / 账套 / 用户）"]) assert.ok(component.includes(label));
   for (const strategy of ["Fixed", "Paragraph", "Heading（预留）", "Table Row", "QA Pair"]) assert.ok(component.includes(strategy));
-  assert.ok(component.includes("所有列都会包含在 Chunk 正文中，并同时保存为元数据（RAGFlow 默认方式）。"));
+  assert.ok(component.includes("Auto 按表头语义推断"));
   assert.ok(component.includes('columnMode === "auto" ?'));
   assert.ok(component.includes("已有文档需要重新解析"));
 });

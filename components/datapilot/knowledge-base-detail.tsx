@@ -6,11 +6,11 @@ import { ConfirmDialog } from "./confirm-dialog";
 
 export type ParserType = "general" | "table" | "qa";
 export type Metadata = Record<string, string | number | boolean>;
-export type ColumnRole = "index" | "metadata" | "both" | "ignore";
+export type ColumnAttributes = { content: boolean; embedding: boolean; metadata: boolean };
 export type RetrievalConfig = {
   language: "zh-CN" | "en";
   parserType: ParserType; chunkStrategy: "fixed" | "paragraph" | "heading" | "table-row" | "qa-pair"; chunkSize: number; chunkOverlap: number; questionColumn: string; answerColumn: string;
-  metadataFields: string[]; columnMode: "auto" | "manual"; columnRoles: Record<string, ColumnRole>; embeddingModel: string;
+  metadataFields: string[]; columnMode: "auto" | "manual"; columnRoles: Record<string, ColumnAttributes>; embeddingModel: string;
   indexType: "HNSW"; metricType: "COSINE" | "IP" | "L2"; hnswM: number; hnswEfConstruction: number;
   topK: number; scoreThreshold: number; rerank: boolean; rerankModel: string;
 };
@@ -125,8 +125,12 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   async function saveConfig(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     const columnMode = String(form.get("columnMode") || "auto");
-    const columnRoles = columnMode === "manual" ? Object.fromEntries(columns.map((column) => [column, String(form.get(`columnRole:${column}`) || "index")])) : {};
-    const metadataFields = columnMode === "manual" ? Object.entries(columnRoles).filter(([, role]) => role === "metadata" || role === "both").map(([column]) => column) : detail.knowledgeBase.config.metadataFields;
+    const columnRoles = columnMode === "manual" ? Object.fromEntries(columns.map((column) => [column, {
+      content: form.has(`columnContent:${column}`),
+      embedding: form.has(`columnEmbedding:${column}`),
+      metadata: form.has(`columnMetadata:${column}`),
+    }])) : {};
+    const metadataFields = columnMode === "manual" ? Object.entries(columnRoles).filter(([, attributes]) => attributes.metadata).map(([column]) => column) : [];
     const chunkSizeValue = form.get("chunkSize");
     const chunkOverlapValue = form.get("chunkOverlap");
     const config = {
@@ -321,6 +325,38 @@ function DocumentPreviewPanel({ document, preview }: { document: KnowledgeDocume
   </div>{preview?.kind === "table" && preview.sheets.length > 0 && <footer className="sheet-tabs">{preview.sheets.map((item, index) => <button key={item.name} className={index === sheetIndex ? "active" : ""} onClick={() => setSheetIndex(index)}>{item.name}</button>)}</footer>}</aside>;
 }
 
+function normalizeColumnAttributes(value: unknown, metadataFallback = false): ColumnAttributes {
+  if (value === "index") return { content: true, embedding: true, metadata: metadataFallback };
+  if (value === "metadata") return { content: false, embedding: false, metadata: true };
+  if (value === "both") return { content: true, embedding: true, metadata: true };
+  if (value === "ignore") return { content: false, embedding: false, metadata: false };
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const attributes = value as Partial<ColumnAttributes>;
+    return { content: attributes.content === true, embedding: attributes.embedding === true, metadata: attributes.metadata === true || metadataFallback };
+  }
+  return { content: true, embedding: true, metadata: metadataFallback };
+}
+
+function inferColumnAttributes(column: string): ColumnAttributes {
+  const normalized = column.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (/^(id|uuid|序号|行号|编号|主键)$/.test(normalized) || /^(?:[a-z\u4e00-\u9fff][a-z0-9\u4e00-\u9fff]*)id$/.test(normalized) || /(?:^|业务|记录)(?:id|编号)$/.test(normalized)) return { content: false, embedding: false, metadata: false };
+  if (/(product|module|category|classification|questiontype|problemtype|产品|模块|分类|类别|类型)/.test(normalized)) return { content: false, embedding: false, metadata: true };
+  if (/(question|answer|description|content|text|title|问题|答案|描述|内容|正文|标题)/.test(normalized)) return { content: true, embedding: true, metadata: false };
+  return { content: true, embedding: true, metadata: true };
+}
+
+function ColumnAttributeRow({ column, initial, disabled }: { column: string; initial: ColumnAttributes; disabled: boolean }) {
+  const [attributes, setAttributes] = useState(initial);
+  const set = (key: keyof ColumnAttributes, value: boolean) => setAttributes((current) => ({ ...current, [key]: value }));
+  const ignored = !attributes.content && !attributes.embedding && !attributes.metadata;
+  return <div className="column-role-row"><strong>{column}</strong>
+    <label><input type="checkbox" name={`columnContent:${column}`} checked={attributes.content} disabled={disabled} onChange={(event) => set("content", event.target.checked)} /><span>Content</span></label>
+    <label><input type="checkbox" name={`columnEmbedding:${column}`} checked={attributes.embedding} disabled={disabled} onChange={(event) => set("embedding", event.target.checked)} /><span>Embedding</span></label>
+    <label><input type="checkbox" name={`columnMetadata:${column}`} checked={attributes.metadata} disabled={disabled} onChange={(event) => set("metadata", event.target.checked)} /><span>Metadata</span></label>
+    <span className={ignored ? "column-ignore active" : "column-ignore"}>{ignored ? "Ignore" : "Enabled"}</span>
+  </div>;
+}
+
 function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
   kb: KnowledgeBaseData; columns: string[]; models: EmbeddingModel[]; busy: boolean; save: (event: FormEvent<HTMLFormElement>) => Promise<void>; revectorize: () => Promise<void>;
 }) {
@@ -343,7 +379,7 @@ function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
     <section className="knowledge-settings-block"><header><h3>解析</h3><p>选择文档解析器。Table 和 QA 会自动识别工作表表头与业务行。</p></header><div className="knowledge-settings-fields">
       <label><span>Parser Type</span><select name="parserType" value={parserType} onChange={(event) => selectParser(event.target.value as ParserType)}><option value="general">General</option><option value="table">Table</option><option value="qa">QA</option></select></label>
       {parserType === "qa" && <div className="knowledge-setting-pair"><label><span>问题列</span><input name="questionColumn" defaultValue={config.questionColumn} /></label><label><span>答案列</span><input name="answerColumn" defaultValue={config.answerColumn} /></label></div>}
-      {(parserType === "table" || parserType === "qa") && <p className="knowledge-setting-note">上传 XLSX / CSV 后自动读取 Sheet、表头和行；列角色在下方“元数据”区设置。</p>}
+      {(parserType === "table" || parserType === "qa") && <p className="knowledge-setting-note">上传 XLSX / CSV 后自动读取 Sheet、表头和行；字段属性在下方“元数据”区设置。</p>}
     </div></section>
 
     <section className="knowledge-settings-block"><header><h3>分块</h3><p>General 可按固定长度或段落分块；Table 和 QA 默认按一行业务记录分块。</p></header><div className="knowledge-settings-fields">
@@ -354,10 +390,13 @@ function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
       {(parserType === "table" || parserType === "qa") && <p className="knowledge-setting-note">{parserType === "table" ? "每行业务数据生成一个 Chunk，不使用 Chunk Size / Overlap。" : "每组问题和答案生成一个 Chunk，不使用 Chunk Size / Overlap。"}</p>}
     </div></section>
 
-    <section className="knowledge-settings-block"><header><h3>元数据</h3><p>控制表格列进入 Chunk 正文、可过滤 Metadata、两者或忽略。</p></header><div className="knowledge-settings-fields">
-      <fieldset className="column-role-settings standalone"><legend>Column Mode / Metadata Fields</legend><div className="column-mode"><label><input type="radio" name="columnMode" value="auto" checked={columnMode === "auto"} onChange={() => setColumnMode("auto")} /> Auto</label><label><input type="radio" name="columnMode" value="manual" checked={columnMode === "manual"} onChange={() => setColumnMode("manual")} /> Manual</label></div>
-        {columnMode === "auto" ? <p className="column-mode-description">所有列都会包含在 Chunk 正文中，并同时保存为元数据（RAGFlow 默认方式）。</p> : <><p className="column-mode-description">Index/Text 进入 Chunk content；Metadata 仅用于过滤；Both 同时进入；Ignore 忽略。已有文档需要重新解析。</p>
-          {columns.length ? <div className="column-role-list">{columns.map((column) => <label key={column}><span>{column}</span><select name={`columnRole:${column}`} defaultValue={config.columnRoles?.[column] || (config.metadataFields.includes(column) ? "metadata" : "index")}><option value="index">Index / Text</option><option value="metadata">Metadata</option><option value="both">Both</option><option value="ignore">Ignore</option></select></label>)}</div> : <small>上传 XLSX / CSV 后，这里会显示表头字段。</small>}</>}
+    <section className="knowledge-settings-block"><header><h3>元数据</h3><p>为每个表格字段独立配置 Content、Embedding 和 Metadata 属性。</p></header><div className="knowledge-settings-fields">
+      <fieldset className="column-role-settings standalone"><legend>Column Mode / Field Attributes</legend><div className="column-mode"><label><input type="radio" name="columnMode" value="auto" checked={columnMode === "auto"} onChange={() => setColumnMode("auto")} /> Auto</label><label><input type="radio" name="columnMode" value="manual" checked={columnMode === "manual"} onChange={() => setColumnMode("manual")} /> Manual</label></div>
+        <p className="column-mode-description">{columnMode === "auto" ? "Auto 按表头语义推断：问题/答案类字段用于正文和向量，产品/模块类字段用于过滤，ID 类字段默认忽略。" : "Content 决定最终返回正文；Embedding 决定向量化文本；Metadata 用于 filters。三项全关闭即为 Ignore。已有文档需要重新解析。"}</p>
+        {columns.length ? <div className="column-role-list"><div className="column-role-header"><span>Field</span><span>Content</span><span>Embedding</span><span>Metadata</span><span>Status</span></div>{columns.map((column) => {
+          const attributes = columnMode === "auto" ? inferColumnAttributes(column) : normalizeColumnAttributes(config.columnRoles?.[column], config.metadataFields.includes(column));
+          return <ColumnAttributeRow key={`${columnMode}-${column}`} column={column} initial={attributes} disabled={columnMode === "auto"} />;
+        })}</div> : <small>上传 XLSX / CSV 后，这里会显示表头字段。</small>}
       </fieldset>
     </div></section>
 

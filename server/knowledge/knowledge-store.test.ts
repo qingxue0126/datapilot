@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { RequestContext } from "../core/types.js";
 import { chunkText } from "./document-pipeline.js";
-import { KnowledgeStore, KnowledgeStoreError, normalizeDocumentFilename } from "./knowledge-store.js";
+import { inferColumnAttributes, KnowledgeStore, KnowledgeStoreError, normalizeConfig, normalizeDocumentFilename } from "./knowledge-store.js";
 
 const alice: RequestContext = { tenantId: "tenant-a", accountSetId: "books-a", userId: "alice", role: "tenant_admin", sessionId: "auth-a" };
 const bob: RequestContext = { ...alice, userId: "bob" };
@@ -38,11 +38,32 @@ test("chunk CRUD persists content, metadata, enabled, and updated timestamp", ()
   try {
     const base = store.create(alice, { name: "FAQ" });
     const document = store.createDocument(alice, base.id, { filename: "faq.csv", fileType: "CSV", size: 10, parserType: "table", source: Buffer.from("a,b") });
-    store.replaceChunks(alice, document.id, [{ id: "chunk-1", content: "问题：旧问题", metadata: { 产品: "好会计" } }]);
+    store.replaceChunks(alice, document.id, [{ id: "chunk-1", content: "问题：旧问题\n答案：旧答案", embeddingContent: "问题：旧问题", metadata: { 产品: "好会计" } }]);
+    assert.equal(store.chunk(alice, "chunk-1").embeddingContent, "问题：旧问题");
     const changed = store.updateChunk(alice, "chunk-1", { content: "问题：新问题", metadata: { 模块: "凭证" }, enabled: false });
-    assert.equal(changed.content, "问题：新问题"); assert.deepEqual(changed.metadata, { 模块: "凭证" }); assert.equal(changed.enabled, false);
+    assert.equal(changed.content, "问题：新问题"); assert.equal(changed.embeddingContent, "问题：新问题"); assert.deepEqual(changed.metadata, { 模块: "凭证" }); assert.equal(changed.enabled, false);
     assert.equal(store.listChunks(alice, document.id)[0].characterCount, 6);
   } finally { store.close(); }
+});
+
+test("legacy column roles normalize to independent field attributes", () => {
+  const config = normalizeConfig({
+    columnMode: "manual",
+    columnRoles: { Question: "index", Product: "metadata", Answer: "both", RowId: "ignore" },
+  } as unknown as Parameters<typeof normalizeConfig>[0]);
+  assert.deepEqual(config.columnRoles, {
+    Question: { content: true, embedding: true, metadata: false },
+    Product: { content: false, embedding: false, metadata: true },
+    Answer: { content: true, embedding: true, metadata: true },
+    RowId: { content: false, embedding: false, metadata: false },
+  });
+});
+
+test("automatic field attributes prefer text, metadata, and identifier semantics", () => {
+  assert.deepEqual(inferColumnAttributes("Question"), { content: true, embedding: true, metadata: false });
+  assert.deepEqual(inferColumnAttributes("Question_Type"), { content: false, embedding: false, metadata: true });
+  assert.deepEqual(inferColumnAttributes("Product"), { content: false, embedding: false, metadata: true });
+  assert.deepEqual(inferColumnAttributes("RowId"), { content: false, embedding: false, metadata: false });
 });
 
 test("changing the embedding model marks vectors stale until reindexed", () => {

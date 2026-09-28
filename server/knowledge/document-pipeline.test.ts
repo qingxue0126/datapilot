@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as XLSX from "xlsx";
-import { parseDocumentChunks, parseDocumentPreview } from "./document-pipeline.js";
+import type { RequestContext } from "../core/types.js";
+import { DocumentPipeline, parseDocumentChunks, parseDocumentPreview } from "./document-pipeline.js";
+import { TestEmbeddingProvider } from "./embedding.js";
+import { KnowledgeStore } from "./knowledge-store.js";
+import { LocalVectorStore } from "./vector-store.js";
 
 function workbookBuffer(rows: Record<string, string>[]) {
   const workbook = XLSX.utils.book_new();
@@ -40,7 +44,7 @@ test("QA Parser rejects missing configured question or answer columns", async ()
   }), /未找到问题列/);
 });
 
-test("QA Parser preserves configured Excel header names in chunk metadata", async () => {
+test("QA Parser independently builds content, embedding text, and metadata", async () => {
   const source = workbookBuffer([{
     Porduct: "好会计", Module: "基础档案", Question_TyPe: "会计科目",
     Question: "如何增加外币科目？", Answer: "进入设置后新增外币核算科目。",
@@ -50,18 +54,62 @@ test("QA Parser preserves configured Excel header names in chunk metadata", asyn
     questionColumn: "Question", answerColumn: "Answer", metadataFields: [],
     columnMode: "manual",
     columnRoles: {
-      Porduct: "metadata", Module: "both", Question_TyPe: "metadata",
-      Question: "index", Answer: "index",
+      Porduct: { content: false, embedding: false, metadata: true },
+      Module: { content: false, embedding: false, metadata: true },
+      Question_TyPe: { content: false, embedding: false, metadata: true },
+      Question: { content: true, embedding: true, metadata: false },
+      Answer: { content: true, embedding: false, metadata: false },
     },
   });
 
   assert.equal(result.chunks.length, 1);
   assert.equal(result.chunks[0].content, "问题：如何增加外币科目？\n答案：进入设置后新增外币核算科目。");
+  assert.equal(result.chunks[0].embeddingContent, "问题：如何增加外币科目？");
   assert.equal(result.chunks[0].metadata.Porduct, "好会计");
   assert.equal(result.chunks[0].metadata.Module, "基础档案");
   assert.equal(result.chunks[0].metadata.Question_TyPe, "会计科目");
   assert.equal(result.chunks[0].metadata.Question, undefined);
   assert.equal(result.chunks[0].metadata.Answer, undefined);
+});
+
+test("document pipeline embeds only Embedding-enabled fields and persists filter metadata", async () => {
+  const context: RequestContext = { tenantId: "tenant", accountSetId: "books", userId: "user", role: "tenant_admin", sessionId: "session" };
+  const store = new KnowledgeStore(":memory:");
+  const vectors = new LocalVectorStore(":memory:");
+  const embedded: string[][] = [];
+  class RecordingEmbeddings extends TestEmbeddingProvider {
+    override async embedBatch(requestContext: RequestContext, modelId: string, texts: string[]) {
+      embedded.push(texts);
+      return super.embedBatch(requestContext, modelId, texts);
+    }
+  }
+  try {
+    const base = store.create(context, { name: "FAQ", config: {
+      parserType: "qa", questionColumn: "Question", answerColumn: "Answer", columnMode: "manual",
+      columnRoles: {
+        Porduct: { content: false, embedding: false, metadata: true },
+        Module: { content: false, embedding: false, metadata: true },
+        Question_TyPe: { content: false, embedding: false, metadata: true },
+        Question: { content: true, embedding: true, metadata: false },
+        Answer: { content: true, embedding: false, metadata: false },
+      },
+    } });
+    const pipeline = new DocumentPipeline(store, vectors, new RecordingEmbeddings());
+    const source = workbookBuffer([{
+      Porduct: "好会计", Module: "基础档案", Question_TyPe: "会计科目",
+      Question: "如何增加外币科目？", Answer: "进入设置后新增外币核算科目。",
+    }]);
+    const document = await pipeline.process(context, base.id, {
+      originalname: "faq.xlsx", mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size: source.length, buffer: source,
+    }, { parserType: "qa" });
+    const chunk = store.listChunks(context, document.id)[0];
+    assert.equal(chunk.content, "问题：如何增加外币科目？\n答案：进入设置后新增外币核算科目。");
+    assert.equal(chunk.embeddingContent, "问题：如何增加外币科目？");
+    assert.deepEqual(embedded, [["问题：如何增加外币科目？"]]);
+    assert.equal(chunk.metadata.Porduct, "好会计");
+    assert.equal(chunk.metadata.Module, "基础档案");
+    assert.equal(chunk.metadata.Question_TyPe, "会计科目");
+  } finally { vectors.close(); store.close(); }
 });
 
 test("document preview preserves workbook sheets, columns, and row values", async () => {
@@ -90,17 +138,18 @@ test("Table Parser applies index, metadata, both, and ignore column roles", asyn
   assert.equal(result.chunks[0].metadata["模块"], undefined);
 });
 
-test("Table Parser auto mode indexes every column and stores every column as metadata", async () => {
+test("Table Parser auto mode infers content, embedding, and metadata attributes", async () => {
   const result = await parseDocumentChunks(".xlsx", workbookBuffer(rows), {
     parserType: "table", chunkSize: 800, chunkOverlap: 120, questionColumn: "问题", answerColumn: "答案", metadataFields: [],
     columnMode: "auto",
     columnRoles: {},
   });
-  const firstRow: Record<string, string> = rows[0];
-  for (const column of result.columns) {
-    assert.match(result.chunks[0].content, new RegExp(`${column}：`));
-    assert.equal(result.chunks[0].metadata[column], firstRow[column]);
-  }
+  assert.equal(result.chunks[0].content, "问题：如何删除凭证？\n答案：打开凭证列表，选择目标凭证后删除。");
+  assert.equal(result.chunks[0].embeddingContent, result.chunks[0].content);
+  assert.equal(result.chunks[0].metadata["产品"], "好会计");
+  assert.equal(result.chunks[0].metadata["模块"], "凭证");
+  assert.equal(result.chunks[0].metadata["问题类型"], "操作");
+  assert.equal(result.chunks[0].metadata["问题"], undefined);
 });
 
 test("General Paragraph strategy keeps paragraphs as independent chunks", async () => {

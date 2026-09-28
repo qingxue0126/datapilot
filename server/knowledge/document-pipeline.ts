@@ -5,15 +5,15 @@ import mammoth from "mammoth";
 import * as XLSX from "xlsx";
 import type { RequestContext } from "../core/types.js";
 import type { EmbeddingProvider } from "./embedding.js";
-import type { KnowledgeStore, ParserType, RetrievalConfig } from "./knowledge-store.js";
+import { inferColumnAttributes, normalizeColumnAttributes, type ColumnAttributes, type ColumnRoleInput, type KnowledgeStore, type ParserType, type RetrievalConfig } from "./knowledge-store.js";
 import { MilvusUnavailableError, type Metadata, type VectorRecord, type VectorStore } from "./vector-store.js";
 
 export const supportedDocumentExtensions = new Set([".pdf", ".docx", ".txt", ".md", ".xlsx", ".csv"]);
 const tableExtensions = new Set([".xlsx", ".csv"]);
 const pdf = createRequire(import.meta.url)("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<{ text: string }>;
 
-export type ParserOptions = Pick<RetrievalConfig, "parserType" | "chunkSize" | "chunkOverlap" | "questionColumn" | "answerColumn" | "metadataFields"> & { chunkStrategy?: RetrievalConfig["chunkStrategy"]; columnMode?: RetrievalConfig["columnMode"]; columnRoles?: RetrievalConfig["columnRoles"] };
-export type ParsedChunk = { id: string; content: string; metadata: Metadata; enabled: boolean };
+export type ParserOptions = Pick<RetrievalConfig, "parserType" | "chunkSize" | "chunkOverlap" | "questionColumn" | "answerColumn" | "metadataFields"> & { chunkStrategy?: RetrievalConfig["chunkStrategy"]; columnMode?: RetrievalConfig["columnMode"]; columnRoles?: Record<string, ColumnRoleInput> };
+export type ParsedChunk = { id: string; content: string; embeddingContent: string; metadata: Metadata; enabled: boolean };
 export type ParseResult = { parserType: ParserType; columns: string[]; chunks: ParsedChunk[] };
 export type DocumentPreview =
   | { kind: "table"; sheets: { name: string; columns: string[]; rows: Metadata[] }[] }
@@ -61,10 +61,10 @@ export class DocumentPipeline {
     const base = this.store.get(context, knowledgeBaseId).knowledgeBase;
     const chunks = this.store.listBaseChunks(context, knowledgeBaseId);
     await this.vectors.deleteKnowledgeBase(context, knowledgeBaseId);
-    const enabled = chunks.filter((chunk) => chunk.enabled);
+    const enabled = chunks.filter((chunk) => chunk.enabled && chunk.embeddingContent.trim());
     for (let index = 0; index < enabled.length; index += 64) {
       const batch = enabled.slice(index, index + 64);
-      const vectors = await this.embeddings.embedBatch(context, base.config.embeddingModel, batch.map((chunk) => chunk.content));
+      const vectors = await this.embeddings.embedBatch(context, base.config.embeddingModel, batch.map((chunk) => chunk.embeddingContent));
       await this.vectors.upsert(context, batch.map((chunk, offset) => ({
         id: chunk.id, knowledgeBaseId, documentId: chunk.documentId, content: chunk.content,
         embedding: vectors[offset], metadata: chunk.metadata, enabled: true,
@@ -93,9 +93,10 @@ export class DocumentPipeline {
       this.store.setDocumentStatus(context, documentId, "embedding");
       const base = this.store.get(context, document.knowledgeBaseId).knowledgeBase;
       await this.vectors.deleteDocument(context, document.knowledgeBaseId, documentId);
-      for (let index = 0; index < chunks.length; index += 64) {
-        const batch = chunks.slice(index, index + 64);
-        const embeddings = await this.embeddings.embedBatch(context, base.config.embeddingModel, batch.map((chunk) => chunk.content));
+      const vectorizable = chunks.filter((chunk) => chunk.embeddingContent.trim());
+      for (let index = 0; index < vectorizable.length; index += 64) {
+        const batch = vectorizable.slice(index, index + 64);
+        const embeddings = await this.embeddings.embedBatch(context, base.config.embeddingModel, batch.map((chunk) => chunk.embeddingContent));
         const records: VectorRecord[] = batch.map((chunk, offset) => ({
           id: chunk.id, knowledgeBaseId: document.knowledgeBaseId, documentId, content: chunk.content,
           embedding: embeddings[offset], metadata: chunk.metadata, enabled: chunk.enabled,
@@ -116,7 +117,7 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
   if (options.parserType === "general") {
     const text = normalizeText(await parseGeneralDocument(extension, buffer));
     const contents = options.chunkStrategy === "paragraph" ? chunkParagraphs(text, options.chunkSize) : chunkText(text, options.chunkSize, options.chunkOverlap);
-    return { parserType: "general", columns: [], chunks: contents.map((content) => ({ id: randomUUID(), content, metadata: {}, enabled: true })) };
+    return { parserType: "general", columns: [], chunks: contents.map((content) => ({ id: randomUUID(), content, embeddingContent: content, metadata: {}, enabled: true })) };
   }
   if (!tableExtensions.has(extension)) throw new Error("Table/QA Parser 仅适用于 XLSX 或 CSV 文件");
   const sheets = readWorkbook(buffer, extension);
@@ -126,22 +127,13 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
     sheet.rows.forEach((row, index) => {
       const rowNumber = index + 2;
       const metadata: Metadata = { sheet: sheet.name, row: rowNumber };
-      for (const field of metadataColumns(sheet.columns, options)) {
+      const attributes = Object.fromEntries(sheet.columns.map((column) => [column, columnAttributes(column, options)])) as Record<string, ColumnAttributes>;
+      for (const field of sheet.columns.filter((column) => attributes[column].metadata)) {
         if (row[field] !== undefined && row[field] !== "") metadata[field] = row[field];
       }
-      if (options.parserType === "qa") {
-        const question = displayValue(row[options.questionColumn]);
-        const answer = displayValue(row[options.answerColumn]);
-        if (!question && !answer) return;
-        chunks.push({ id: randomUUID(), content: `问题：${question}\n答案：${answer}`.trim(), metadata, enabled: true });
-        return;
-      }
-      const columnRoles = options.columnRoles || {};
-      const configuredRoles = options.columnMode === "manual" || (!options.columnMode && Object.keys(columnRoles).length > 0);
-      const indexedColumns = configuredRoles ? sheet.columns.filter((column) => ["index", "both"].includes(columnRoles[column])) : sheet.columns;
-      const content = indexedColumns.map((column) => [column, displayValue(row[column])] as const)
-        .filter(([, value]) => value !== "").map(([column, value]) => `${column}：${value}`).join("\n");
-      if (content) chunks.push({ id: randomUUID(), content, metadata, enabled: true });
+      const content = formatRow(row, sheet.columns.filter((column) => attributes[column].content), options);
+      const embeddingContent = formatRow(row, sheet.columns.filter((column) => attributes[column].embedding), options);
+      if (content || embeddingContent) chunks.push({ id: randomUUID(), content, embeddingContent, metadata, enabled: true });
     });
   }
   if (options.parserType === "qa" && (!columns.includes(options.questionColumn) || !columns.includes(options.answerColumn))) {
@@ -150,15 +142,26 @@ export async function parseDocumentChunks(extension: string, buffer: Buffer, opt
   return { parserType: options.parserType, columns, chunks };
 }
 
-function metadataColumns(columns: string[], options: ParserOptions) {
-  if (options.columnMode === "auto") return columns;
-  const configured = new Set(options.metadataFields.map((field) => field.trim()).filter(Boolean));
-  for (const [field, role] of Object.entries(options.columnRoles || {})) {
-    if (role === "metadata" || role === "both") configured.add(field.trim());
+function columnAttributes(column: string, options: ParserOptions): ColumnAttributes {
+  if (options.columnMode === "auto") return inferColumnAttributes(column);
+  if (!options.columnMode && !Object.keys(options.columnRoles || {}).length) {
+    const qaText = options.parserType !== "qa" || column === options.questionColumn || column === options.answerColumn;
+    return { content: qaText, embedding: qaText, metadata: options.metadataFields.includes(column) };
   }
-  // Match against actual workbook headers so exact source spelling and casing
-  // are retained in both SQLite chunk metadata and Milvus dynamic JSON.
-  return columns.filter((column) => configured.has(column));
+  const configured = normalizeColumnAttributes(options.columnRoles?.[column]) || { content: false, embedding: false, metadata: false };
+  return options.metadataFields.includes(column) ? { ...configured, metadata: true } : configured;
+}
+
+function formatRow(row: Metadata, columns: string[], options: ParserOptions) {
+  return columns.map((column) => [columnLabel(column, options), displayValue(row[column])] as const)
+    .filter(([, value]) => value !== "").map(([column, value]) => `${column}：${value}`).join("\n");
+}
+
+function columnLabel(column: string, options: ParserOptions) {
+  if (options.parserType !== "qa") return column;
+  if (column === options.questionColumn) return "问题";
+  if (column === options.answerColumn) return "答案";
+  return column;
 }
 
 export async function parseDocumentPreview(extension: string, buffer: Buffer, rowLimit = 100): Promise<DocumentPreview> {

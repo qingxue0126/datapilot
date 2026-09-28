@@ -6,7 +6,9 @@ import type { RequestContext } from "../core/types.js";
 import type { Metadata } from "./vector-store.js";
 
 export type ParserType = "general" | "table" | "qa";
-export type ColumnRole = "index" | "metadata" | "both" | "ignore";
+export type LegacyColumnRole = "index" | "metadata" | "both" | "ignore";
+export type ColumnAttributes = { content: boolean; embedding: boolean; metadata: boolean };
+export type ColumnRoleInput = LegacyColumnRole | ColumnAttributes;
 export type ColumnMode = "auto" | "manual";
 export type ChunkStrategy = "fixed" | "paragraph" | "heading" | "table-row" | "qa-pair";
 export type VectorIndexType = "HNSW";
@@ -22,7 +24,7 @@ export type RetrievalConfig = {
   answerColumn: string;
   metadataFields: string[];
   columnMode: ColumnMode;
-  columnRoles: Record<string, ColumnRole>;
+  columnRoles: Record<string, ColumnAttributes>;
   embeddingModel: string;
   indexType: VectorIndexType;
   metricType: VectorMetricType;
@@ -67,6 +69,7 @@ export type KnowledgeChunk = {
   documentId: string;
   chunkIndex: number;
   content: string;
+  embeddingContent: string;
   metadata: Metadata;
   enabled: boolean;
   characterCount: number;
@@ -87,7 +90,7 @@ type DocumentRow = {
 };
 type ChunkRow = {
   id: string; knowledge_base_id: string; document_id: string; chunk_index: number; content: string;
-  metadata_json: string; enabled: number; created_at: string; updated_at: string;
+  embedding_content: string; metadata_json: string; enabled: number; created_at: string; updated_at: string;
 };
 type ChunkMetadataRow = { metadata_json: string };
 
@@ -141,6 +144,7 @@ export class KnowledgeStore {
         document_id TEXT NOT NULL REFERENCES knowledge_documents(id) ON DELETE CASCADE,
         chunk_index INTEGER NOT NULL,
         content TEXT NOT NULL,
+        embedding_content TEXT NOT NULL DEFAULT '',
         metadata_json TEXT NOT NULL DEFAULT '{}',
         enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
@@ -157,9 +161,11 @@ export class KnowledgeStore {
     this.ensureColumn("knowledge_documents", "columns_json", "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn("knowledge_documents", "source_data", "BLOB");
     this.ensureColumn("knowledge_chunks", "metadata_json", "TEXT NOT NULL DEFAULT '{}'");
+    const addedEmbeddingContent = this.ensureColumn("knowledge_chunks", "embedding_content", "TEXT NOT NULL DEFAULT ''");
     this.ensureColumn("knowledge_chunks", "enabled", "INTEGER NOT NULL DEFAULT 1");
     this.ensureColumn("knowledge_chunks", "updated_at", "TEXT");
     this.database.exec("UPDATE knowledge_chunks SET updated_at = created_at WHERE updated_at IS NULL");
+    if (addedEmbeddingContent) this.database.exec("UPDATE knowledge_chunks SET embedding_content = content");
     this.migrateVectorCollectionScope();
     this.repairDocumentFilenames();
   }
@@ -281,16 +287,16 @@ export class KnowledgeStore {
     return Buffer.from(row.source_data);
   }
 
-  replaceChunks(context: RequestContext, documentId: string, chunks: { id: string; content: string; metadata?: Metadata; enabled?: boolean }[]) {
+  replaceChunks(context: RequestContext, documentId: string, chunks: { id: string; content: string; embeddingContent?: string; metadata?: Metadata; enabled?: boolean }[]) {
     const document = this.ownedDocument(context, documentId); const now = new Date().toISOString();
     this.database.exec("BEGIN IMMEDIATE");
     try {
       this.database.prepare("DELETE FROM knowledge_chunks WHERE document_id = ?").run(documentId);
       const insert = this.database.prepare(`INSERT INTO knowledge_chunks
-        (id, knowledge_base_id, document_id, chunk_index, content, metadata_json, enabled, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        (id, knowledge_base_id, document_id, chunk_index, content, embedding_content, metadata_json, enabled, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       chunks.forEach((chunk, index) => insert.run(
-        chunk.id, document.knowledge_base_id, documentId, index, chunk.content,
+        chunk.id, document.knowledge_base_id, documentId, index, chunk.content, chunk.embeddingContent ?? chunk.content,
         JSON.stringify(normalizeMetadata(chunk.metadata)), chunk.enabled === false ? 0 : 1, now, now,
       ));
       this.database.prepare("UPDATE knowledge_documents SET chunk_count = ?, updated_at = ? WHERE id = ?").run(chunks.length, now, documentId);
@@ -304,7 +310,7 @@ export class KnowledgeStore {
   listChunks(context: RequestContext, documentId: string) {
     this.ownedDocument(context, documentId);
     const rows = this.database.prepare(`
-      SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.metadata_json,
+      SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.embedding_content, c.metadata_json,
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
       JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
@@ -317,7 +323,7 @@ export class KnowledgeStore {
   listBaseChunks(context: RequestContext, knowledgeBaseId: string) {
     this.ownedBase(context, knowledgeBaseId);
     const rows = this.database.prepare(`
-      SELECT id, knowledge_base_id, document_id, chunk_index, content, metadata_json, enabled, created_at, updated_at
+      SELECT id, knowledge_base_id, document_id, chunk_index, content, embedding_content, metadata_json, enabled, created_at, updated_at
       FROM knowledge_chunks WHERE knowledge_base_id = ? ORDER BY document_id, chunk_index
     `).all(knowledgeBaseId) as unknown as ChunkRow[];
     return rows.map(toChunk);
@@ -340,14 +346,17 @@ export class KnowledgeStore {
 
   chunk(context: RequestContext, id: string) { return toChunk(this.ownedChunk(context, id)); }
 
-  updateChunk(context: RequestContext, id: string, input: { content?: string; metadata?: Metadata; enabled?: boolean }) {
+  updateChunk(context: RequestContext, id: string, input: { content?: string; embeddingContent?: string; metadata?: Metadata; enabled?: boolean }) {
     const current = this.ownedChunk(context, id); const now = new Date().toISOString();
     const content = input.content === undefined ? current.content : String(input.content).trim();
     if (!content) throw new KnowledgeStoreError("Chunk 内容不能为空");
+    const embeddingContent = input.embeddingContent === undefined
+      ? input.content === undefined ? current.embedding_content : content
+      : String(input.embeddingContent).trim();
     const metadata = input.metadata === undefined ? parseMetadata(current.metadata_json) : normalizeMetadata(input.metadata);
     const enabled = input.enabled === undefined ? Boolean(current.enabled) : Boolean(input.enabled);
-    this.database.prepare("UPDATE knowledge_chunks SET content = ?, metadata_json = ?, enabled = ?, updated_at = ? WHERE id = ?")
-      .run(content, JSON.stringify(metadata), enabled ? 1 : 0, now, id);
+    this.database.prepare("UPDATE knowledge_chunks SET content = ?, embedding_content = ?, metadata_json = ?, enabled = ?, updated_at = ? WHERE id = ?")
+      .run(content, embeddingContent, JSON.stringify(metadata), enabled ? 1 : 0, now, id);
     this.database.prepare("UPDATE knowledge_bases SET updated_at = ? WHERE id = ?").run(now, current.knowledge_base_id);
     return this.chunk(context, id);
   }
@@ -385,7 +394,7 @@ export class KnowledgeStore {
 
   private ownedChunk(context: RequestContext, id: string) {
     const row = this.database.prepare(`
-      SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.metadata_json,
+      SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.embedding_content, c.metadata_json,
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
       WHERE c.id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND kb.user_id = ?
@@ -396,7 +405,9 @@ export class KnowledgeStore {
 
   private ensureColumn(table: string, column: string, definition: string) {
     const columns = this.database.prepare(`PRAGMA table_info(${table})`).all() as unknown as { name: string }[];
-    if (!columns.some((item) => item.name === column)) this.database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    if (columns.some((item) => item.name === column)) return false;
+    this.database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    return true;
   }
 
   private repairDocumentFilenames() {
@@ -483,7 +494,7 @@ function toDocument(row: DocumentRow): KnowledgeDocument {
 function toChunk(row: ChunkRow): KnowledgeChunk {
   return {
     id: row.id, knowledgeBaseId: row.knowledge_base_id, documentId: row.document_id,
-    chunkIndex: Number(row.chunk_index), content: row.content, metadata: parseMetadata(row.metadata_json),
+    chunkIndex: Number(row.chunk_index), content: row.content, embeddingContent: row.embedding_content, metadata: parseMetadata(row.metadata_json),
     enabled: Boolean(row.enabled), characterCount: row.content.length, tokenCount: estimateTokens(row.content),
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
@@ -506,13 +517,37 @@ function chunkStrategy(value: unknown, parser: unknown): ChunkStrategy {
   return value === "paragraph" || value === "heading" ? value : "fixed";
 }
 function metricType(value: unknown): VectorMetricType { return value === "COSINE" || value === "L2" ? value : "IP"; }
-function normalizeColumnRoles(value: unknown): Record<string, ColumnRole> {
+function normalizeColumnRoles(value: unknown): Record<string, ColumnAttributes> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  const allowed = new Set<ColumnRole>(["index", "metadata", "both", "ignore"]);
   return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .map(([column, role]) => [column.trim(), String(role)] as const)
-    .filter(([column, role]) => column && allowed.has(role as ColumnRole))
-    .slice(0, 100)) as Record<string, ColumnRole>;
+    .map(([column, role]) => [column.trim(), normalizeColumnAttributes(role)] as const)
+    .filter((entry): entry is [string, ColumnAttributes] => Boolean(entry[0] && entry[1]))
+    .slice(0, 100));
+}
+
+export function normalizeColumnAttributes(value: unknown): ColumnAttributes | undefined {
+  if (value === "index") return { content: true, embedding: true, metadata: false };
+  if (value === "metadata") return { content: false, embedding: false, metadata: true };
+  if (value === "both") return { content: true, embedding: true, metadata: true };
+  if (value === "ignore") return { content: false, embedding: false, metadata: false };
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const attributes = value as Record<string, unknown>;
+  return { content: attributes.content === true, embedding: attributes.embedding === true, metadata: attributes.metadata === true };
+}
+
+export function inferColumnAttributes(column: string): ColumnAttributes {
+  const normalized = column.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (/^(id|uuid|序号|行号|编号|主键)$/.test(normalized) || /^(?:[a-z\u4e00-\u9fff][a-z0-9\u4e00-\u9fff]*)id$/.test(normalized) || /(?:^|业务|记录)(?:id|编号)$/.test(normalized)) {
+    return { content: false, embedding: false, metadata: false };
+  }
+  if (/(product|module|category|classification|questiontype|problemtype|产品|模块|分类|类别|类型)/.test(normalized)) {
+    return { content: false, embedding: false, metadata: true };
+  }
+  if (/(question|answer|description|content|text|title|问题|答案|描述|内容|正文|标题)/.test(normalized)) {
+    return { content: true, embedding: true, metadata: false };
+  }
+  // Preserve the former Auto behavior for unknown business columns.
+  return { content: true, embedding: true, metadata: true };
 }
 function uniqueStrings(value: unknown) { return Array.isArray(value) ? [...new Set(value.map(String).map((item) => item.trim()).filter(Boolean))] : []; }
 function integer(value: unknown, fallback: number, min: number, max: number) { const parsed = Number(value); return Number.isFinite(parsed) ? Math.min(max, Math.max(min, Math.round(parsed))) : fallback; }
