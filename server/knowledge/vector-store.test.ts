@@ -71,6 +71,27 @@ test("Milvus client is lazy and retries with a new client after an unavailable r
   assert.equal(vectors.availability, "available");
 });
 
+test("Milvus constructor connection rejection is observed and does not escape the adapter", async () => {
+  let unhandled: unknown;
+  const onUnhandled = (error: unknown) => { unhandled = error; };
+  process.on("unhandledRejection", onUnhandled);
+  const connectionError = new Error("connect ECONNREFUSED 127.0.0.1:19530");
+  const client = {
+    connectPromise: Promise.reject(connectionError),
+    hasCollection: async () => { throw connectionError; },
+    createCollection: async () => ({ status: {} }), loadCollection: async () => ({ status: {} }), upsert: async () => ({ status: {} }),
+    dropCollection: async () => ({ status: {} }), delete: async () => ({ status: {} }), search: async () => ({ results: [] }), closeConnection: async () => undefined,
+  };
+  const vectors = new MilvusVectorStore({ address: "http://milvus:19530", collection: "knowledge" }, () => client as never);
+  try {
+    await assert.rejects(() => vectors.search(alice, "kb", [1, 0], { limit: 5 }), MilvusUnavailableError);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(unhandled, undefined);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
 test("Milvus reindex drops and recreates only the knowledge-base collection with new index settings", async () => {
   const calls: { dropped?: string; created?: Record<string, unknown> } = {};
   let collectionExists = true;

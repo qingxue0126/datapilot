@@ -5,6 +5,7 @@ import test from "node:test";
 const page = readFileSync(new URL("../../app/page.tsx", import.meta.url), "utf8");
 const list = readFileSync(new URL("../../components/datapilot/knowledge-base.tsx", import.meta.url), "utf8");
 const detail = readFileSync(new URL("../../components/datapilot/knowledge-base-detail.tsx", import.meta.url), "utf8");
+const client = readFileSync(new URL("../../components/datapilot/knowledge-client.ts", import.meta.url), "utf8");
 const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 const component = `${list}\n${detail}`;
 
@@ -60,4 +61,9 @@ test("chunk preview and results expose independent visible scroll regions", () =
   assert.match(styles, /\.chunk-results-panel \.chunk-list[^}]*overflow-y:\s*auto/);
   assert.match(styles, /scrollbar-gutter:\s*stable/);
   assert.match(styles, /\.document-preview-body::\-webkit-scrollbar/);
+});
+
+test("knowledge reads retry transient API outages and show a readable error", () => {
+  assert.match(client, /attempts = !init\.method.*\? 3 : 1/);
+  assert.match(client, /无法连接 DataPilot API/);
 });

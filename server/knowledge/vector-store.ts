@@ -68,7 +68,7 @@ export class LocalVectorStore implements VectorStore {
 }
 
 export type MilvusVectorStoreConfig = { address: string; token?: string; database?: string; collection: string };
-type MilvusClientLike = Pick<MilvusClient, "hasCollection" | "createCollection" | "dropCollection" | "loadCollection" | "upsert" | "delete" | "search" | "closeConnection">;
+type MilvusClientLike = Pick<MilvusClient, "hasCollection" | "createCollection" | "dropCollection" | "loadCollection" | "upsert" | "delete" | "search" | "closeConnection"> & { connectPromise?: Promise<void> };
 type MilvusClientFactory = () => MilvusClientLike;
 
 /** Production vector adapter backed by one ownership-filtered Milvus collection per knowledge base. */
@@ -160,7 +160,13 @@ export class MilvusVectorStore implements VectorStore {
     this.initializedCollections.set(collection, dimension);
   }
   private getClient() {
-    if (!this.client) this.client = this.clientFactory();
+    if (!this.client) {
+      this.client = this.clientFactory();
+      // Milvus starts an eager server-info request in its constructor. Observe that
+      // promise immediately so a refused connection cannot become a process-level
+      // unhandled rejection before the requested operation reports its own error.
+      void this.client.connectPromise?.catch(() => undefined);
+    }
     return this.client;
   }
   private async withClient<T>(operation: string, action: (client: MilvusClientLike) => Promise<T>): Promise<T> {
