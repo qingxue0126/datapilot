@@ -31,7 +31,9 @@ type DocumentPreview =
   | { kind: "text"; text: string };
 export type KnowledgeDetailData = { knowledgeBase: KnowledgeBaseData; documents: KnowledgeDocumentData[] };
 type RetrievalItem = { rank: number; chunkId: string; documentId: string; filename: string; chunkIndex: number; score: number; content: string; metadata: Metadata };
-type EmbeddingModel = { id: string; name: string; modelId: string; modelType: string; enabled: boolean };
+type ManagedModel = { id: string; name: string; modelId: string; modelType: string; enabled: boolean };
+type MetadataFacet = { field: string; types: string[]; values: (string | number | boolean)[] };
+type MetadataFilterRow = { id: string; field: string; value: string };
 type Tab = "documents" | "chunks" | "config" | "retrieval";
 
 const statusLabels: Record<string, string> = { uploaded: "已上传", parsing: "解析中", chunking: "分块中", embedding: "向量化中", ready: "可检索", failed: "处理失败" };
@@ -45,9 +47,12 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   const [selectedDocumentId, setSelectedDocumentId] = useState(detail.documents[0]?.id || "");
   const [chunks, setChunks] = useState<KnowledgeChunkData[]>([]);
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
-  const [models, setModels] = useState<EmbeddingModel[]>([]);
+  const [models, setModels] = useState<ManagedModel[]>([]);
   const [query, setQuery] = useState("");
-  const [metadataFilter, setMetadataFilter] = useState("");
+  const [metadataFacets, setMetadataFacets] = useState<MetadataFacet[]>([]);
+  const [metadataFilters, setMetadataFilters] = useState<MetadataFilterRow[]>([]);
+  const [retrievalMode, setRetrievalMode] = useState<"vector" | "hybrid">("vector");
+  const [rerankEnabled, setRerankEnabled] = useState(false);
   const [results, setResults] = useState<RetrievalItem[]>([]);
   const [pendingDelete, setPendingDelete] = useState<{ type: "knowledge-base" } | { type: "document"; document: KnowledgeDocumentData } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -55,8 +60,14 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
   const columns = useMemo(() => [...new Set(detail.documents.flatMap((document) => document.columns))], [detail.documents]);
 
   useEffect(() => {
-    void apiRequest("/api/models").then(responseJson).then((data) => setModels((data.items || []).filter((item: EmbeddingModel) => item.enabled && item.modelType === "embedding"))).catch(() => setModels([]));
-  }, []);
+    void Promise.all([
+      apiRequest("/api/models").then(responseJson),
+      apiRequest(`/api/knowledge-bases/${encodeURIComponent(detail.knowledgeBase.id)}/metadata-schema`).then(responseJson),
+    ]).then(([modelData, metadataData]) => {
+      setModels((modelData.items || []).filter((item: ManagedModel) => item.enabled));
+      setMetadataFacets(metadataData.items || []);
+    }).catch(() => { setModels([]); setMetadataFacets([]); });
+  }, [detail.knowledgeBase.id]);
 
   async function refresh(clearNotice = false) {
     if (clearNotice) setNotice("");
@@ -202,10 +213,17 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     event.preventDefault(); if (!query.trim()) return;
     const form = new FormData(event.currentTarget); setBusy(true); setNotice("");
     try {
-      const filter = metadataFilter.trim() ? parseMetadataJson(metadataFilter) : {};
+      const filter = Object.fromEntries(metadataFilters.filter((item) => item.field && item.value !== "").map((item) => {
+        const facet = metadataFacets.find((candidate) => candidate.field === item.field);
+        const type = facet?.types[0];
+        const value: string | number | boolean = type === "number" ? Number(item.value) : type === "boolean" ? item.value === "true" : item.value;
+        return [item.field, value];
+      }));
       const data = await responseJson(await apiRequest(`/api/knowledge-bases/${encodeURIComponent(detail.knowledgeBase.id)}/retrieve`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
           query, metadataFilter: filter, topK: Number(form.get("topK")), scoreThreshold: Number(form.get("scoreThreshold")),
+          retrievalMode, vectorWeight: Number(form.get("vectorWeight") || 0.7), candidateCount: Number(form.get("candidateCount") || 15),
+          rerank: rerankEnabled, rerankModel: String(form.get("rerankModel") || ""), rerankTopK: Number(form.get("rerankTopK") || form.get("topK")),
         }),
       }));
       setResults(data.items || []);
@@ -231,8 +249,8 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
       {([['documents', '文件列表'], ['chunks', '分块结果'], ['config', '配置'], ['retrieval', '检索测试']] as [Tab, string][]).map(([value, label]) => <button key={value} className={tab === value ? "active" : ""} onClick={() => openTab(value)}>{label}</button>)}
     </nav>
     {tab === "documents" && <DocumentsPanel documents={detail.documents} metadataFields={kb.config.columnMode === "auto" ? columns : kb.config.metadataFields} busy={busy} fileInput={fileInput} upload={uploadDocument} openChunks={openChunks} remove={(document) => setPendingDelete({ type: "document", document })} />}
-    {tab === "config" && <ConfigPanel kb={kb} columns={columns} models={models} busy={busy} save={saveConfig} revectorize={revectorize} />}
-    {tab === "retrieval" && <RetrievalPanel config={kb.config} query={query} setQuery={setQuery} metadataFilter={metadataFilter} setMetadataFilter={setMetadataFilter} results={results} busy={busy} retrieve={retrieve} locate={openChunks} />}
+    {tab === "config" && <ConfigPanel kb={kb} columns={columns} models={models.filter((model) => model.modelType === "embedding")} busy={busy} save={saveConfig} revectorize={revectorize} />}
+    {tab === "retrieval" && <RetrievalPanel config={kb.config} query={query} setQuery={setQuery} metadataFacets={metadataFacets} metadataFilters={metadataFilters} setMetadataFilters={setMetadataFilters} retrievalMode={retrievalMode} setRetrievalMode={setRetrievalMode} rerankEnabled={rerankEnabled} setRerankEnabled={setRerankEnabled} rerankModels={models.filter((model) => model.modelType === "rerank")} results={results} busy={busy} retrieve={retrieve} locate={openChunks} />}
     {pendingDelete && <ConfirmDialog
       title={pendingDelete.type === "knowledge-base" ? "删除知识库" : "删除文件"}
       message={pendingDelete.type === "knowledge-base" ? `确认删除知识库“${kb.name}”及其全部文档？` : `确认删除文件“${pendingDelete.document.filename}”及其全部 Chunk？`}
@@ -358,7 +376,7 @@ function ColumnAttributeRow({ column, initial, disabled }: { column: string; ini
 }
 
 function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
-  kb: KnowledgeBaseData; columns: string[]; models: EmbeddingModel[]; busy: boolean; save: (event: FormEvent<HTMLFormElement>) => Promise<void>; revectorize: () => Promise<void>;
+  kb: KnowledgeBaseData; columns: string[]; models: ManagedModel[]; busy: boolean; save: (event: FormEvent<HTMLFormElement>) => Promise<void>; revectorize: () => Promise<void>;
 }) {
   const config = kb.config;
   const [columnMode, setColumnMode] = useState(config.columnMode || (Object.keys(config.columnRoles || {}).length ? "manual" : "auto"));
@@ -414,23 +432,48 @@ function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
   </form>;
 }
 
-function RetrievalPanel({ config, query, setQuery, metadataFilter, setMetadataFilter, results, busy, retrieve, locate }: {
-  config: RetrievalConfig; query: string; setQuery: (value: string) => void; metadataFilter: string; setMetadataFilter: (value: string) => void;
+function RetrievalPanel({ config, query, setQuery, metadataFacets, metadataFilters, setMetadataFilters, retrievalMode, setRetrievalMode, rerankEnabled, setRerankEnabled, rerankModels, results, busy, retrieve, locate }: {
+  config: RetrievalConfig; query: string; setQuery: (value: string) => void; metadataFacets: MetadataFacet[]; metadataFilters: MetadataFilterRow[]; setMetadataFilters: (value: MetadataFilterRow[]) => void;
+  retrievalMode: "vector" | "hybrid"; setRetrievalMode: (value: "vector" | "hybrid") => void; rerankEnabled: boolean; setRerankEnabled: (value: boolean) => void; rerankModels: ManagedModel[];
   results: RetrievalItem[]; busy: boolean; retrieve: (event: FormEvent<HTMLFormElement>) => Promise<void>; locate: (documentId: string, chunkId?: string) => Promise<void>;
 }) {
-  return <section className="knowledge-section"><header><div><h3>检索测试</h3><p>仅验证 Query → Embedding → Milvus Retrieval，不调用 LLM 生成答案。</p></div></header>
-    <form className="retrieval-test retrieval-test-grid" onSubmit={retrieve}>
-      <label className="span-two">Query<textarea value={query} onChange={(event) => setQuery(event.target.value)} rows={3} placeholder="例如：好会计怎么删除凭证" /></label>
-      <label className="span-two">Metadata Filter（JSON，多个条件默认 AND）<textarea value={metadataFilter} onChange={(event) => setMetadataFilter(event.target.value)} rows={2} placeholder={'{"产品":"好会计","模块":"凭证"}'} /></label>
-      <label>TopK<input name="topK" type="number" min="1" max="50" defaultValue={config.topK} /></label><label>Score Threshold<input name="scoreThreshold" type="number" min="-1" max="1" step="0.01" defaultValue={config.scoreThreshold} /></label>
-      <button className="primary-action" disabled={busy || !query.trim()}>{busy ? "检索中…" : "开始检索"}</button>
-    </form>
-    <div className="retrieval-results">{results.map((item) => <article key={item.chunkId}>
-      <header><strong>#{item.rank} · Score {item.score.toFixed(4)}</strong><button onClick={() => void locate(item.documentId, item.chunkId)}>定位 Chunk</button></header>
-      <small>来源：{item.filename} · Chunk #{item.chunkIndex + 1} · {item.chunkId}</small><p>{item.content}</p>
-      <dl>{Object.entries(item.metadata).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl>
-    </article>)}</div>
-    {!busy && query && results.length === 0 && <p className="retrieval-empty">暂无符合阈值的 Chunk。</p>}
+  const [vectorWeight, setVectorWeight] = useState(0.7);
+  const [candidateCount, setCandidateCount] = useState(Math.max(config.topK * 3, 15));
+  const [rerankTopK, setRerankTopK] = useState(config.topK);
+  const updateFilter = (id: string, patch: Partial<MetadataFilterRow>) => setMetadataFilters(metadataFilters.map((item) => item.id === id ? { ...item, ...patch } : item));
+  return <section className="knowledge-section retrieval-workbench"><header><div><h3>检索测试</h3><p>元数据过滤 → 向量/混合检索 → 可选重排 → TopK，不调用 LLM 生成答案。</p></div></header>
+    <div className="retrieval-workbench-grid">
+      <form className="retrieval-settings" onSubmit={retrieve}>
+        <h4>测试设置</h4>
+        <label>Query<textarea value={query} onChange={(event) => setQuery(event.target.value)} rows={4} placeholder="例如：好会计怎么删除凭证" /></label>
+        <fieldset><legend>检索方式</legend><div className="retrieval-segmented"><button type="button" className={retrievalMode === "vector" ? "active" : ""} onClick={() => setRetrievalMode("vector")}>向量检索</button><button type="button" className={retrievalMode === "hybrid" ? "active" : ""} onClick={() => setRetrievalMode("hybrid")}>混合检索</button></div></fieldset>
+        {retrievalMode === "hybrid" && <label>向量相似度权重 <span className="retrieval-value">向量 {vectorWeight.toFixed(2)} / 关键词 {(1 - vectorWeight).toFixed(2)}</span><input name="vectorWeight" type="range" min="0" max="1" step="0.05" value={vectorWeight} onChange={(event) => setVectorWeight(Number(event.target.value))} /></label>}
+        <div className="retrieval-pair"><label>相似度阈值<input name="scoreThreshold" type="number" min="-1" max="1" step="0.01" defaultValue={config.scoreThreshold} /></label><label>TopK<input name="topK" type="number" min="1" max="50" defaultValue={config.topK} /></label></div>
+        <fieldset className="metadata-filter-builder"><legend>元数据过滤 <small>多个条件按 AND</small></legend>
+          {metadataFilters.map((filter) => { const facet = metadataFacets.find((item) => item.field === filter.field); return <div className="metadata-filter-row" key={filter.id}>
+            <select value={filter.field} onChange={(event) => updateFilter(filter.id, { field: event.target.value, value: "" })}><option value="">选择字段</option>{metadataFacets.map((item) => <option key={item.field} value={item.field}>{item.field}</option>)}</select>
+            <select value={filter.value} disabled={!filter.field} onChange={(event) => updateFilter(filter.id, { value: event.target.value })}><option value="">选择值</option>{facet?.values.map((value) => <option key={String(value)} value={String(value)}>{String(value)}</option>)}</select>
+            <button type="button" aria-label="删除过滤条件" onClick={() => setMetadataFilters(metadataFilters.filter((item) => item.id !== filter.id))}>×</button>
+          </div>; })}
+          <button type="button" className="add-filter" disabled={!metadataFacets.length} onClick={() => setMetadataFilters([...metadataFilters, { id: crypto.randomUUID(), field: "", value: "" }])}>＋ 添加过滤条件</button>
+        </fieldset>
+        <label className="retrieval-toggle"><input type="checkbox" checked={rerankEnabled} onChange={(event) => setRerankEnabled(event.target.checked)} /><span>启用重排</span></label>
+        {rerankEnabled && <div className="rerank-settings"><label>Rerank 模型<select name="rerankModel" required defaultValue=""><option value="" disabled>选择已启用的重排模型</option>{rerankModels.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.modelId}</option>)}</select></label>
+          <label>重排候选数 <span className="retrieval-value">{candidateCount}</span><input name="candidateCount" type="range" min={rerankTopK} max="200" step="1" value={candidateCount} onChange={(event) => setCandidateCount(Number(event.target.value))} /></label>
+          <label>重排 TopK <span className="retrieval-value">{rerankTopK}</span><input name="rerankTopK" type="range" min="1" max={Math.min(candidateCount, 50)} step="1" value={rerankTopK} onChange={(event) => setRerankTopK(Number(event.target.value))} /></label>
+          {!rerankModels.length && <p className="retrieval-hint">请先在模型管理中新增并启用 Rerank 模型。</p>}
+        </div>}
+        <button className="primary-action retrieval-run" disabled={busy || !query.trim() || (rerankEnabled && !rerankModels.length)}>{busy ? "检索中…" : "运行检索"}</button>
+      </form>
+      <div className="retrieval-result-pane"><header><h4>测试结果 <span>共 {results.length} 条</span></h4></header>
+        <div className="retrieval-results">{results.map((item) => <article key={item.chunkId}>
+          <header><strong>#{item.rank} · Score {item.score.toFixed(4)}</strong><button onClick={() => void locate(item.documentId, item.chunkId)}>定位 Chunk</button></header>
+          <small>来源：{item.filename} · Chunk #{item.chunkIndex + 1} · {item.chunkId}</small><p>{item.content}</p>
+          <dl>{Object.entries(item.metadata).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>)}</dl>
+        </article>)}</div>
+        {!busy && results.length === 0 && <div className="retrieval-empty-state"><span>◇</span><p>{query ? "暂无符合条件的 Chunk" : "尚未运行测试，结果会显示在这里"}</p></div>}
+      </div>
+    </div>
   </section>;
 }
 

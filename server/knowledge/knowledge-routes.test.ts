@@ -45,6 +45,9 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     assert.equal(chunks.items[0].metadata["产品"], "好会计");
     assert.match(chunks.items[0].content, /问题：如何删除凭证/);
 
+    const metadataSchema = await fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}/metadata-schema`).then((response) => response.json()) as { items: { field: string; values: unknown[] }[] };
+    assert.ok(metadataSchema.items.some((item) => item.values.length > 0));
+
     const previewResponse = await fetch(`${base}/api/documents/${uploadedBody.document.id}/preview`);
     assert.equal(previewResponse.status, 200);
     const preview = await previewResponse.json() as { preview: { kind: string; sheets: { rows: Record<string, unknown>[] }[] } };
@@ -58,6 +61,12 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     assert.equal(retrieved.status, 200);
     const result = await retrieved.json() as { items: { rank: number; filename: string; metadata: Record<string, unknown> }[] };
     assert.equal(result.items.length, 1); assert.equal(result.items[0].rank, 1); assert.equal(result.items[0].filename, "高频问题.csv");
+
+    const hybridResponse = await retrieve({ query: "导出报表", retrievalMode: "hybrid", vectorWeight: 0, candidateCount: 10, topK: 2, scoreThreshold: -1 });
+    assert.equal(hybridResponse.status, 200);
+    const hybrid = await hybridResponse.json() as { items: { content: string }[]; retrieval: { mode: string; vectorWeight: number } };
+    assert.equal(hybrid.retrieval.mode, "hybrid"); assert.equal(hybrid.retrieval.vectorWeight, 0);
+    assert.match(hybrid.items[0].content, /导出报表/);
 
     const v1Retrieve = (body: object, headers: Record<string, string> = {}) => fetch(`${base}/api/v1/knowledge/retrieve`, {
       method: "POST", headers: { "Content-Type": "application/json", ...headers }, body: JSON.stringify(body),

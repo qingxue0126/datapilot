@@ -344,6 +344,23 @@ export class KnowledgeStore {
     return schema;
   }
 
+  metadataFacets(context: RequestContext, knowledgeBaseId: string) {
+    this.ownedBase(context, knowledgeBaseId);
+    const chunks = this.listBaseChunks(context, knowledgeBaseId);
+    const facets = new Map<string, { types: Set<string>; values: Set<string | number | boolean> }>();
+    for (const chunk of chunks) {
+      for (const [field, value] of Object.entries(chunk.metadata)) {
+        const facet = facets.get(field) || { types: new Set<string>(), values: new Set<string | number | boolean>() };
+        facet.types.add(typeof value);
+        if (facet.values.size < 100) facet.values.add(value);
+        facets.set(field, facet);
+      }
+    }
+    return [...facets.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([field, facet]) => ({
+      field, types: [...facet.types].sort(), values: [...facet.values],
+    }));
+  }
+
   chunk(context: RequestContext, id: string) { return toChunk(this.ownedChunk(context, id)); }
 
   updateChunk(context: RequestContext, id: string, input: { content?: string; embeddingContent?: string; metadata?: Metadata; enabled?: boolean }) {

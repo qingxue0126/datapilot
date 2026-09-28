@@ -60,6 +60,10 @@ export class WorkflowEngine {
         resolvedInput = resolveValue(node.data.config, scope);
         const output = await this.executeNode(context, node, resolvedInput as Record<string, unknown>, scope);
         scope[node.id] = { output };
+        // Imported workflow formats commonly use `begin` (RAGFlow) or another
+        // custom id for their start node. Keep `start.output.*` as the stable
+        // cross-workflow alias while preserving the original node id.
+        if (node.type === "start") scope.start = { output };
         finalOutput = node.type === "end" ? output : finalOutput;
         const selected = selectedEdges(node, output, definition.edges);
         for (const edge of selected) activeEdges.add(edge.id);
@@ -171,9 +175,14 @@ export function resolveValue(value: unknown, scope: Scope): unknown {
 }
 
 function getPath(scope: Scope, path: string) {
+  const normalizedPath = path.trim();
   let current: unknown = scope;
-  for (const part of path.trim().split(".")) current = current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined;
-  if (current === undefined) throw new Error(`变量不存在：${path}`);
+  for (const part of normalizedPath.split(".")) current = current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined;
+  if (current === undefined) {
+    const inputField = normalizedPath.match(/^(?:start\.output|input)\.(.+)$/)?.[1];
+    if (inputField) throw new Error(`运行输入缺少字段：${inputField}。请在顶部“运行输入”中传入该字段。`);
+    throw new Error(`变量不存在：${path}`);
+  }
   return current;
 }
 function selectedEdges(node: WorkflowNode, output: unknown, edges: WorkflowEdge[]) {

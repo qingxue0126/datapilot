@@ -2,7 +2,7 @@ import type { RequestContext } from "../core/types.js";
 import { ModelProviderRegistry } from "./model-provider.js";
 import type { ModelRouter } from "./model-router.js";
 import type { ModelStore } from "./model-store.js";
-import { isChatCapableModel, isTextEmbeddingModel, type ChatMessage, type ModelConfigInput, type ModelTask, type RuntimeModelConfig } from "./model-types.js";
+import { isChatCapableModel, isRerankModel, isTextEmbeddingModel, type ChatMessage, type ModelConfigInput, type ModelTask, type RuntimeModelConfig } from "./model-types.js";
 
 export type StructuredOptions = { context: RequestContext; task: ModelTask; preferredModelId?: string };
 export interface StructuredModelClient { structured<T>(messages: ChatMessage[], options: StructuredOptions): Promise<T>; }
@@ -34,6 +34,14 @@ export class ModelService implements StructuredModelClient {
 
   async embed(context: RequestContext, modelId: string, text: string) {
     return (await this.embedBatch(context, modelId, [text]))[0];
+  }
+
+  async rerank(context: RequestContext, modelId: string, query: string, documents: string[], topN: number) {
+    const model = this.store.runtime(context, modelId);
+    if (!model.enabled || !isRerankModel(model)) throw new Error("所选模型不是已启用的 Rerank 模型");
+    const provider = this.providers.get(model.provider);
+    if (!provider.rerank) throw new Error("当前 Provider 未实现 Rerank 协议");
+    return provider.rerank(model, { query, documents, topN });
   }
 
   async testConnection(context: RequestContext, id: string) {

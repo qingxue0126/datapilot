@@ -6,6 +6,7 @@ import type { EmbeddingProvider } from "./embedding.js";
 import { KnowledgeStore, KnowledgeStoreError, type RetrievalConfig } from "./knowledge-store.js";
 import { KnowledgeRetrievalService, validateMetadata } from "./retrieval-service.js";
 import { MilvusUnavailableError, type Metadata, type VectorStore } from "./vector-store.js";
+import type { RerankService } from "./retrieval-service.js";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024, files: 1 } });
 
@@ -15,9 +16,10 @@ export function installKnowledgeRoutes(
   vectors: VectorStore,
   embeddings: EmbeddingProvider,
   resolveIdentity: (request: Request) => RequestContext,
+  reranker?: RerankService,
 ) {
   const pipeline = new DocumentPipeline(store, vectors, embeddings);
-  const retrieval = new KnowledgeRetrievalService(store, vectors, embeddings);
+  const retrieval = new KnowledgeRetrievalService(store, vectors, embeddings, reranker);
 
   app.get("/api/knowledge-bases", (request, response) => {
     try { response.json({ items: store.list(resolveIdentity(request)), vectorStore: vectors.provider }); }
@@ -31,6 +33,11 @@ export function installKnowledgeRoutes(
 
   app.get("/api/knowledge-bases/:id", (request, response) => {
     try { response.json(store.get(resolveIdentity(request), request.params.id)); }
+    catch (error) { knowledgeError(response, error); }
+  });
+
+  app.get("/api/knowledge-bases/:id/metadata-schema", (request, response) => {
+    try { response.json({ items: store.metadataFacets(resolveIdentity(request), request.params.id) }); }
     catch (error) { knowledgeError(response, error); }
   });
 
@@ -127,11 +134,18 @@ export function installKnowledgeRoutes(
         topK: legacyNumber(request.body?.topK),
         scoreThreshold: legacyNumber(request.body?.scoreThreshold),
         filters: validateMetadata(request.body?.metadataFilter),
+        retrievalMode: request.body?.retrievalMode,
+        vectorWeight: legacyNumber(request.body?.vectorWeight),
+        candidateCount: legacyNumber(request.body?.candidateCount),
+        rerank: request.body?.rerank,
+        rerankModel: request.body?.rerankModel,
+        rerankTopK: legacyNumber(request.body?.rerankTopK),
       });
       response.json({
         items: result.items,
         config: { ...result.config, topK: result.topK, scoreThreshold: result.scoreThreshold },
         metadataFilter: result.filters,
+        retrieval: { mode: result.retrievalMode, vectorWeight: result.vectorWeight, candidateCount: result.candidateCount, rerank: result.rerank, rerankModel: result.rerankModel },
         vectorStore: result.vectorStore,
       });
     } catch (error) { knowledgeError(response, error); }
@@ -146,6 +160,11 @@ export function installKnowledgeRoutes(
         topK: request.body?.top_k,
         scoreThreshold: request.body?.score_threshold,
         rerank: request.body?.rerank,
+        retrievalMode: request.body?.retrieval_mode,
+        vectorWeight: request.body?.vector_weight,
+        candidateCount: request.body?.candidate_count,
+        rerankModel: request.body?.rerank_model,
+        rerankTopK: request.body?.rerank_top_k,
       });
       response.json({
         items: result.items.map((item) => ({

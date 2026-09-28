@@ -16,7 +16,7 @@ test("sidebar exposes knowledge base as a primary navigation item", () => {
 });
 
 test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval testing", () => {
-  for (const label of ["新建知识库", "新增文件", "重新解析文档", "Field Attributes", "Embedding 模型", "重新向量化", "检索测试", "Score Threshold", "定位 Chunk"]) {
+  for (const label of ["新建知识库", "新增文件", "重新解析文档", "Field Attributes", "Embedding 模型", "重新向量化", "检索测试", "相似度阈值", "定位 Chunk"]) {
     assert.match(component, new RegExp(label));
   }
   assert.match(component, /\.pdf,\.docx,\.txt,\.md,\.xlsx,\.csv/);
@@ -42,6 +42,11 @@ test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval te
   assert.ok(component.includes("Auto 按表头语义推断"));
   assert.ok(component.includes('columnMode === "auto" ?'));
   assert.ok(component.includes("已有文档需要重新解析"));
+});
+
+test("retrieval testing exposes metadata, hybrid search, and conditional rerank controls", () => {
+  for (const label of ["元数据过滤", "混合检索", "向量相似度权重", "启用重排", "Rerank 模型", "重排候选数", "重排 TopK"]) assert.match(detail, new RegExp(label));
+  assert.match(detail, /metadata-schema/);
 });
 
 test("knowledge configuration uses the six-section order without retrieval controls", () => {

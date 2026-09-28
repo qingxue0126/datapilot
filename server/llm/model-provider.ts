@@ -6,6 +6,7 @@ type OpenAIResponse = {
   message?: string;
 };
 type OpenAIEmbeddingResponse = { data?: { index: number; embedding: number[] }[]; error?: { message?: string }; message?: string };
+type RerankApiResponse = { results?: { index: number; relevance_score?: number; score?: number }[]; output?: { results?: { index: number; relevance_score?: number; score?: number }[] }; error?: { message?: string }; message?: string };
 
 /** Unified protocol implemented by every model vendor adapter. */
 export interface ModelProvider {
@@ -34,8 +35,30 @@ export class OpenAICompatibleProvider implements ModelProvider {
     return this.multimodalChat(model, request);
   }
 
-  async rerank(): Promise<RerankResponse> {
-    throw new Error("当前 Provider 未实现 Rerank 协议");
+  async rerank(model: RuntimeModelConfig, request: RerankRequest): Promise<RerankResponse> {
+    if (model.provider !== "qwen" && !/dashscope\.aliyuncs\.com/i.test(model.baseUrl)) throw new Error("当前 Provider 未实现 Rerank 协议");
+    const startedAt = Date.now();
+    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), model.timeout);
+    try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (model.apiKey) headers.Authorization = `Bearer ${model.apiKey}`;
+      const qwen3 = /^qwen3(?:\.|-|$)/i.test(model.modelId);
+      const body = qwen3
+        ? { model: model.modelId, query: request.query, documents: request.documents, top_n: request.topN }
+        : { model: model.modelId, input: { query: request.query, documents: request.documents }, parameters: { top_n: request.topN, return_documents: false } };
+      const response = await fetch(rerankEndpoint(model.baseUrl), { method: "POST", headers, signal: controller.signal, body: JSON.stringify(body) });
+      const raw = await response.text(); let payload: RerankApiResponse;
+      try { payload = JSON.parse(raw) as RerankApiResponse; } catch { throw new Error("Rerank 模型返回了无法解析的响应"); }
+      if (!response.ok) throw new Error(`Rerank 请求失败（${response.status}）：${safeError(payload)}`);
+      const source = payload.results || payload.output?.results || [];
+      const results = source.map((item) => ({ index: Number(item.index), score: Number(item.relevance_score ?? item.score) }))
+        .filter((item) => Number.isInteger(item.index) && Number.isFinite(item.score));
+      if (!results.length && request.documents.length) throw new Error("Rerank 模型未返回有效排序结果");
+      return { results, latencyMs: Date.now() - startedAt };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw new Error(`Rerank 请求超时（${model.timeout}ms）`);
+      throw error;
+    } finally { clearTimeout(timer); }
   }
 
   async multimodalEmbed(): Promise<number[][]> {
@@ -106,7 +129,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
         { type: "text", text: "Describe this image with one word." }, { type: "image_url", image_url: { url: testImageDataUrl } },
       ] }] };
       return model.modelType === "vision" ? this.vision(model, request) : this.multimodalChat(model, request);
-    } else if (model.modelType === "rerank") await this.rerank();
+    } else if (model.modelType === "rerank") await this.rerank(model, { query: "DataPilot", documents: ["DataPilot connection test"], topN: 1 });
     else if (model.modelType === "multimodal_embedding") await this.multimodalEmbed();
     else await this.multimodalRerank();
     return { content: "OK", latencyMs: Date.now() - startedAt };
@@ -147,8 +170,12 @@ function embeddingEndpoint(baseUrl: string) {
   const base = baseUrl.replace(/\/$/, "");
   return /\/embeddings$/i.test(base) ? base : `${base}/embeddings`;
 }
+function rerankEndpoint(baseUrl: string) {
+  const url = new URL(baseUrl);
+  return `${url.origin}/api/v1/services/rerank/text-rerank/text-rerank`;
+}
 function parseResponse(raw: string): OpenAIResponse {
   try { return JSON.parse(raw) as OpenAIResponse; }
   catch { throw new Error("模型返回了无法解析的响应"); }
 }
-function safeError(body: OpenAIResponse | OpenAIEmbeddingResponse) { return String(body.error?.message || body.message || "未知错误").slice(0, 300); }
+function safeError(body: OpenAIResponse | OpenAIEmbeddingResponse | RerankApiResponse) { return String(body.error?.message || body.message || "未知错误").slice(0, 300); }

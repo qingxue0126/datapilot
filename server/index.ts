@@ -78,7 +78,7 @@ app.get("/api/me", (request, response) => {
 });
 
 installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getConnectionItem(datasourceId, context); });
-installKnowledgeRoutes(app, knowledge, vectors, embeddings, identity);
+installKnowledgeRoutes(app, knowledge, vectors, embeddings, identity, model);
 installModelRoutes(app, model, permissions, identity);
 installWorkflowRoutes(app, workflows, workflowEngine, identity);
 

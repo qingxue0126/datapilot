@@ -1,7 +1,7 @@
 "use client";
 
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import {
   Background,
   Controls,
@@ -79,11 +79,13 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [runInput, setRunInput] = useState("{}");
   const [run, setRun] = useState<WorkflowRun | null>(null);
   const [dialog, setDialog] = useState<{ mode: "create" | "edit" | "delete"; agent?: AgentItem } | null>(null);
   const [instance, setInstance] = useState<ReactFlowInstance<FlowNode, Edge> | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { void loadAgents(); }, []);
 
@@ -103,8 +105,10 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     const detail = await readJson(detailResponse); const sourceData = await readJson(sourcesResponse);
     if (!detailResponse.ok) throw new Error(detail.error || "无法加载工作流");
     const definition = detail.workflow.definition as WorkflowDefinition;
+    const flowNodes = definition.nodes.map((node) => ({ ...node, data: { ...node.data, nodeType: node.type } })) as FlowNode[];
     setActive(detail.agent); setVariables(definition.variables || {});
-    setNodes(definition.nodes.map((node) => ({ ...node, data: { ...node.data, nodeType: node.type } })));
+    setNodes(flowNodes);
+    setRunInput(pretty(createRunInputTemplate(flowNodes)));
     setEdges(definition.edges || []); setSources(sourceData.items || []);
   }
 
@@ -130,6 +134,14 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     let input: Record<string, unknown>;
     try { input = JSON.parse(runInput); if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(); }
     catch { setNotice("运行输入必须是 JSON 对象"); return; }
+    const missingFields = requiredRunInputFields(nodes).filter((path) => {
+      const value = inputPath(input, path);
+      return value === undefined || value === null || (typeof value === "string" && !value.trim());
+    });
+    if (missingFields.length) {
+      setNotice(`请在运行输入中填写：${missingFields.join("、")}，例如 ${JSON.stringify(createRunInputTemplate(nodes, "用户问题"))}`);
+      return;
+    }
     setRunning(true); setNotice(""); setRun(null);
     setNodes((items) => items.map((node) => ({ ...node, data: { ...node.data, runStatus: "pending" } })));
     try {
@@ -159,6 +171,37 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     await loadAgents(); return data;
   }
 
+  async function importRagflow(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setNotice("JSON 文件不能超过 2 MB"); return; }
+    setImporting(true); setNotice("");
+    try {
+      const definition = JSON.parse(await file.text());
+      const defaultModelId = models.find((item) => item.enabled && ["llm", "multimodal_llm"].includes(item.modelType))?.id || "";
+      const response = await api("/api/agents/import", {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({
+          name: file.name.replace(/\.json$/i, "") || "RAGFlow 智能体",
+          description: `从 RAGFlow 文件 ${file.name} 导入`,
+          definition,
+          defaultModelId,
+        }),
+      });
+      const data = await readJson(response);
+      if (!response.ok) throw new Error(data.error || "导入失败");
+      await loadAgents();
+      await openAgent(data.agent as AgentItem);
+      const unsupported = Number(data.report?.unsupported?.length || 0);
+      const warnings = Number(data.report?.warnings?.length || 0);
+      setNotice(`导入完成：${data.report?.importedNodes || 0} 个节点、${data.report?.importedEdges || 0} 条连线${unsupported ? `；${unsupported} 个兼容节点需要重新配置` : ""}${warnings ? `；${warnings} 条提示` : ""}`);
+    } catch (error) {
+      setNotice(error instanceof SyntaxError ? "JSON 文件格式无效，请选择 RAGFlow 导出的完整 JSON 文件" : message(error));
+    } finally { setImporting(false); }
+  }
+
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((items) => applyNodeChanges(changes, items)), []);
   const onEdgesChange = useCallback((changes: EdgeChange<Edge>[]) => setEdges((items) => applyEdgeChanges(changes, items)), []);
   const onConnect = useCallback((connection: Connection) => setEdges((items) => addEdge({ ...connection, id: crypto.randomUUID(), animated: true }, items)), []);
@@ -176,7 +219,10 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     if ((kind === "start" || kind === "end") && nodes.some((node) => node.data.nodeType === kind)) { setNotice(`${catalog.label}节点已存在`); return; }
     const position = instance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`;
-    setNodes((items) => [...items, { id, type: kind, position, data: { label: catalog.label, nodeType: kind, config: defaultConfig(kind, models, sources) } }]);
+    const node = { id, type: kind, position, data: { label: catalog.label, nodeType: kind, config: defaultConfig(kind, models, sources) } } as FlowNode;
+    const next = [...nodes, node];
+    setNodes(next);
+    if (requiredRunInputFields(nodes).length === 0 && requiredRunInputFields(next).length > 0) setRunInput(pretty(createRunInputTemplate(next)));
     setSelectedId(id);
   }
 
@@ -201,7 +247,8 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
   </div>;
 
   return <div className="module-content agent-list-page">
-    <div className="module-heading"><div><span className="eyebrow">AGENT WORKFLOW</span><h2>智能体</h2><p>用可视化工作流连接模型、数据和业务动作。</p></div><button className="primary-action" onClick={() => setDialog({ mode: "create" })}>＋ 新建智能体</button></div>
+    <div className="module-heading"><div><span className="eyebrow">AGENT WORKFLOW</span><h2>智能体</h2><p>用可视化工作流连接模型、数据和业务动作。</p></div><div className="module-heading-actions"><button onClick={() => importInputRef.current?.click()} disabled={importing}>{importing ? "导入中…" : "导入 JSON 文件"}</button><button className="primary-action" onClick={() => setDialog({ mode: "create" })}>＋ 新建智能体</button></div></div>
+    <input ref={importInputRef} type="file" accept=".json,application/json" hidden onChange={(event) => void importRagflow(event)} />
     {notice && <div className="agent-notice">{notice}</div>}
     {loading ? <div className="empty-state"><p>正在加载智能体…</p></div> : agents.length === 0 ? <div className="empty-state agent-empty"><span>◇</span><h3>创建第一个智能体</h3><p>从开始节点出发，拖入 LLM、SQL、HTTP 或代码节点。</p><button onClick={() => setDialog({ mode: "create" })}>新建智能体</button></div> : <div className="agent-grid">{agents.map((agent) => <article className="agent-card" key={agent.id} onClick={() => void openAgent(agent).catch((error) => setNotice(message(error)))}><div className="agent-card-icon">◇</div><div><div className="agent-card-title"><h3>{agent.name}</h3><span className={`agent-status ${agent.status}`}>{statusLabel(agent.status)}</span></div><p>{agent.description || "暂无描述"}</p><small>v{agent.currentVersion} · 更新于 {formatDate(agent.updatedAt)}</small></div><footer><button onClick={(event) => { event.stopPropagation(); setDialog({ mode: "edit", agent }); }}>编辑</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/copy`, { method: "POST" }).catch((error) => setNotice(message(error))); }}>复制</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/publish`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ enabled: agent.status !== "published" }) }).catch((error) => setNotice(message(error))); }}>{agent.status === "published" ? "停用" : "发布"}</button><button className="danger" onClick={(event) => { event.stopPropagation(); setDialog({ mode: "delete", agent }); }}>删除</button></footer></article>)}</div>}
     {dialog && <AgentDialog dialog={dialog} close={() => setDialog(null)} submit={async (values) => { try { if (dialog.mode === "create") await mutateAgent("/api/agents", { method: "POST", headers: jsonHeaders, body: JSON.stringify(values) }); else if (dialog.mode === "edit" && dialog.agent) await mutateAgent(`/api/agents/${dialog.agent.id}`, { method: "PATCH", headers: jsonHeaders, body: JSON.stringify(values) }); else if (dialog.agent) await mutateAgent(`/api/agents/${dialog.agent.id}`, { method: "DELETE" }); setDialog(null); } catch (error) { setNotice(message(error)); } }} />}
@@ -237,6 +284,32 @@ function RunSummary({ run }: { run: WorkflowRun }) { return <section className={
 function AgentDialog({ dialog, close, submit }: { dialog: { mode: "create" | "edit" | "delete"; agent?: AgentItem }; close: () => void; submit: (values: { name?: string; description?: string }) => Promise<void> }) { if (dialog.mode === "delete") return <div className="modal-backdrop"><div className="agent-dialog"><h2>删除智能体</h2><p>确认删除“{dialog.agent?.name}”及其工作流版本和运行记录？</p><footer><button onClick={close}>取消</button><button className="danger-confirm" onClick={() => void submit({})}>确认删除</button></footer></div></div>; return <div className="modal-backdrop"><form className="agent-dialog" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submit({ name: String(form.get("name") || ""), description: String(form.get("description") || "") }); }}><h2>{dialog.mode === "create" ? "新建智能体" : "编辑智能体"}</h2><label>名称<input name="name" defaultValue={dialog.agent?.name} required autoFocus /></label><label>描述<textarea name="description" defaultValue={dialog.agent?.description} rows={4} /></label><footer><button type="button" onClick={close}>取消</button><button className="primary-action" type="submit">保存</button></footer></form></div>; }
 
 function defaultConfig(kind: NodeKind, models: ModelOption[], sources: DataSourceOption[]): Record<string, unknown> { if (kind === "llm") return { modelId: models.find((item) => item.enabled && item.modelType === "llm")?.id || "", systemPrompt: "你是 DataPilot 智能体。", userPrompt: "{{start.output.query}}" }; if (kind === "sql") return { datasourceId: sources[0]?.connectionId || "", sql: "SELECT 1 AS value" }; if (kind === "http") return { method: "GET", url: "https://example.com", headers: {}, query: {}, body: {} }; if (kind === "code") return { input: "{{start.output}}", code: "return { result: input };" }; if (kind === "condition") return { left: "{{start.output.value}}", operator: "==", right: "true" }; if (kind === "assign") return { assignments: { value: "{{start.output.value}}" } }; if (kind === "end") return { output: "{{start.output}}" }; return {}; }
+function requiredRunInputFields(nodes: FlowNode[]) {
+  const fields = new Set<string>();
+  for (const node of nodes) {
+    const text = JSON.stringify(node.data.config || {});
+    for (const match of text.matchAll(/\{\{\s*(?:start\.output|input)\.([^}\s]+)\s*\}\}/g)) fields.add(match[1]);
+  }
+  return [...fields].sort();
+}
+function createRunInputTemplate(nodes: FlowNode[], placeholder = "") {
+  const result: Record<string, unknown> = {};
+  for (const path of requiredRunInputFields(nodes)) {
+    const parts = path.split(".");
+    let target = result;
+    for (const part of parts.slice(0, -1)) {
+      if (!target[part] || typeof target[part] !== "object" || Array.isArray(target[part])) target[part] = {};
+      target = target[part] as Record<string, unknown>;
+    }
+    target[parts.at(-1)!] = placeholder;
+  }
+  return result;
+}
+function inputPath(input: Record<string, unknown>, path: string) {
+  let current: unknown = input;
+  for (const part of path.split(".")) current = current && typeof current === "object" ? (current as Record<string, unknown>)[part] : undefined;
+  return current;
+}
 function tryJson(value: string): Record<string, unknown> | null { try { const parsed = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null; } catch { return null; } }
 function pretty(value: unknown) { try { return JSON.stringify(value ?? null, null, 2); } catch { return String(value); } }
 function statusLabel(status: AgentItem["status"]) { return status === "published" ? "已发布" : status === "disabled" ? "已停用" : "草稿"; }

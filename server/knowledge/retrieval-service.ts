@@ -2,7 +2,11 @@ import type { RequestContext } from "../core/types.js";
 import { lexicalScore } from "./embedding.js";
 import type { EmbeddingProvider } from "./embedding.js";
 import { KnowledgeStore, KnowledgeStoreError, type RetrievalConfig } from "./knowledge-store.js";
-import type { Metadata, MetadataValue, VectorStore } from "./vector-store.js";
+import type { Metadata, MetadataValue, VectorSearchResult, VectorStore } from "./vector-store.js";
+
+export interface RerankService {
+  rerank(context: RequestContext, modelId: string, query: string, documents: string[], topN: number): Promise<{ results: { index: number; score: number }[] }>;
+}
 
 export type KnowledgeRetrievalRequest = {
   knowledgeBaseId: string;
@@ -11,6 +15,11 @@ export type KnowledgeRetrievalRequest = {
   topK?: number;
   scoreThreshold?: number;
   rerank?: boolean;
+  retrievalMode?: "vector" | "hybrid";
+  vectorWeight?: number;
+  candidateCount?: number;
+  rerankModel?: string;
+  rerankTopK?: number;
 };
 
 export type KnowledgeRetrievalItem = {
@@ -31,6 +40,10 @@ export type KnowledgeRetrievalResult = {
   topK: number;
   scoreThreshold: number;
   rerank: boolean;
+  retrievalMode: "vector" | "hybrid";
+  vectorWeight: number;
+  candidateCount: number;
+  rerankModel: string;
   config: RetrievalConfig;
   vectorStore: VectorStore["provider"];
 };
@@ -40,6 +53,7 @@ export class KnowledgeRetrievalService {
     private readonly store: KnowledgeStore,
     private readonly vectors: VectorStore,
     private readonly embeddings: EmbeddingProvider,
+    private readonly reranker?: RerankService,
   ) {}
 
   async retrieve(context: RequestContext, request: KnowledgeRetrievalRequest): Promise<KnowledgeRetrievalResult> {
@@ -55,23 +69,35 @@ export class KnowledgeRetrievalService {
     const scoreThreshold = boundedNumber(request.scoreThreshold, config.scoreThreshold, -1, 1, false, "score_threshold");
     if (request.rerank !== undefined && typeof request.rerank !== "boolean") throw new KnowledgeStoreError("rerank 必须是布尔值");
     const rerank = request.rerank ?? config.rerank;
+    const retrievalMode = request.retrievalMode === undefined ? "vector" : request.retrievalMode;
+    if (retrievalMode !== "vector" && retrievalMode !== "hybrid") throw new KnowledgeStoreError("retrieval_mode 仅支持 vector 或 hybrid");
+    const vectorWeight = boundedNumber(request.vectorWeight, 0.7, 0, 1, false, "vector_weight");
+    const candidateCount = boundedNumber(request.candidateCount, Math.max(topK * 3, topK), topK, 200, true, "candidate_count");
+    const rerankTopK = boundedNumber(request.rerankTopK, topK, 1, 50, true, "rerank_top_k");
+    const rerankModel = String(request.rerankModel ?? config.rerankModel ?? "").trim();
     const filters = validateMetadata(request.filters);
 
     this.validateFilterSchema(context, knowledgeBaseId, filters);
     const queryEmbedding = await this.embeddings.embed(context, config.embeddingModel, query);
     let matches = await this.vectors.search(context, knowledgeBaseId, queryEmbedding, {
-      limit: Math.max(topK * 3, topK),
+      limit: candidateCount,
       metadataFilter: filters,
       indexConfig: vectorIndexConfig(config),
     });
-    if (rerank) {
+    if (retrievalMode === "hybrid") matches = this.hybridMatches(context, knowledgeBaseId, query, filters, matches, vectorWeight, candidateCount);
+    matches = matches.filter((item) => item.score >= scoreThreshold);
+    if (rerank && this.reranker && rerankModel && rerankModel !== "local-keyword-reranker-v1") {
+      const ranked = await this.reranker.rerank(context, rerankModel, query, matches.map((item) => item.content), rerankTopK);
+      matches = ranked.results.map((result) => ({ ...matches[result.index], score: result.score })).filter((item): item is VectorSearchResult => Boolean(item));
+    } else if (rerank) {
       matches = matches
         .map((item) => ({ ...item, score: item.score * 0.72 + lexicalScore(query, item.content) * 0.28 }))
         .sort((left, right) => right.score - left.score);
     }
 
     const documents = new Map(detail.documents.map((document) => [document.id, document]));
-    const items = matches.filter((item) => item.score >= scoreThreshold).slice(0, topK).map((item, index) => {
+    const finalTopK = rerank ? rerankTopK : topK;
+    const items = matches.slice(0, finalTopK).map((item, index) => {
       const document = documents.get(item.documentId);
       return {
         rank: index + 1,
@@ -85,7 +111,22 @@ export class KnowledgeRetrievalService {
         metadata: item.metadata,
       };
     });
-    return { items, filters, topK, scoreThreshold, rerank, config, vectorStore: this.vectors.provider };
+    return { items, filters, topK: finalTopK, scoreThreshold, rerank, retrievalMode, vectorWeight, candidateCount, rerankModel, config, vectorStore: this.vectors.provider };
+  }
+
+  private hybridMatches(context: RequestContext, knowledgeBaseId: string, query: string, filters: Metadata, vectorMatches: VectorSearchResult[], vectorWeight: number, limit: number) {
+    const byId = new Map(vectorMatches.map((item) => [item.id, { ...item, score: item.score * vectorWeight }]));
+    for (const chunk of this.store.listBaseChunks(context, knowledgeBaseId)) {
+      if (!chunk.enabled || !metadataMatches(chunk.metadata, filters)) continue;
+      const keywordScore = lexicalScore(query, chunk.content);
+      const current = byId.get(chunk.id);
+      if (current) current.score += keywordScore * (1 - vectorWeight);
+      else if (keywordScore > 0) byId.set(chunk.id, {
+        id: chunk.id, knowledgeBaseId, documentId: chunk.documentId, content: chunk.content,
+        embedding: [], metadata: chunk.metadata, enabled: true, score: keywordScore * (1 - vectorWeight),
+      });
+    }
+    return [...byId.values()].sort((left, right) => right.score - left.score).slice(0, limit);
   }
 
   private validateFilterSchema(context: RequestContext, knowledgeBaseId: string, filters: Metadata) {
@@ -100,6 +141,10 @@ export class KnowledgeRetrievalService {
       if (!fieldTypes.get(field)?.has(typeof value)) throw new KnowledgeStoreError(`Metadata 过滤值类型错误: ${field}`);
     }
   }
+}
+
+function metadataMatches(metadata: Metadata, filters: Metadata) {
+  return Object.entries(filters).every(([field, value]) => metadata[field] === value);
 }
 
 export function validateMetadata(value: unknown, label = "filters"): Metadata {

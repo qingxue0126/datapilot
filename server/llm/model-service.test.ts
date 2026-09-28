@@ -143,3 +143,19 @@ test("unsupported rerank connection testing returns an explicit protocol error",
   assert.equal(result.success, false);
   assert.match(result.error || "", /未实现 Rerank 协议/);
 });
+
+test("Qwen rerank uses the DashScope protocol and preserves returned scores", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 19));
+  const rerank = store.create(context, { ...config("qwen3-rerank"), modelType: "rerank", provider: "qwen", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" });
+  const originalFetch = globalThis.fetch; let requestedUrl = ""; let requestBody: Record<string, unknown> = {};
+  globalThis.fetch = async (input, init) => {
+    requestedUrl = String(input); requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ results: [{ index: 1, relevance_score: 0.91 }, { index: 0, relevance_score: 0.42 }] }), { status: 200 });
+  };
+  try {
+    const service = new ModelService(store, new ModelRouter(store));
+    const result = await service.rerank(context, rerank.id, "凭证", ["报表", "凭证处理"], 2);
+    assert.equal(requestedUrl, "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank");
+    assert.equal(requestBody.top_n, 2); assert.deepEqual(result.results, [{ index: 1, score: 0.91 }, { index: 0, score: 0.42 }]);
+  } finally { globalThis.fetch = originalFetch; }
+});

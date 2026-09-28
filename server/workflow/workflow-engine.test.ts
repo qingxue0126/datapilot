@@ -37,6 +37,24 @@ test("workflow engine executes a DAG, resolves variables, and skips an inactive 
   assert.equal(run.nodeRuns.find((item) => item.nodeId === "success")?.status, "success");
 });
 
+test("start.output resolves runtime input when an imported start node keeps the RAGFlow begin id", async () => {
+  const store = new WorkflowStore(":memory:");
+  const created = store.createAgent(context, { name: "RAGFlow 开始节点兼容" });
+  store.saveWorkflow(context, created.agent.id, {
+    variables: {},
+    nodes: [
+      { id: "begin", type: "start", position: { x: 0, y: 0 }, data: { label: "开始", config: {} } },
+      { id: "assign", type: "assign", position: { x: 100, y: 0 }, data: { label: "读取输入", config: { assignments: { query: "{{start.output.query}}" } } } },
+      { id: "end", type: "end", position: { x: 200, y: 0 }, data: { label: "结束", config: { output: "{{assign.output}}" } } },
+    ],
+    edges: [{ id: "a", source: "begin", target: "assign" }, { id: "b", source: "assign", target: "end" }],
+  });
+  const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models: {} as ModelService, connection: () => { throw new Error("unused"); } });
+  const run = await engine.run(context, created.agent.id, { query: "凭证问题" });
+  assert.equal(run.status, "success");
+  assert.deepEqual(run.output, { query: "凭证问题" });
+});
+
 test("workflow validation rejects cycles and variable resolution preserves full JSON values", () => {
   const cyclic: WorkflowDefinition = {
     variables: {},
@@ -48,6 +66,10 @@ test("workflow validation rejects cycles and variable resolution preserves full 
   };
   assert.throws(() => validateAndSort(cyclic), /循环/);
   assert.deepEqual(resolveValue("{{node.output}}", { node: { output: { rows: [1, 2] } } }), { rows: [1, 2] });
+  assert.throws(
+    () => resolveValue("{{start.output.query}}", { start: { output: {} } }),
+    /运行输入缺少字段：query/,
+  );
 });
 
 test("code nodes cannot access host modules", async () => {
