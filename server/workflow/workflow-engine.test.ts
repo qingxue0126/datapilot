@@ -10,6 +10,29 @@ import type { WorkflowDefinition } from "./workflow-types.js";
 
 const context: RequestContext = { tenantId: "t", accountSetId: "a", userId: "u", role: "tenant_admin", sessionId: "s" };
 
+test("multiple message inputs and outputs execute and survive workflow persistence", async () => {
+  const store = new WorkflowStore(":memory:");
+  const created = store.createAgent(context, { name: "多个消息入口" });
+  const definition: WorkflowDefinition = {
+    variables: {},
+    nodes: [
+      { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "消息输入", config: {} } },
+      { id: "input2", type: "start", position: { x: 0, y: 100 }, data: { label: "消息输入", config: {} } },
+      { id: "end1", type: "end", position: { x: 200, y: 0 }, data: { label: "消息输出", config: { output: "{{start.output.query}}" } } },
+      { id: "end2", type: "end", position: { x: 200, y: 100 }, data: { label: "消息输出", config: { output: "{{input2.output.query}}" } } },
+    ],
+    edges: [{ id: "a", source: "start", target: "end1" }, { id: "b", source: "input2", target: "end2" }],
+  };
+  store.saveWorkflow(context, created.agent.id, definition);
+  assert.deepEqual(store.getWorkflow(context, created.agent.id).definition, definition);
+  const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models: {} as ModelService, connection: () => { throw new Error("unused"); } });
+  const run = await engine.run(context, created.agent.id, { query: "测试消息" });
+  assert.equal(run.status, "success");
+  assert.equal(run.nodeRuns.length, 4);
+  assert.ok(run.nodeRuns.every((node) => node.status === "success"));
+  for (const node of run.nodeRuns.filter((item) => item.nodeType === "end")) assert.equal(node.output, "测试消息");
+});
+
 test("workflow engine executes a DAG, resolves variables, and skips an inactive condition branch", async () => {
   const store = new WorkflowStore(":memory:");
   const created = store.createAgent(context, { name: "条件工作流" });
@@ -36,6 +59,43 @@ test("workflow engine executes a DAG, resolves variables, and skips an inactive 
   assert.deepEqual(run.output, { amount: 120 });
   assert.equal(run.nodeRuns.find((item) => item.nodeId === "skipped")?.status, "skipped");
   assert.equal(run.nodeRuns.find((item) => item.nodeId === "success")?.status, "success");
+});
+
+test("condition nodes support ordered multi-branches, nested groups, and nested condition nodes", async () => {
+  const store = new WorkflowStore(":memory:");
+  const created = store.createAgent(context, { name: "多分支嵌套" });
+  store.saveWorkflow(context, created.agent.id, {
+    variables: {},
+    nodes: [
+      { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "开始", config: {} } },
+      { id: "outer", type: "condition", position: { x: 1, y: 0 }, data: { label: "一级判断", config: { branches: [
+        { id: "high", label: "高优先级", condition: { combinator: "and", items: [
+          { left: "{{start.output.amount}}", operator: ">=", right: 100 },
+          { combinator: "or", items: [{ left: "{{start.output.vip}}", operator: "==", right: true }, { left: "{{start.output.region}}", operator: "==", right: "east" }] },
+        ] } },
+        { id: "medium", label: "中优先级", condition: { combinator: "and", items: [{ left: "{{start.output.amount}}", operator: ">=", right: 50 }] } },
+      ] } } },
+      { id: "inner", type: "condition", position: { x: 2, y: 1 }, data: { label: "二级判断", config: { branches: [{ id: "urgent", label: "紧急", condition: { combinator: "and", items: [{ left: "{{start.output.priority}}", operator: "==", right: "urgent" }] } }] } } },
+      { id: "high-end", type: "end", position: { x: 3, y: -1 }, data: { label: "高", config: { output: "high" } } },
+      { id: "medium-end", type: "end", position: { x: 3, y: 0 }, data: { label: "中", config: { output: "medium" } } },
+      { id: "urgent-end", type: "end", position: { x: 3, y: 1 }, data: { label: "紧急", config: { output: "urgent" } } },
+      { id: "normal-end", type: "end", position: { x: 3, y: 2 }, data: { label: "普通", config: { output: "normal" } } },
+    ],
+    edges: [
+      { id: "a", source: "start", target: "outer" },
+      { id: "b", source: "outer", target: "high-end", sourceHandle: "high" },
+      { id: "c", source: "outer", target: "medium-end", sourceHandle: "medium" },
+      { id: "d", source: "outer", target: "inner", sourceHandle: "false" },
+      { id: "e", source: "inner", target: "urgent-end", sourceHandle: "urgent" },
+      { id: "f", source: "inner", target: "normal-end", sourceHandle: "false" },
+    ],
+  });
+  const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models: {} as ModelService, connection: () => { throw new Error("unused"); } });
+  const nestedGroupRun = await engine.run(context, created.agent.id, { amount: 120, vip: false, region: "east" });
+  assert.equal(nestedGroupRun.output, "high");
+  const nestedNodeRun = await engine.run(context, created.agent.id, { amount: 10, vip: false, region: "west", priority: "urgent" });
+  assert.equal(nestedNodeRun.output, "urgent", JSON.stringify(nestedNodeRun));
+  assert.equal(nestedNodeRun.nodeRuns.find((item) => item.nodeId === "medium-end")?.status, "skipped");
 });
 
 test("references to an intentionally skipped branch resolve as empty values for downstream merge nodes", async () => {

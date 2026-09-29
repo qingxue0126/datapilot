@@ -39,6 +39,8 @@ test("agent studio exposes all V1 nodes, workflow controls, and execution inspec
   assert.match(studio, /aria-label="关闭设置"/);
   for (const setting of ["推理模型", "系统提示词", "工具列表", "用户输入", "最大迭代", "流式输出"]) assert.match(studio, new RegExp(setting));
   for (const setting of ["Metadata Filters", "检索方式", "Score Threshold", "重排模型", "重排 Top K"]) assert.match(studio, new RegExp(setting));
+  for (const setting of ["添加 ELSEIF", "满足全部 AND", "满足任一 OR", "嵌套组", "其他所有情况"]) assert.match(studio, new RegExp(setting));
+  assert.match(studio, /conditionBranches\.map/);
 });
 
 test("workflow run opens a mode-aware side panel instead of a top JSON input", () => {

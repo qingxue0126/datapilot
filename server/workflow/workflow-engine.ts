@@ -83,7 +83,7 @@ export class WorkflowEngine {
         // Imported workflow formats commonly use `begin` (RAGFlow) or another
         // custom id for their start node. Keep `start.output.*` as the stable
         // cross-workflow alias while preserving the original node id.
-        if (node.type === "start") scope.start = { output };
+        if (node.type === "start" && (node.id === "start" || !scope.start)) scope.start = { output };
         finalOutput = node.type === "end" ? output : finalOutput;
         const selected = selectedEdges(node, output, definition.edges.filter((edge) => !isAgentToolEdge(edge, definition)));
         for (const edge of selected) activeEdges.add(edge.id);
@@ -334,8 +334,8 @@ export function validateAndSort(definition: WorkflowDefinition): WorkflowNode[] 
     if (!workflowNodeTypes.includes(node.type)) throw new Error(`未知节点类型：${node.type}`);
     ids.add(node.id);
   }
-  if (definition.nodes.filter((node) => node.type === "start").length !== 1) throw new Error("工作流必须且只能包含一个开始节点");
-  if (!definition.nodes.some((node) => node.type === "end")) throw new Error("工作流至少需要一个结束节点");
+  if (!definition.nodes.some((node) => node.type === "start")) throw new Error("工作流至少需要一个消息输入节点");
+  if (!definition.nodes.some((node) => node.type === "end")) throw new Error("工作流至少需要一个消息输出节点");
   const indegree = new Map(definition.nodes.map((node) => [node.id, 0]));
   const outgoing = new Map(definition.nodes.map((node) => [node.id, [] as string[]]));
   for (const edge of definition.edges) {
@@ -414,21 +414,51 @@ function connectedAgentTools(agentId: string, definition: WorkflowDefinition): A
 function selectedEdges(node: WorkflowNode, output: unknown, edges: WorkflowEdge[]) {
   const outgoing = edges.filter((edge) => edge.source === node.id);
   if (node.type !== "condition") return outgoing;
+  const branchId = String((output as { branchId?: unknown })?.branchId || "");
+  if (branchId) return outgoing.filter((edge) => String(edge.sourceHandle || "false") === branchId);
   const result = Boolean((output as { result?: unknown })?.result);
   return outgoing.filter((edge) => String(edge.sourceHandle || "true") === String(result));
 }
 function evaluateCondition(config: Record<string, unknown>) {
+  const branches = Array.isArray(config.branches) ? config.branches : [];
+  if (branches.length) {
+    for (const rawBranch of branches) {
+      const branch = object(rawBranch);
+      const branchId = required(branch.id, "条件分支缺少标识");
+      const matched = evaluateConditionGroup(branch.condition ?? branch.group, 0);
+      if (matched) return { result: true, branchId, matchedBranchId: branchId };
+    }
+    return { result: false, branchId: "false", matchedBranchId: null };
+  }
   const left = config.left; const right = config.right; const operator = String(config.operator || "==");
-  let result = false;
-  if (operator === "==") result = left === right || String(left) === String(right);
-  else if (operator === "!=") result = !(left === right || String(left) === String(right));
-  else if (operator === ">") result = Number(left) > Number(right);
-  else if (operator === ">=") result = Number(left) >= Number(right);
-  else if (operator === "<") result = Number(left) < Number(right);
-  else if (operator === "<=") result = Number(left) <= Number(right);
-  else if (operator === "contains") result = Array.isArray(left) ? left.includes(right) : String(left ?? "").includes(String(right ?? ""));
-  else throw new Error(`不支持的条件运算符：${operator}`);
+  const result = compareCondition(left, operator, right);
   return { result, left, right, operator };
+}
+function evaluateConditionGroup(value: unknown, depth: number): boolean {
+  if (depth > 10) throw new Error("条件嵌套最多支持 10 层");
+  const group = object(value);
+  const items = asArray(group.items);
+  if (!items.length) return false;
+  const results = items.map((rawItem) => {
+    const item = object(rawItem);
+    return Array.isArray(item.items)
+      ? evaluateConditionGroup(item, depth + 1)
+      : compareCondition(item.left, String(item.operator || "=="), item.right);
+  });
+  return String(group.combinator || "and").toLowerCase() === "or" ? results.some(Boolean) : results.every(Boolean);
+}
+function compareCondition(left: unknown, operator: string, right: unknown) {
+  if (operator === "==") return left === right || String(left) === String(right);
+  if (operator === "!=") return !(left === right || String(left) === String(right));
+  if (operator === ">") return Number(left) > Number(right);
+  if (operator === ">=") return Number(left) >= Number(right);
+  if (operator === "<") return Number(left) < Number(right);
+  if (operator === "<=") return Number(left) <= Number(right);
+  if (operator === "contains") return Array.isArray(left) ? left.includes(right) : String(left ?? "").includes(String(right ?? ""));
+  if (operator === "not_contains") return Array.isArray(left) ? !left.includes(right) : !String(left ?? "").includes(String(right ?? ""));
+  if (operator === "is_empty") return left === null || left === undefined || left === "" || (Array.isArray(left) && left.length === 0);
+  if (operator === "is_not_empty") return !(left === null || left === undefined || left === "" || (Array.isArray(left) && left.length === 0));
+  throw new Error(`不支持的条件运算符：${operator}`);
 }
 function executeCode(code: string, input: Record<string, unknown>) {
   if (/\b(require|process|global|globalThis|import|eval|Function|WebAssembly)\b/.test(code)) throw new Error("代码节点禁止访问系统、模块加载或动态执行能力");

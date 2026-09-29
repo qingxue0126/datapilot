@@ -123,13 +123,20 @@ function convertConfig(nodeId: string, source: string, target: WorkflowNodeType,
     };
   }
   if (target === "condition") {
-    const condition = optionalObject((Array.isArray(form.conditions) ? form.conditions : [])[0]);
-    const item = optionalObject((Array.isArray(condition.items) ? condition.items : [])[0]);
-    return {
-      left: convertBareReference(String(item.cpn_id || ""), mappedTypes),
-      operator: conditionOperator(String(item.operator || "=")),
-      right: item.value ?? "",
-    };
+    const conditions = Array.isArray(form.conditions) ? form.conditions.map(optionalObject) : [];
+    if (!conditions.length) return { left: "", operator: "==", right: "" };
+    return { branches: conditions.map((condition, conditionIndex) => ({
+      id: conditionIndex === 0 ? "true" : `case-${conditionIndex + 1}`,
+      label: `Case ${conditionIndex + 1}`,
+      condition: {
+        id: `group-${conditionIndex + 1}`,
+        combinator: String(condition.logical_operator || condition.combinator || "and").toLowerCase() === "or" ? "or" : "and",
+        items: (Array.isArray(condition.items) ? condition.items : []).map((rawItem, itemIndex) => {
+          const item = optionalObject(rawItem);
+          return { id: `rule-${conditionIndex + 1}-${itemIndex + 1}`, left: convertBareReference(String(item.cpn_id || ""), mappedTypes), operator: conditionOperator(String(item.operator || "=")), right: item.value ?? "" };
+        }),
+      },
+    })) };
   }
   if (source === "userfillup") {
     const fields = ragflowInputDefinitions(form, true);
@@ -220,8 +227,10 @@ function conditionHandle(nodes: RagflowNode[], sourceId: string, targetId: strin
   const source = nodes.find((node) => String(node.id) === sourceId);
   const form = optionalObject(optionalObject(source?.data).form);
   const conditions = Array.isArray(form.conditions) ? form.conditions.map(optionalObject) : [];
-  const conditionalTarget = conditions.some((condition) => (Array.isArray(condition.to) ? condition.to : []).map(String).includes(targetId));
-  if (conditionalTarget || /^case\s*1$/i.test(String(edge.sourceHandle || ""))) return "true";
+  const conditionIndex = conditions.findIndex((condition) => (Array.isArray(condition.to) ? condition.to : []).map(String).includes(targetId));
+  if (conditionIndex >= 0) return conditionIndex === 0 ? "true" : `case-${conditionIndex + 1}`;
+  const caseMatch = String(edge.sourceHandle || "").match(/^case\s*(\d+)$/i);
+  if (caseMatch) return Number(caseMatch[1]) === 1 ? "true" : `case-${Number(caseMatch[1])}`;
   return "false";
 }
 

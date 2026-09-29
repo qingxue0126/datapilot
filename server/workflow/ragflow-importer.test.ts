@@ -58,7 +58,9 @@ test("RAGFlow UserFillUp and Switch map to runtime input and true/false branches
     },
   });
   validateAndSort(imported.definition);
-  assert.equal(imported.definition.nodes.find((node) => node.id === "Switch:One")?.type, "condition");
+  const condition = imported.definition.nodes.find((node) => node.id === "Switch:One");
+  assert.equal(condition?.type, "condition");
+  assert.deepEqual(condition?.data.config.branches, [{ id: "true", label: "Case 1", condition: { id: "group-1", combinator: "and", items: [{ id: "rule-1-1", left: "{{start.output.query}}", operator: "==", right: "help" }] } }]);
   assert.equal(imported.definition.edges.find((edge) => edge.target === "UserFillUp:One")?.sourceHandle, "true");
   assert.deepEqual(imported.definition.nodes.find((node) => node.id === "UserFillUp:One")?.data.config.assignments, {
     product: "{{start.output.product}}",

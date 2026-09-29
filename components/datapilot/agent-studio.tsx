@@ -1,7 +1,7 @@
 "use client";
 
 import "@xyflow/react/dist/style.css";
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type ReactNode } from "react";
 import {
   Background,
   ConnectionMode,
@@ -21,6 +21,7 @@ import {
   type NodeChange,
   type NodeProps,
   type ReactFlowInstance,
+  useUpdateNodeInternals,
 } from "@xyflow/react";
 import type { ModelOption } from "./model-management";
 import { customerFacingRunError, extractConversationInput, hasRunInputValue, missingConversationPrompt } from "./conversation-input";
@@ -61,18 +62,25 @@ type ChatMessage = { id: string; role: "assistant" | "user"; content: string };
 type StartMode = "conversation" | "task" | "webhook";
 type StartInputType = "string" | "number" | "boolean" | "object";
 type StartInput = { key: string; name: string; type: StartInputType; required: boolean; options?: string[] };
+type ConditionRule = { id: string; left: unknown; operator: string; right: unknown };
+type ConditionGroup = { id: string; combinator: "and" | "or"; items: (ConditionRule | ConditionGroup)[] };
+type ConditionBranch = { id: string; label: string; condition: ConditionGroup };
 
-const nodeCatalog: { type: NodeKind; label: string; description: string; icon: string }[] = [
-  { type: "start", label: "开始", description: "接收运行输入", icon: "▶" },
+function MessageNodeIcon() {
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 3h13a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3h-2l-3 3-4-4H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Z" fill="currentColor"/><path d="M6 8h11M6 12h7" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>;
+}
+
+const nodeCatalog: { type: NodeKind; label: string; description: string; icon: ReactNode }[] = [
+  { type: "start", label: "消息输入", description: "接收用户消息", icon: <MessageNodeIcon /> },
   { type: "llm", label: "LLM", description: "调用已启用模型", icon: "✦" },
   { type: "agent", label: "Agent", description: "自主推理并调用工具", icon: "◇" },
   { type: "knowledge_retrieval", label: "知识库检索", description: "向量或混合检索知识块", icon: "⌕" },
   { type: "sql", label: "SQL 查询", description: "执行只读安全查询", icon: "▦" },
   { type: "http", label: "HTTP 请求", description: "调用外部 API", icon: "↗" },
   { type: "code", label: "代码", description: "安全执行 JavaScript", icon: "{}" },
-  { type: "condition", label: "条件分支", description: "True / False 路由", icon: "◇" },
+  { type: "condition", label: "条件分支", description: "IF / ELSEIF / ELSE 多分支", icon: "◇" },
   { type: "assign", label: "变量赋值", description: "生成结构化变量", icon: "=" },
-  { type: "end", label: "结束", description: "返回最终结果", icon: "■" },
+  { type: "end", label: "消息输出", description: "返回回复消息", icon: <MessageNodeIcon /> },
 ];
 
 const flowNodeTypes = Object.fromEntries(nodeCatalog.map((item) => [item.type, WorkflowNodeCard]));
@@ -116,7 +124,7 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     const detail = await readJson(detailResponse); const sourceData = await readJson(sourcesResponse); const knowledgeData = await readJson(knowledgeResponse);
     if (!detailResponse.ok) throw new Error(detail.error || "无法加载工作流");
     const definition = detail.workflow.definition as WorkflowDefinition;
-    const flowNodes = definition.nodes.map((node) => ({ ...node, data: { ...node.data, nodeType: node.type } })) as FlowNode[];
+    const flowNodes = definition.nodes.map((node) => ({ ...node, data: { ...node.data, label: node.type === "start" && node.data.label === "开始" ? "消息输入" : node.type === "end" && node.data.label === "结束" ? "消息输出" : node.data.label, nodeType: node.type } })) as FlowNode[];
     setActive(detail.agent); setVariables(definition.variables || {});
     setNodes(flowNodes);
     setEdges((definition.edges || []).map((edge) => ({ ...edge, animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }))); setSources(sourceData.items || []); setKnowledgeBases(knowledgeData.items || []);
@@ -247,12 +255,18 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
   function updateNode(patch: Partial<NodeData>) {
     setNodes((items) => items.map((node) => node.id === selectedId ? { ...node, data: { ...node.data, ...patch } } : node));
   }
-  function updateConfig(key: string, value: unknown) { if (selected) updateNode({ config: { ...selected.data.config, [key]: value } }); }
+  function updateConfig(key: string, value: unknown) {
+    if (!selected) return;
+    if (key === "branches" && Array.isArray(value)) {
+      const validHandles = new Set(["false", ...value.map((branch) => String((branch as { id?: unknown })?.id || ""))]);
+      setEdges((items) => items.filter((edge) => edge.source !== selected.id || !edge.sourceHandle || validHandles.has(edge.sourceHandle)));
+    }
+    updateNode({ config: { ...selected.data.config, [key]: value } });
+  }
   function drop(event: DragEvent) {
     event.preventDefault(); if (!instance) return;
     const kind = event.dataTransfer.getData("application/datapilot-node") as NodeKind;
     const catalog = nodeCatalog.find((item) => item.type === kind); if (!catalog) return;
-    if ((kind === "start" || kind === "end") && nodes.some((node) => node.data.nodeType === kind)) { setNotice(`${catalog.label}节点已存在`); return; }
     const position = instance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`;
     const node = { id, type: kind, position, data: { label: catalog.label, nodeType: kind, config: defaultConfig(kind, models, sources) } } as FlowNode;
@@ -285,13 +299,16 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     <div className="module-heading"><div><span className="eyebrow">AGENT WORKFLOW</span><h2>智能体</h2><p>用可视化工作流连接模型、数据和业务动作。</p></div><div className="module-heading-actions"><button onClick={() => importInputRef.current?.click()} disabled={importing}>{importing ? "导入中…" : "导入 JSON 文件"}</button><button className="primary-action" onClick={() => setDialog({ mode: "create" })}>＋ 新建智能体</button></div></div>
     <input ref={importInputRef} type="file" accept=".json,application/json" hidden onChange={(event) => void importRagflow(event)} />
     {notice && <div className="agent-notice">{notice}</div>}
-    {loading ? <div className="empty-state"><p>正在加载智能体…</p></div> : agents.length === 0 ? <div className="empty-state agent-empty"><span>◇</span><h3>创建第一个智能体</h3><p>从开始节点出发，拖入 LLM、SQL、HTTP 或代码节点。</p><button onClick={() => setDialog({ mode: "create" })}>新建智能体</button></div> : <div className="agent-grid">{agents.map((agent) => <article className="agent-card" key={agent.id} onClick={() => void openAgent(agent).catch((error) => setNotice(message(error)))}><div className="agent-card-icon">◇</div><div><div className="agent-card-title"><h3>{agent.name}</h3><span className={`agent-status ${agent.status}`}>{statusLabel(agent.status)}</span></div><p>{agent.description || "暂无描述"}</p><small>v{agent.currentVersion} · 更新于 {formatDate(agent.updatedAt)}</small></div><footer><button onClick={(event) => { event.stopPropagation(); setDialog({ mode: "edit", agent }); }}>编辑</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/copy`, { method: "POST" }).catch((error) => setNotice(message(error))); }}>复制</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/publish`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ enabled: agent.status !== "published" }) }).catch((error) => setNotice(message(error))); }}>{agent.status === "published" ? "停用" : "发布"}</button><button className="danger" onClick={(event) => { event.stopPropagation(); setDialog({ mode: "delete", agent }); }}>删除</button></footer></article>)}</div>}
+    {loading ? <div className="empty-state"><p>正在加载智能体…</p></div> : agents.length === 0 ? <div className="empty-state agent-empty"><span>◇</span><h3>创建第一个智能体</h3><p>从消息输入节点出发，拖入 LLM、SQL、HTTP 或代码节点。</p><button onClick={() => setDialog({ mode: "create" })}>新建智能体</button></div> : <div className="agent-grid">{agents.map((agent) => <article className="agent-card" key={agent.id} onClick={() => void openAgent(agent).catch((error) => setNotice(message(error)))}><div className="agent-card-icon">◇</div><div><div className="agent-card-title"><h3>{agent.name}</h3><span className={`agent-status ${agent.status}`}>{statusLabel(agent.status)}</span></div><p>{agent.description || "暂无描述"}</p><small>v{agent.currentVersion} · 更新于 {formatDate(agent.updatedAt)}</small></div><footer><button onClick={(event) => { event.stopPropagation(); setDialog({ mode: "edit", agent }); }}>编辑</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/copy`, { method: "POST" }).catch((error) => setNotice(message(error))); }}>复制</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/publish`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ enabled: agent.status !== "published" }) }).catch((error) => setNotice(message(error))); }}>{agent.status === "published" ? "停用" : "发布"}</button><button className="danger" onClick={(event) => { event.stopPropagation(); setDialog({ mode: "delete", agent }); }}>删除</button></footer></article>)}</div>}
     {dialog && <AgentDialog dialog={dialog} close={() => setDialog(null)} submit={async (values) => { try { if (dialog.mode === "create") await mutateAgent("/api/agents", { method: "POST", headers: jsonHeaders, body: JSON.stringify(values) }); else if (dialog.mode === "edit" && dialog.agent) await mutateAgent(`/api/agents/${dialog.agent.id}`, { method: "PATCH", headers: jsonHeaders, body: JSON.stringify(values) }); else if (dialog.agent) await mutateAgent(`/api/agents/${dialog.agent.id}`, { method: "DELETE" }); setDialog(null); } catch (error) { setNotice(message(error)); } }} />}
   </div>;
 }
 
-function WorkflowNodeCard({ data, selected }: NodeProps<FlowNode>) {
+function WorkflowNodeCard({ id, data, selected }: NodeProps<FlowNode>) {
   const condition = data.nodeType === "condition";
+  const conditionBranches = condition ? normalizeConditionBranches(data.config) : [];
+  const updateNodeInternals = useUpdateNodeInternals();
+  useEffect(() => { if (condition) updateNodeInternals(id); }, [condition, conditionBranches.map((branch) => branch.id).join("|"), id, updateNodeInternals]);
   const subtitle = data.nodeType === "start" ? startModeLabel(normalizeStartMode(data.config.mode)) : nodeCatalog.find((item) => item.type === data.nodeType)?.label || data.nodeType;
   if (data.nodeType === "agent") return <div className={`workflow-node workflow-agent-node ${selected ? "selected" : ""} ${data.runStatus || ""}`}>
     <header><span className="workflow-node-icon">●</span><div><strong>{data.label}</strong><small>Agent</small></div>{data.runStatus && <i title={data.runStatus} />}</header>
@@ -310,7 +327,7 @@ function WorkflowNodeCard({ data, selected }: NodeProps<FlowNode>) {
     {data.nodeType !== "start" && <Handle type="target" position={Position.Left} />}
     <span className="workflow-node-icon">{nodeCatalog.find((item) => item.type === data.nodeType)?.icon}</span><div><strong>{data.label}</strong><small>{subtitle}</small></div>{data.runStatus && <i title={data.runStatus} />}
     {data.nodeType !== "end" && !condition && <Handle type="source" position={Position.Right} />}
-    {condition && <><Handle id="true" type="source" position={Position.Right} style={{ top: "34%" }} /><Handle id="false" type="source" position={Position.Right} style={{ top: "72%" }} /><em className="condition-true">T</em><em className="condition-false">F</em></>}
+    {condition && (conditionBranches.length ? <div className="condition-handles">{[...conditionBranches.map((branch) => ({ id: branch.id, label: branch.label })), { id: "false", label: "ELSE" }].map((branch, index, all) => <span key={branch.id} style={{ top: `${((index + 1) / (all.length + 1)) * 100}%` }}><em>{branch.label}</em><Handle id={branch.id} type="source" position={Position.Right} /></span>)}</div> : <><Handle id="true" type="source" position={Position.Right} style={{ top: "34%" }} /><Handle id="false" type="source" position={Position.Right} style={{ top: "72%" }} /><em className="condition-true">T</em><em className="condition-false">F</em></>)}
   </div>;
 }
 
@@ -324,12 +341,72 @@ function NodeConfiguration({ agentId, node, models, sources, knowledgeBases, upd
     {node.data.nodeType === "sql" && <><label>数据源<select value={String(config.datasourceId || "")} onChange={(event) => updateConfig("datasourceId", event.target.value)}><option value="">选择数据源</option>{sources.map((item) => <option value={item.connectionId} key={item.connectionId}>{item.name}</option>)}</select></label><label>SQL 模板<textarea rows={8} value={String(config.sql || "")} onChange={(event) => updateConfig("sql", event.target.value)} placeholder="SELECT ... WHERE id = {{start.output.id}}" /></label></>}
     {node.data.nodeType === "http" && <><label>方法<select value={String(config.method || "GET")} onChange={(event) => updateConfig("method", event.target.value)}>{['GET','POST','PUT','DELETE'].map((item) => <option key={item}>{item}</option>)}</select></label><label>URL<input value={String(config.url || "")} onChange={(event) => updateConfig("url", event.target.value)} /></label><JsonField key={`${node.id}-headers`} label="Headers" value={config.headers} update={(value) => updateConfig("headers", value)} /><JsonField key={`${node.id}-query`} label="Query" value={config.query} update={(value) => updateConfig("query", value)} /><JsonField key={`${node.id}-body`} label="Body" value={config.body} update={(value) => updateConfig("body", value)} /></>}
     {node.data.nodeType === "code" && <><label>输入（JSON）<textarea rows={5} value={pretty(config.input || {})} onChange={(event) => { const value = tryJson(event.target.value); if (value) updateConfig("input", value); }} /></label><label>JavaScript<textarea className="code-input" rows={10} value={String(config.code || "")} onChange={(event) => updateConfig("code", event.target.value)} /></label><p className="field-help">使用 input 读取输入，必须 return JSON；不可访问文件、命令或模块。</p></>}
-    {node.data.nodeType === "condition" && <><label>左值<input value={String(config.left || "")} onChange={(event) => updateConfig("left", event.target.value)} placeholder="{{sql-1.output.rowCount}}" /></label><label>运算符<select value={String(config.operator || "==")} onChange={(event) => updateConfig("operator", event.target.value)}>{['==','!=','>','>=','<','<=','contains'].map((item) => <option key={item}>{item}</option>)}</select></label><label>右值<input value={String(config.right || "")} onChange={(event) => updateConfig("right", event.target.value)} /></label></>}
+    {node.data.nodeType === "condition" && <ConditionConfiguration config={config} updateConfig={updateConfig} />}
     {node.data.nodeType === "assign" && <JsonField key={`${node.id}-assignments`} label="赋值对象" value={config.assignments} update={(value) => updateConfig("assignments", value)} />}
     {node.data.nodeType === "end" && <label>返回值<input value={String(config.output || "")} onChange={(event) => updateConfig("output", event.target.value)} placeholder="{{nodeId.output}}" /></label>}
     {run && <section className={`node-run-detail ${run.status}`}><h4>执行结果</h4><div><span>状态</span><strong>{run.status}</strong><span>Duration</span><strong>{run.durationMs} ms</strong></div><details open><summary>Input</summary><pre>{pretty(run.input)}</pre></details><details open><summary>Output</summary><pre>{pretty(run.output)}</pre></details>{run.error && <details open><summary>Error</summary><pre>{run.error}</pre></details>}</section>}
   </>;
 }
+
+const conditionOperators = ["==", "!=", ">", ">=", "<", "<=", "contains", "not_contains", "is_empty", "is_not_empty"];
+
+function ConditionConfiguration({ config, updateConfig }: { config: Record<string, unknown>; updateConfig: (key: string, value: unknown) => void }) {
+  const branches = editableConditionBranches(config);
+  const save = (next: ConditionBranch[]) => updateConfig("branches", next);
+  const updateBranch = (index: number, next: ConditionBranch) => save(branches.map((branch, itemIndex) => itemIndex === index ? next : branch));
+  return <div className="condition-settings">
+    <p className="field-help">按 IF / ELSEIF 顺序匹配，命中第一个分支后停止；ELSE 处理未命中的情况。条件组可嵌套。</p>
+    {branches.map((branch, index) => <section className="condition-branch-card" key={branch.id}>
+      <header><div><strong>{index === 0 ? "IF" : "ELSEIF"}</strong><input aria-label="分支名称" value={branch.label} onChange={(event) => updateBranch(index, { ...branch, label: event.target.value })} /></div>{index > 0 && <button type="button" onClick={() => save(branches.filter((_item, itemIndex) => itemIndex !== index))}>移除</button>}</header>
+      <ConditionGroupEditor group={branch.condition} depth={0} onChange={(condition) => updateBranch(index, { ...branch, condition })} />
+    </section>)}
+    <button className="condition-add-branch" type="button" onClick={() => save([...branches, newConditionBranch(branches.length)])}>＋ 添加 ELSEIF</button>
+    <section className="condition-else-card"><strong>ELSE</strong><span>其他所有情况</span></section>
+    <p className="field-help">每个分支在节点右侧都有独立连接点；可继续连接另一个条件节点形成流程嵌套。</p>
+  </div>;
+}
+
+function ConditionGroupEditor({ group, depth, onChange, removable, remove }: { group: ConditionGroup; depth: number; onChange: (group: ConditionGroup) => void; removable?: boolean; remove?: () => void }) {
+  const updateItem = (index: number, item: ConditionRule | ConditionGroup) => onChange({ ...group, items: group.items.map((current, itemIndex) => itemIndex === index ? item : current) });
+  const removeItem = (index: number) => onChange({ ...group, items: group.items.filter((_item, itemIndex) => itemIndex !== index) });
+  return <div className={`condition-group depth-${Math.min(depth, 3)}`}>
+    <header><select aria-label="条件关系" value={group.combinator} onChange={(event) => onChange({ ...group, combinator: event.target.value === "or" ? "or" : "and" })}><option value="and">满足全部 AND</option><option value="or">满足任一 OR</option></select>{removable && <button type="button" onClick={remove}>删除组</button>}</header>
+    <div className="condition-group-items">{group.items.map((item, index) => isConditionGroup(item)
+      ? <ConditionGroupEditor key={item.id} group={item} depth={depth + 1} onChange={(next) => updateItem(index, next)} removable remove={() => removeItem(index)} />
+      : <div className="condition-rule" key={item.id}><input aria-label="左值" value={String(item.left ?? "")} onChange={(event) => updateItem(index, { ...item, left: event.target.value })} placeholder="{{nodeId.output.value}}" /><select aria-label="运算符" value={item.operator} onChange={(event) => updateItem(index, { ...item, operator: event.target.value })}>{conditionOperators.map((operator) => <option value={operator} key={operator}>{conditionOperatorLabel(operator)}</option>)}</select>{!["is_empty", "is_not_empty"].includes(item.operator) && <input aria-label="右值" value={String(item.right ?? "")} onChange={(event) => updateItem(index, { ...item, right: event.target.value })} placeholder="比较值" />}<button type="button" aria-label="删除条件" onClick={() => removeItem(index)}>×</button></div>)}</div>
+    <footer><button type="button" onClick={() => onChange({ ...group, items: [...group.items, newConditionRule()] })}>＋ 条件</button>{depth < 4 && <button type="button" onClick={() => onChange({ ...group, items: [...group.items, newConditionGroup()] })}>＋ 嵌套组</button>}</footer>
+  </div>;
+}
+
+function normalizeConditionBranches(config: Record<string, unknown>): ConditionBranch[] {
+  if (!Array.isArray(config.branches)) return [];
+  return config.branches.flatMap((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+    const branch = raw as Record<string, unknown>;
+    return [{ id: String(branch.id || `case-${index + 1}`), label: String(branch.label || `Case ${index + 1}`), condition: normalizeConditionGroup(branch.condition, `group-${index + 1}`) }];
+  });
+}
+function editableConditionBranches(config: Record<string, unknown>) {
+  const branches = normalizeConditionBranches(config);
+  if (branches.length) return branches;
+  return [{ id: "true", label: "Case 1", condition: { id: "legacy-group", combinator: "and", items: [{ id: "legacy-rule", left: config.left ?? "", operator: String(config.operator || "=="), right: config.right ?? "" }] } } satisfies ConditionBranch];
+}
+function normalizeConditionGroup(raw: unknown, fallbackId: string): ConditionGroup {
+  const value = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+  const items = Array.isArray(value.items) ? value.items.flatMap((item, index): (ConditionRule | ConditionGroup)[] => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const candidate = item as Record<string, unknown>;
+    if (Array.isArray(candidate.items)) return [normalizeConditionGroup(candidate, `${fallbackId}-group-${index}`)];
+    return [{ id: String(candidate.id || `${fallbackId}-rule-${index}`), left: candidate.left ?? "", operator: String(candidate.operator || "=="), right: candidate.right ?? "" }];
+  }) : [];
+  return { id: String(value.id || fallbackId), combinator: value.combinator === "or" ? "or" : "and", items };
+}
+function newConditionBranch(index: number): ConditionBranch { return { id: conditionId("case"), label: `Case ${index + 1}`, condition: newConditionGroup() }; }
+function newConditionGroup(): ConditionGroup { return { id: conditionId("group"), combinator: "and", items: [newConditionRule()] }; }
+function newConditionRule(): ConditionRule { return { id: conditionId("rule"), left: "", operator: "==", right: "" }; }
+function conditionId(prefix: string) { return `${prefix}-${globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)}`; }
+function isConditionGroup(item: ConditionRule | ConditionGroup): item is ConditionGroup { return "items" in item; }
+function conditionOperatorLabel(operator: string) { return ({ contains: "包含", not_contains: "不包含", is_empty: "为空", is_not_empty: "不为空" } as Record<string, string>)[operator] || operator; }
 
 type AgentToolConfig = { id: string; type: "knowledge_retrieval"; name: string; description: string; knowledgeBaseId: string; filters: Record<string, unknown>; dynamicFilters: boolean; retrievalMode: "vector" | "hybrid"; topK: number; scoreThreshold: number; rerank: boolean; rerankModel: string; rerankTopK: number; vectorWeight: number; candidateCount: number };
 
@@ -340,9 +417,9 @@ function AgentConfiguration({ config, models, knowledgeBases, updateConfig }: { 
   const updateTool = (index: number, patch: Partial<AgentToolConfig>) => updateConfig("tools", tools.map((tool, itemIndex) => itemIndex === index ? { ...tool, ...patch } : tool));
   const addTool = () => updateConfig("tools", [...tools, { id: crypto.randomUUID(), type: "knowledge_retrieval", name: `knowledge_search_${tools.length + 1}`, description: "检索与当前问题相关的知识", knowledgeBaseId: knowledgeBases[0]?.id || "", filters: {}, dynamicFilters: true, retrievalMode: "vector", topK: 5, scoreThreshold: 0.2, rerank: false, rerankModel: "", rerankTopK: 5, vectorWeight: 0.7, candidateCount: 15 } satisfies AgentToolConfig]);
   return <div className="agent-node-settings">
-    <section className="agent-settings-section"><h4>输入</h4><label>用户输入（支持变量引用）<textarea rows={3} value={String(config.input ?? "{{start.output.query}}")} onChange={(event) => updateConfig("input", event.target.value)} placeholder="{{start.output.query}}" /></label><p className="field-help">默认读取开始节点的对话输入，可引用任意上游变量。</p></section>
+    <section className="agent-settings-section"><h4>输入</h4><label>用户输入（支持变量引用）<textarea rows={3} value={String(config.input ?? "{{start.output.query}}")} onChange={(event) => updateConfig("input", event.target.value)} placeholder="{{start.output.query}}" /></label><p className="field-help">默认读取消息输入节点的对话输入，可引用任意上游变量。</p></section>
     <section className="agent-settings-section"><h4>模型</h4><label>LLM<select value={String(config.modelId || "")} onChange={(event) => updateConfig("modelId", event.target.value)}><option value="">选择已配置的 LLM</option>{llms.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></section>
-    <section className="agent-settings-section"><h4>提示词</h4><label>系统提示词<textarea rows={6} value={String(config.systemPrompt ?? "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。")} onChange={(event) => updateConfig("systemPrompt", event.target.value)} placeholder="定义 Agent 角色、规则与行为边界" /></label><label>用户提示词<textarea rows={5} value={String(config.userPrompt ?? "{{agent.input}}")} onChange={(event) => updateConfig("userPrompt", event.target.value)} placeholder="{{agent.input}}" /></label><p className="field-help">用户提示词不是开场白；开场白由开始节点的对话模式配置。</p></section>
+    <section className="agent-settings-section"><h4>提示词</h4><label>系统提示词<textarea rows={6} value={String(config.systemPrompt ?? "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。")} onChange={(event) => updateConfig("systemPrompt", event.target.value)} placeholder="定义 Agent 角色、规则与行为边界" /></label><label>用户提示词<textarea rows={5} value={String(config.userPrompt ?? "{{agent.input}}")} onChange={(event) => updateConfig("userPrompt", event.target.value)} placeholder="{{agent.input}}" /></label><p className="field-help">用户提示词不是开场白；开场白由消息输入节点的对话模式配置。</p></section>
     <section className="agent-settings-section"><header><h4>Tools</h4><button type="button" onClick={addTool}>＋ 添加工具</button></header><p className="field-help">Agent 会根据对话自主决定是否调用工具及其 query、metadata filters 参数。</p>
       {tools.length === 0 ? <div className="start-input-empty">暂无工具。可添加知识库检索工具。</div> : <div className="agent-tool-list">{tools.map((tool, index) => <article className="agent-tool-card" key={tool.id}>
         <header><strong>{tool.name || `工具 ${index + 1}`}</strong><button type="button" onClick={() => updateConfig("tools", tools.filter((_item, itemIndex) => itemIndex !== index))}>删除</button></header>
@@ -361,7 +438,7 @@ function AgentConfiguration({ config, models, knowledgeBases, updateConfig }: { 
     <section className="agent-settings-section"><h4>运行设置</h4><div className="start-input-row"><label>最大迭代次数<input type="number" min="1" max="20" value={Number(config.maxIterations ?? 5)} onChange={(event) => updateConfig("maxIterations", Number(event.target.value))} /></label><label>响应超时 (ms)<input type="number" min="1000" max="600000" step="1000" value={Number(config.timeoutMs ?? 30000)} onChange={(event) => updateConfig("timeoutMs", Number(event.target.value))} /></label></div>
       <label className="agent-switch-row"><span>流式输出</span><input type="checkbox" checked={config.streaming !== false} onChange={(event) => updateConfig("streaming", event.target.checked)} /></label>
       <label className="agent-switch-row"><span>上下文 / Memory</span><input type="checkbox" checked={config.memory !== false} onChange={(event) => updateConfig("memory", event.target.checked)} /></label>
-      <p className="field-help">对话调试会携带多轮对话历史，并保留此前已采集的开始节点字段。</p>
+      <p className="field-help">对话调试会携带多轮对话历史，并保留此前已采集的消息输入节点字段。</p>
       <details className="agent-advanced-settings"><summary>高级设置 · 模型参数</summary><label>Temperature<input type="number" min="0" max="2" step="0.1" value={Number(config.temperature ?? selectedModel?.temperature ?? 0.7)} onChange={(event) => updateConfig("temperature", Number(event.target.value))} /></label><p className="field-help">默认继承模型管理中的 Temperature。</p></details>
     </section>
     <p className="field-help">节点输出：<code>{"{{agent.output.text}}"}</code>；内部 LLM / Tool 调用参数、结果、耗时和异常会写入执行日志。</p>
@@ -443,10 +520,14 @@ function StartInputs({ inputs, add, update, remove }: { inputs: StartInput[]; ad
 }
 
 function WorkflowRunner({ nodes, run, running, close, execute }: { nodes: FlowNode[]; run: WorkflowRun | null; running: boolean; close: () => void; execute: (input: Record<string, unknown>) => Promise<WorkflowRun | null> }) {
-  const start = nodes.find((node) => node.data.nodeType === "start");
+  const start = nodes.find((node) => node.id === "start" && node.data.nodeType === "start") || nodes.find((node) => node.data.nodeType === "start");
   const config = start?.data.config || {};
   const mode = normalizeStartMode(config.mode);
-  const inputs = normalizeStartInputs(config.inputs);
+  const inputs = Array.from(nodes.filter((node) => node.data.nodeType === "start").flatMap((node) => normalizeStartInputs(node.data.config.inputs)).reduce((fields, field) => {
+    const existing = fields.get(field.key);
+    fields.set(field.key, existing ? { ...existing, required: existing.required || field.required } : field);
+    return fields;
+  }, new Map<string, StartInput>()).values());
   const initialValues = createRunInputTemplate(nodes);
   const [taskValues, setTaskValues] = useState<Record<string, unknown>>(initialValues);
   const [conversationValues, setConversationValues] = useState<Record<string, unknown>>(initialValues);
@@ -477,8 +558,8 @@ function WorkflowRunner({ nodes, run, running, close, execute }: { nodes: FlowNo
     </section>
     <section className="agent-run-surface"><header><div><strong>{mode === "conversation" ? "对话调试" : mode === "task" ? "任务运行" : "网络钩子"}</strong><small>{startModeLabel(mode)}模式</small></div><button type="button" onClick={close} aria-label="关闭运行面板">×</button></header>
       {mode === "conversation" && <><div className="agent-chat-messages">{messages.length ? messages.map((item) => <article className={item.role} key={item.id}><span>{item.role === "assistant" ? "DP" : "我"}</span><p>{item.content}</p></article>) : <div className="runner-empty">输入消息开始调试</div>}{running && <article className="assistant pending"><span>DP</span><p>{streamingAgentText(run, nodes) || "工作流运行中…"}</p></article>}</div><div className="agent-chat-composer"><textarea rows={3} value={messageText} onChange={(event) => setMessageText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitConversation(); } }} placeholder="请输入消息…" /><button type="button" disabled={!messageText.trim() || running} onClick={() => void submitConversation()}>发送</button></div></>}
-      {mode === "task" && <div className="agent-task-runner"><p>填写开始节点定义的输入，然后运行工作流。</p>{inputs.length ? inputs.map((input) => <label key={input.key}>{input.name || input.key}{input.required && <em>*</em>}{input.type === "boolean" ? <select value={String(inputPath(taskValues, input.key) ?? false)} onChange={(event) => setNestedInput(setTaskValues, input.key, event.target.value === "true")}><option value="false">false</option><option value="true">true</option></select> : input.options?.length ? <select value={String(inputPath(taskValues, input.key) ?? "")} onChange={(event) => setNestedInput(setTaskValues, input.key, event.target.value)}><option value="">请选择</option>{input.options.map((option) => <option key={option}>{option}</option>)}</select> : <input type={input.type === "number" ? "number" : "text"} value={String(inputPath(taskValues, input.key) ?? "")} onChange={(event) => setNestedInput(setTaskValues, input.key, input.type === "number" ? Number(event.target.value) : event.target.value)} />}</label>) : <div className="runner-empty">开始节点尚未配置输入字段</div>}<button className="runner-primary" type="button" onClick={() => void submitTask()} disabled={running}>{running ? "运行中…" : "运行任务"}</button>{run && <div className={`agent-task-result ${run.status}`}><strong>运行结果</strong><pre>{pretty(run.status === "success" ? run.output : "运行未成功，请查看执行日志")}</pre></div>}</div>}
-      {mode === "webhook" && <div className="agent-webhook-runner"><p>网络钩子模式通过开始节点中配置的 URL 接收请求，请先保存并发布智能体。</p><code>{String(config.webhookMethod || "GET")} /api/v1/agents/&lt;agent-id&gt;/webhook</code><div className="runner-empty">当前面板不模拟外部网络钩子请求</div></div>}
+      {mode === "task" && <div className="agent-task-runner"><p>填写消息输入节点定义的输入，然后运行工作流。</p>{inputs.length ? inputs.map((input) => <label key={input.key}>{input.name || input.key}{input.required && <em>*</em>}{input.type === "boolean" ? <select value={String(inputPath(taskValues, input.key) ?? false)} onChange={(event) => setNestedInput(setTaskValues, input.key, event.target.value === "true")}><option value="false">false</option><option value="true">true</option></select> : input.options?.length ? <select value={String(inputPath(taskValues, input.key) ?? "")} onChange={(event) => setNestedInput(setTaskValues, input.key, event.target.value)}><option value="">请选择</option>{input.options.map((option) => <option key={option}>{option}</option>)}</select> : <input type={input.type === "number" ? "number" : "text"} value={String(inputPath(taskValues, input.key) ?? "")} onChange={(event) => setNestedInput(setTaskValues, input.key, input.type === "number" ? Number(event.target.value) : event.target.value)} />}</label>) : <div className="runner-empty">消息输入节点尚未配置输入字段</div>}<button className="runner-primary" type="button" onClick={() => void submitTask()} disabled={running}>{running ? "运行中…" : "运行任务"}</button>{run && <div className={`agent-task-result ${run.status}`}><strong>运行结果</strong><pre>{pretty(run.status === "success" ? run.output : "运行未成功，请查看执行日志")}</pre></div>}</div>}
+      {mode === "webhook" && <div className="agent-webhook-runner"><p>网络钩子模式通过消息输入节点中配置的 URL 接收请求，请先保存并发布智能体。</p><code>{String(config.webhookMethod || "GET")} /api/v1/agents/&lt;agent-id&gt;/webhook</code><div className="runner-empty">当前面板不模拟外部网络钩子请求</div></div>}
     </section>
   </aside>;
 }
@@ -517,7 +598,7 @@ function JsonField({ label, value, update }: { label: string; value: unknown; up
 function RunSummary({ run }: { run: WorkflowRun }) { return <section className={`agent-run-summary ${run.status}`}><h4>最近运行</h4><p>{run.status} · {run.durationMs} ms</p><pre>{pretty(run.output ?? run.error)}</pre></section>; }
 function AgentDialog({ dialog, close, submit }: { dialog: { mode: "create" | "edit" | "delete"; agent?: AgentItem }; close: () => void; submit: (values: { name?: string; description?: string }) => Promise<void> }) { if (dialog.mode === "delete") return <div className="modal-backdrop"><div className="agent-dialog"><h2>删除智能体</h2><p>确认删除“{dialog.agent?.name}”及其工作流版本和运行记录？</p><footer><button onClick={close}>取消</button><button className="danger-confirm" onClick={() => void submit({})}>确认删除</button></footer></div></div>; return <div className="modal-backdrop"><form className="agent-dialog" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submit({ name: String(form.get("name") || ""), description: String(form.get("description") || "") }); }}><h2>{dialog.mode === "create" ? "新建智能体" : "编辑智能体"}</h2><label>名称<input name="name" defaultValue={dialog.agent?.name} required autoFocus /></label><label>描述<textarea name="description" defaultValue={dialog.agent?.description} rows={4} /></label><footer><button type="button" onClick={close}>取消</button><button className="primary-action" type="submit">保存</button></footer></form></div>; }
 
-function defaultConfig(kind: NodeKind, models: ModelOption[], sources: DataSourceOption[]): Record<string, unknown> { if (kind === "start") return defaultStartConfig(); if (kind === "llm") return { modelId: models.find((item) => item.enabled && item.modelType === "llm")?.id || "", systemPrompt: "你是 DataPilot 智能体。", userPrompt: "{{start.output.query}}" }; if (kind === "agent") return { input: "{{start.output.query}}", modelId: models.find((item) => item.enabled && ["llm", "multimodal_llm"].includes(item.modelType))?.id || "", systemPrompt: "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。", userPrompt: "{{agent.input}}", tools: [], maxIterations: 5, timeoutMs: 30000, streaming: true, memory: true }; if (kind === "knowledge_retrieval") return { knowledgeBaseId: "", query: "{{start.output.query}}", toolName: "knowledge_search", toolDescription: "检索与当前问题相关的知识", dynamicFilters: true, retrievalMode: "vector", vectorWeight: 0.7, topK: 5, scoreThreshold: 0.2, filters: {}, rerank: false, rerankModel: "", rerankTopK: 5 }; if (kind === "sql") return { datasourceId: sources[0]?.connectionId || "", sql: "SELECT 1 AS value" }; if (kind === "http") return { method: "GET", url: "https://example.com", headers: {}, query: {}, body: {} }; if (kind === "code") return { input: "{{start.output}}", code: "return { result: input };" }; if (kind === "condition") return { left: "{{start.output.value}}", operator: "==", right: "true" }; if (kind === "assign") return { assignments: { value: "{{start.output.value}}" } }; if (kind === "end") return { output: "{{start.output}}" }; return {}; }
+function defaultConfig(kind: NodeKind, models: ModelOption[], sources: DataSourceOption[]): Record<string, unknown> { if (kind === "start") return defaultStartConfig(); if (kind === "llm") return { modelId: models.find((item) => item.enabled && item.modelType === "llm")?.id || "", systemPrompt: "你是 DataPilot 智能体。", userPrompt: "{{start.output.query}}" }; if (kind === "agent") return { input: "{{start.output.query}}", modelId: models.find((item) => item.enabled && ["llm", "multimodal_llm"].includes(item.modelType))?.id || "", systemPrompt: "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。", userPrompt: "{{agent.input}}", tools: [], maxIterations: 5, timeoutMs: 30000, streaming: true, memory: true }; if (kind === "knowledge_retrieval") return { knowledgeBaseId: "", query: "{{start.output.query}}", toolName: "knowledge_search", toolDescription: "检索与当前问题相关的知识", dynamicFilters: true, retrievalMode: "vector", vectorWeight: 0.7, topK: 5, scoreThreshold: 0.2, filters: {}, rerank: false, rerankModel: "", rerankTopK: 5 }; if (kind === "sql") return { datasourceId: sources[0]?.connectionId || "", sql: "SELECT 1 AS value" }; if (kind === "http") return { method: "GET", url: "https://example.com", headers: {}, query: {}, body: {} }; if (kind === "code") return { input: "{{start.output}}", code: "return { result: input };" }; if (kind === "condition") return { branches: [{ id: "true", label: "Case 1", condition: { id: conditionId("group"), combinator: "and", items: [{ id: conditionId("rule"), left: "{{start.output.value}}", operator: "==", right: "true" }] } }] }; if (kind === "assign") return { assignments: { value: "{{start.output.value}}" } }; if (kind === "end") return { output: "{{start.output}}" }; return {}; }
 function defaultStartConfig() { return { mode: "conversation", enablePrologue: true, prologue: "您好，请描述您遇到的问题。", inputs: [] as StartInput[], webhookMethod: "GET", webhookSecurity: "none", webhookRequestMode: "json", webhookResponseMode: "workflow" }; }
 function normalizeStartMode(value: unknown): StartMode { return value === "task" || value === "webhook" ? value : "conversation"; }
 function startModeLabel(mode: StartMode) { return mode === "task" ? "任务" : mode === "webhook" ? "网络钩子" : "对话"; }
