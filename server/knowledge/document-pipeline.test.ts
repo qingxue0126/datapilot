@@ -152,6 +152,26 @@ test("Table Parser auto mode infers content, embedding, and metadata attributes"
   assert.equal(result.chunks[0].metadata["问题"], undefined);
 });
 
+test("Table Parser infers unmapped columns after an Excel file is replaced", async () => {
+  const replacementRows = [{ "适用产品": "U8", "问题领域": "供应链", "问题类别": "采购管理", "问题描述": "采购订单可以按行关闭吗？", "处理方案": "可以，在订单明细中关闭对应行。" }];
+  const result = await parseDocumentChunks(".xlsx", workbookBuffer(replacementRows), {
+    parserType: "table", chunkSize: 800, chunkOverlap: 120, questionColumn: "问题", answerColumn: "答案", metadataFields: ["产品", "模块"],
+    columnMode: "manual",
+    columnRoles: {
+      "产品": { content: false, embedding: false, metadata: true },
+      "模块": { content: false, embedding: false, metadata: true },
+      "问题": { content: true, embedding: true, metadata: false },
+      "答案": { content: true, embedding: false, metadata: false },
+    },
+  });
+  assert.equal(result.chunks.length, 1);
+  assert.match(result.chunks[0].content, /采购订单可以按行关闭吗/);
+  assert.match(result.chunks[0].content, /订单明细中关闭对应行/);
+  assert.equal(result.chunks[0].metadata["适用产品"], "U8");
+  assert.equal(result.chunks[0].metadata["问题领域"], "供应链");
+  assert.equal(result.chunks[0].metadata["问题类别"], "采购管理");
+});
+
 test("General Paragraph strategy keeps paragraphs as independent chunks", async () => {
   const result = await parseDocumentChunks(".txt", Buffer.from("第一段内容。\n\n第二段内容。"), {
     parserType: "general", chunkStrategy: "paragraph", chunkSize: 100, chunkOverlap: 20,

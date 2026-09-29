@@ -557,7 +557,7 @@ export function inferColumnAttributes(column: string): ColumnAttributes {
   if (/^(id|uuid|序号|行号|编号|主键)$/.test(normalized) || /^(?:[a-z\u4e00-\u9fff][a-z0-9\u4e00-\u9fff]*)id$/.test(normalized) || /(?:^|业务|记录)(?:id|编号)$/.test(normalized)) {
     return { content: false, embedding: false, metadata: false };
   }
-  if (/(product|module|category|classification|questiontype|problemtype|产品|模块|分类|类别|类型)/.test(normalized)) {
+  if (/(product|module|category|classification|domain|questiontype|problemtype|产品|模块|领域|分类|类别|类型)/.test(normalized)) {
     return { content: false, embedding: false, metadata: true };
   }
   if (/(question|answer|description|content|text|title|问题|答案|描述|内容|正文|标题)/.test(normalized)) {

@@ -179,11 +179,12 @@ test("Agent autonomously calls a configured knowledge tool, carries memory, and 
       { id: "agent", type: "agent", position: { x: 1, y: 0 }, data: { label: "Agent", config: {
         input: "{{start.output.query}}", modelId: "model-1", systemPrompt: "通用助理", userPrompt: "问题：{{agent.input}}",
         maxIterations: 2, timeoutMs: 30000, streaming: false, memory: true,
-        tools: [{ id: "kb-tool", type: "knowledge_retrieval", name: "kb_search", description: "搜索知识", knowledgeBaseId: "kb-1", filters: { tenant: "acme" }, dynamicFilters: true, retrievalMode: "hybrid", topK: 3, scoreThreshold: 0.1, rerank: true, rerankModel: "ranker", rerankTopK: 2, vectorWeight: 0.6 }],
+        tools: [],
       } } },
+      { id: "kb-tool", type: "knowledge_retrieval", position: { x: 1, y: 2 }, data: { label: "Knowledge Search", config: { toolName: "kb_search", toolDescription: "Search knowledge", knowledgeBaseId: "kb-1", query: "{{missing.output.query}}", filters: { tenant: "acme" }, dynamicFilters: true, retrievalMode: "hybrid", topK: 3, scoreThreshold: 0.1, rerank: true, rerankModel: "ranker", rerankTopK: 2, vectorWeight: 0.6 } } },
       { id: "end", type: "end", position: { x: 2, y: 0 }, data: { label: "结束", config: { output: "{{agent.output.text}}" } } },
     ],
-    edges: [{ id: "a", source: "start", target: "agent" }, { id: "b", source: "agent", target: "end" }],
+    edges: [{ id: "a", source: "start", target: "agent", targetHandle: "input" }, { id: "tool", source: "kb-tool", target: "agent", targetHandle: "tools" }, { id: "b", source: "agent", target: "end", sourceHandle: "output" }],
   });
   const calls: { messages: { role: string; content: string }[]; options?: Record<string, unknown> }[] = [];
   const models = { chat: async (_context: RequestContext, _modelId: string, messages: { role: string; content: string }[], options?: Record<string, unknown>) => {
@@ -208,6 +209,7 @@ test("Agent autonomously calls a configured knowledge tool, carries memory, and 
   assert.match(calls[0].messages.map((message) => message.content).join("\n"), /上一轮问过订单状态/);
   assert.match(calls[1].messages.map((message) => message.content).join("\n"), /可在订单页申请退款/);
   const agentRun = run.nodeRuns.find((item) => item.nodeId === "agent");
+  assert.equal(run.nodeRuns.find((item) => item.nodeId === "kb-tool")?.status, "skipped");
   const trace = (agentRun?.output as { trace: { type: string; durationMs: number }[] }).trace;
   assert.deepEqual(trace.map((item) => item.type), ["llm", "tool", "llm"]);
   assert.ok(trace.every((item) => item.durationMs >= 0));

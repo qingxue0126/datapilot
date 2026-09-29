@@ -53,7 +53,7 @@ export class WorkflowEngine {
     let runError: string | null = null;
 
     for (const node of ordered) {
-      const incoming = definition.edges.filter((edge) => edge.target === node.id);
+      const incoming = definition.edges.filter((edge) => edge.target === node.id && !isAgentToolEdge(edge, definition));
       const active = node.type === "start" || incoming.some((edge) => activeEdges.has(edge.id));
       if (!active || failed) {
         this.recordNode(context, run.id, node, "skipped", null, null, null, 0, null, null);
@@ -70,6 +70,10 @@ export class WorkflowEngine {
           const agentInput = resolveValue(node.data.config.input ?? "{{start.output.query}}", scope);
           resolvedInput = resolveValue(node.data.config, { ...scope, agent: { input: agentInput } });
         } else resolvedInput = resolveValue(node.data.config, scope);
+        if (node.type === "agent") {
+          const connectedTools = resolveValue(connectedAgentTools(node.id, definition), scope) as AgentToolConfig[];
+          resolvedInput = { ...object(resolvedInput), tools: [...asArray(object(resolvedInput).tools), ...connectedTools] };
+        }
         const output = await this.executeNode(context, node, object(resolvedInput), scope, (partial) => {
           if (nodeExecutionFinished) return;
           this.dependencies.store.finishNodeRun(context, run.id, runningNode.id, { status: "running", input: resolvedInput, output: partial, error: null, durationMs: Date.now() - nodeStarted, finishedAt: new Date().toISOString() });
@@ -81,7 +85,7 @@ export class WorkflowEngine {
         // cross-workflow alias while preserving the original node id.
         if (node.type === "start") scope.start = { output };
         finalOutput = node.type === "end" ? output : finalOutput;
-        const selected = selectedEdges(node, output, definition.edges);
+        const selected = selectedEdges(node, output, definition.edges.filter((edge) => !isAgentToolEdge(edge, definition)));
         for (const edge of selected) activeEdges.add(edge.id);
         this.dependencies.store.finishNodeRun(context, run.id, runningNode.id, { status: "success", input: resolvedInput, output, error: null, durationMs: Date.now() - nodeStarted, finishedAt: new Date().toISOString() });
       } catch (error) {
@@ -336,6 +340,11 @@ export function validateAndSort(definition: WorkflowDefinition): WorkflowNode[] 
   const outgoing = new Map(definition.nodes.map((node) => [node.id, [] as string[]]));
   for (const edge of definition.edges) {
     if (!ids.has(edge.source) || !ids.has(edge.target)) throw new Error("连线引用了不存在的节点");
+    if (isAgentToolEdge(edge, definition)) {
+      const source = definition.nodes.find((node) => node.id === edge.source);
+      if (source?.type !== "knowledge_retrieval") throw new Error("Agent 工具列表目前仅支持知识库检索节点");
+      continue;
+    }
     indegree.set(edge.target, (indegree.get(edge.target) || 0) + 1);
     outgoing.get(edge.source)!.push(edge.target);
   }
@@ -380,6 +389,28 @@ function getPath(scope: Scope, path: string) {
   }
   return current;
 }
+function isAgentToolEdge(edge: WorkflowEdge, definition: WorkflowDefinition) {
+  if (edge.targetHandle !== "tools") return false;
+  return definition.nodes.find((node) => node.id === edge.target)?.type === "agent";
+}
+function connectedAgentTools(agentId: string, definition: WorkflowDefinition): AgentToolConfig[] {
+  return definition.edges
+    .filter((edge) => edge.target === agentId && isAgentToolEdge(edge, definition))
+    .flatMap((edge, index) => {
+      const node = definition.nodes.find((item) => item.id === edge.source);
+      if (!node || node.type !== "knowledge_retrieval") return [];
+      const config = node.data.config;
+      const toolConfig = Object.fromEntries(Object.entries(config).filter(([key]) => key !== "query"));
+      return [{
+        ...toolConfig,
+        id: node.id,
+        type: "knowledge_retrieval",
+        name: String(config.toolName || `knowledge_search_${index + 1}`),
+        description: String(config.toolDescription || `使用${node.data.label}检索相关知识`),
+        dynamicFilters: config.dynamicFilters !== false,
+      }];
+    });
+}
 function selectedEdges(node: WorkflowNode, output: unknown, edges: WorkflowEdge[]) {
   const outgoing = edges.filter((edge) => edge.source === node.id);
   if (node.type !== "condition") return outgoing;
@@ -407,6 +438,7 @@ function executeCode(code: string, input: Record<string, unknown>) {
   return JSON.parse(JSON.stringify(result ?? null));
 }
 function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
+function asArray(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 function required(value: unknown, message: string) { const text = String(value ?? "").trim(); if (!text) throw new Error(message); return text; }
 function optionalNumber(value: unknown) { if (value === undefined || value === null || value === "") return undefined; const number = Number(value); if (!Number.isFinite(number)) throw new Error("检索参数必须是有效数字"); return number; }
 function boundedInteger(value: unknown, fallback: number, min: number, max: number, label: string) {

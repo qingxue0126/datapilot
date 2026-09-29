@@ -53,6 +53,26 @@ test("session persists across store instances and logout invalidates it", async 
   } finally { item.cleanup(); }
 });
 
+test("API keys store only a hash and restore their bound tenant identity", async () => {
+  const item = fixture();
+  try {
+    const registered = await item.store.register("api-owner", "Secure123", "Secure123");
+    const created = item.store.createApiKey(registered.token, "RAGFlow");
+    assert.match(created.key, /^dp_[A-Za-z0-9_-]{32,}$/);
+    const persisted = readFileSync(item.path, "utf8");
+    assert.doesNotMatch(persisted, new RegExp(created.key));
+    const context = item.store.authenticateApiKey(created.key);
+    assert.equal(context.tenantId, registered.user.tenantId);
+    assert.match(context.sessionId, /^api-key:/);
+    assert.ok(item.store.listApiKeys(registered.token)[0].lastUsedAt);
+    item.store.setApiKeyEnabled(registered.token, created.apiKey.id, false);
+    assert.throws(() => item.store.authenticateApiKey(created.key), (error: AuthError) => error.status === 401);
+    item.store.setApiKeyEnabled(registered.token, created.apiKey.id, true);
+    item.store.revokeApiKey(registered.token, created.apiKey.id);
+    assert.throws(() => item.store.authenticateApiKey(created.key), (error: AuthError) => error.status === 401);
+  } finally { item.cleanup(); }
+});
+
 test("unauthenticated identity resolution is rejected", () => {
   const item = fixture();
   try {

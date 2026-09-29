@@ -53,6 +53,28 @@ export function installAuthRoutes(app: Express, accounts: AccountStore) {
     catch (error) { authFailure(response, error); }
   });
 
+  app.get("/api/auth/api-keys", (request, response) => {
+    try { response.json({ items: accounts.listApiKeys(sessionToken(request)) }); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.post("/api/auth/api-keys", (request, response) => {
+    try { response.status(201).json(accounts.createApiKey(sessionToken(request), request.body?.name)); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.patch("/api/auth/api-keys/:id", (request, response) => {
+    try {
+      if (typeof request.body?.enabled !== "boolean") throw new AuthError("enabled 必须是布尔值", 400);
+      response.json({ apiKey: accounts.setApiKeyEnabled(sessionToken(request), request.params.id, request.body.enabled) });
+    } catch (error) { authFailure(response, error); }
+  });
+
+  app.delete("/api/auth/api-keys/:id", (request, response) => {
+    try { accounts.revokeApiKey(sessionToken(request), request.params.id); response.status(204).end(); }
+    catch (error) { authFailure(response, error); }
+  });
+
   app.post("/api/auth/admin/teams", (request, response) => {
     try { response.status(201).json({ team: accounts.createTeam(sessionToken(request), request.body?.name) }); }
     catch (error) { authFailure(response, error); }

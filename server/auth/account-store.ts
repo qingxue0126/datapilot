@@ -14,7 +14,9 @@ export type Tenant = { id: string; name: string; accountSetId: string; createdBy
 export type TenantMembership = { userId: string; tenantId: string; accountSetId: string; role: Role; joinedAt: string };
 type TeamInvitation = { id: string; tenantId: string; identifier: string; role: Role; invitedBy: string; status: "pending" | "accepted"; createdAt: string };
 type AuthSession = { id: string; tokenHash: string; userId: string; expiresAt: string; createdAt: string };
-type StoredAuth = { accounts: Account[]; sessions: AuthSession[]; tenants: Tenant[]; memberships: TenantMembership[]; invitations: TeamInvitation[] };
+type StoredApiKey = { id: string; name: string; keyHash: string; userId: string; tenantId: string; accountSetId: string; enabled: boolean; createdAt: string; lastUsedAt?: string };
+type StoredAuth = { accounts: Account[]; sessions: AuthSession[]; tenants: Tenant[]; memberships: TenantMembership[]; invitations: TeamInvitation[]; apiKeys: StoredApiKey[] };
+export type PublicApiKey = Pick<StoredApiKey, "id" | "name" | "tenantId" | "enabled" | "createdAt" | "lastUsedAt">;
 
 export type PublicAccount = {
   id: string; username: string; email?: string; displayName: string; tenantId: string; accountSetId: string; role: Role;
@@ -77,6 +79,49 @@ export class AccountStore {
     const session = this.sessionForToken(token)!;
     const membership = this.activeMembership(account);
     return { user: this.toPublicAccount(account), context: { userId: account.id, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: membership.role, sessionId: session.id } };
+  }
+
+  authenticateApiKey(key?: string): RequestContext {
+    if (!key || !/^dp_[A-Za-z0-9_-]{32,}$/.test(key)) throw new AuthError("API Key 无效", 401);
+    const record = this.state.apiKeys.find((item) => item.keyHash === hashToken(key));
+    if (!record || !record.enabled) throw new AuthError("API Key 无效或已禁用", 401);
+    const account = this.state.accounts.find((item) => item.id === record.userId && item.status === "active");
+    const membership = account && this.state.memberships.find((item) => item.userId === account.id && item.tenantId === record.tenantId && item.accountSetId === record.accountSetId);
+    if (!account || !membership) throw new AuthError("API Key 所属账户或团队已失效", 401);
+    record.lastUsedAt = this.now().toISOString();
+    this.persist();
+    return { userId: account.id, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: membership.role, sessionId: `api-key:${record.id}` };
+  }
+
+  createApiKey(token: string | undefined, nameInput: unknown) {
+    const account = this.authenticatedAccount(token);
+    const membership = this.activeMembership(account);
+    const name = String(nameInput || "").trim();
+    if (name.length < 2 || name.length > 80) throw new AuthError("API Key 名称长度需为 2–80 个字符", 400);
+    const key = `dp_${randomBytes(32).toString("base64url")}`;
+    const record: StoredApiKey = { id: randomUUID(), name, keyHash: hashToken(key), userId: account.id, tenantId: membership.tenantId, accountSetId: membership.accountSetId, enabled: true, createdAt: this.now().toISOString() };
+    this.state.apiKeys.push(record);
+    this.persist();
+    return { apiKey: this.publicApiKey(record), key };
+  }
+
+  listApiKeys(token: string | undefined) {
+    const account = this.authenticatedAccount(token);
+    const tenantId = this.activeMembership(account).tenantId;
+    return this.state.apiKeys.filter((item) => item.userId === account.id && item.tenantId === tenantId).map((item) => this.publicApiKey(item));
+  }
+
+  setApiKeyEnabled(token: string | undefined, id: string, enabled: boolean) {
+    const record = this.ownedApiKey(token, id);
+    record.enabled = enabled;
+    this.persist();
+    return this.publicApiKey(record);
+  }
+
+  revokeApiKey(token: string | undefined, id: string) {
+    const record = this.ownedApiKey(token, id);
+    this.state.apiKeys = this.state.apiKeys.filter((item) => item.id !== record.id);
+    this.persist();
   }
 
   accountCenter(token?: string) {
@@ -173,6 +218,7 @@ export class AccountStore {
     const timestamp = this.now().toISOString();
     account.status = "deleted"; account.deletedAt = timestamp; account.updatedAt = timestamp;
     this.state.sessions = this.state.sessions.filter((item) => item.userId !== account.id);
+    this.state.apiKeys = this.state.apiKeys.filter((item) => item.userId !== account.id);
     this.persist();
   }
 
@@ -183,6 +229,19 @@ export class AccountStore {
     const account = session && this.state.accounts.find((item) => item.id === session.userId && item.status === "active");
     if (!session || !account) throw new AuthError("登录状态已失效，请重新登录", 401);
     return account;
+  }
+  private ownedApiKey(token: string | undefined, id: string) {
+    const account = this.authenticatedAccount(token);
+    const tenantId = this.activeMembership(account).tenantId;
+    const record = this.state.apiKeys.find((item) => item.id === id && item.userId === account.id && item.tenantId === tenantId);
+    if (!record) throw new AuthError("API Key 不存在", 404);
+    return record;
+  }
+  private publicApiKey(record: StoredApiKey): PublicApiKey {
+    return {
+      id: record.id, name: record.name, tenantId: record.tenantId,
+      enabled: record.enabled, createdAt: record.createdAt, lastUsedAt: record.lastUsedAt,
+    };
   }
   private sessionForToken(token?: string) { return token ? this.state.sessions.find((item) => item.tokenHash === hashToken(token)) : undefined; }
   private requireManager(token?: string) {
@@ -252,10 +311,10 @@ export class AccountStore {
   }
   private pruneSessions() { const now = this.now().getTime(); this.state.sessions = this.state.sessions.filter((item) => new Date(item.expiresAt).getTime() > now); }
   private load(): StoredAuth {
-    if (!existsSync(this.path)) return { accounts: [], sessions: [], tenants: [], memberships: [], invitations: [] };
+    if (!existsSync(this.path)) return { accounts: [], sessions: [], tenants: [], memberships: [], invitations: [], apiKeys: [] };
     try {
       const parsed = JSON.parse(readFileSync(this.path, "utf8")) as Partial<StoredAuth>;
-      return { accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [], sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [], tenants: Array.isArray(parsed.tenants) ? parsed.tenants : [], memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [], invitations: Array.isArray(parsed.invitations) ? parsed.invitations : [] };
+      return { accounts: Array.isArray(parsed.accounts) ? parsed.accounts : [], sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [], tenants: Array.isArray(parsed.tenants) ? parsed.tenants : [], memberships: Array.isArray(parsed.memberships) ? parsed.memberships : [], invitations: Array.isArray(parsed.invitations) ? parsed.invitations : [], apiKeys: Array.isArray(parsed.apiKeys) ? parsed.apiKeys : [] };
     } catch { throw new Error("账户存储损坏，无法安全启动认证服务"); }
   }
   private migrateLegacyState() {

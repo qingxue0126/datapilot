@@ -24,6 +24,20 @@ test("agent studio exposes all V1 nodes, workflow controls, and execution inspec
   for (const setting of ["开场白开关", "开场白文案", "Webhook URL", "Security", "Response"]) assert.match(studio, new RegExp(setting));
   assert.match(studio, /ReactFlow/);
   assert.match(studio, /application\/datapilot-node/);
+  assert.match(studio, /targetHandle === "tools"/);
+  assert.match(studio, /id="tools" type="target"/);
+  assert.match(studio, /workflow-agent-input/);
+  assert.match(studio, /workflow-agent-output/);
+  assert.match(studio, /connectionRadius=\{36\}/);
+  assert.match(studio, /connectionMode=\{ConnectionMode\.Loose\}/);
+  assert.match(studio, /id="input" type="target"[^>]+isConnectableStart=\{false\}[^>]+isConnectableEnd/);
+  assert.match(studio, /id="output" type="source"[^>]+isConnectableStart[^>]+isConnectableEnd=\{false\}/);
+  assert.match(studio, /MarkerType\.ArrowClosed/);
+  assert.match(studio, /animated: false/);
+  assert.match(studio, /onNodeDoubleClick/);
+  assert.doesNotMatch(studio, /onNodeClick=/);
+  assert.match(studio, /aria-label="关闭设置"/);
+  for (const setting of ["推理模型", "系统提示词", "工具列表", "用户输入", "最大迭代", "流式输出"]) assert.match(studio, new RegExp(setting));
   for (const setting of ["Metadata Filters", "检索方式", "Score Threshold", "重排模型", "重排 Top K"]) assert.match(studio, new RegExp(setting));
 });
 
@@ -37,4 +51,7 @@ test("workflow run opens a mode-aware side panel instead of a top JSON input", (
   assert.match(studio, /请输入消息/);
   assert.match(studio, /extractConversationInput\(query, inputs, conversationValues\)/);
   assert.match(studio, /execute\(\{ \.\.\.nextInput, __conversationHistory: history \}\)/);
+  assert.match(studio, /customerFacingRunReply\(result, nodes\)/);
+  assert.match(studio, /const reply = result \?[^\n]+: customerFacingRunError\(null\)/);
+  assert.doesNotMatch(studio, /return pretty\(value\)/);
 });

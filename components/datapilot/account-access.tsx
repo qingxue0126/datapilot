@@ -16,8 +16,9 @@ type AccountCenter = {
   teams: Team[];
   admin?: { scope: "platform" | "tenant"; teams: AdminTeam[]; members: AdminMember[]; invitations: { id: string; identifier: string; role: AccountRole; tenantId: string }[]; platform?: { tenantCount: number; userCount: number } };
 };
+type ApiKeyItem = { id: string; name: string; tenantId: string; enabled: boolean; createdAt: string; lastUsedAt?: string };
 type CenterKind = "personal" | "admin";
-type PersonalSection = "profile" | "account" | "password" | "teams";
+type PersonalSection = "profile" | "account" | "password" | "teams" | "apiKeys";
 type AdminSection = "create" | "teams" | "members" | "invite" | "roles" | "tenants" | "users" | "platform";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
@@ -53,6 +54,8 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
+  const [createdApiKey, setCreatedApiKey] = useState("");
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,6 +64,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
     document.addEventListener("mousedown", closeOutside); document.addEventListener("keydown", closeEscape);
     return () => { document.removeEventListener("mousedown", closeOutside); document.removeEventListener("keydown", closeEscape); };
   }, []);
+  useEffect(() => { if (dialog !== "personal" || personalSection !== "apiKeys") setCreatedApiKey(""); }, [dialog, personalSection]);
 
   async function request<T>(path: string, init: RequestInit = {}) {
     const response = await fetch(`${API_BASE}${path}`, { ...init, credentials: "include", headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers } });
@@ -68,7 +72,10 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
     if (!response.ok) throw new Error(data?.error || "操作失败");
     return data as T;
   }
-  async function loadCenter() { const data = await request<AccountCenter>("/api/auth/account-center"); setCenter(data); return data; }
+  async function loadCenter() {
+    const [data, keys] = await Promise.all([request<AccountCenter>("/api/auth/account-center"), request<{ items: ApiKeyItem[] }>("/api/auth/api-keys")]);
+    setCenter(data); setApiKeys(keys.items); return data;
+  }
   async function openCenter(kind: CenterKind) {
     setMenuOpen(false); setDialog(kind); setError(""); setNotice(""); setWorking(true);
     try { await loadCenter(); } catch (caught) { setError(errorMessage(caught)); } finally { setWorking(false); }
@@ -104,6 +111,22 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   async function changeRole(member: AdminMember, role: AccountRole) {
     await action(async () => { await request(`/api/auth/admin/members/${encodeURIComponent(member.userId)}`, { method: "PATCH", body: JSON.stringify({ tenantId: member.tenantId, role }) }); await loadCenter(); }, "成员角色已更新");
   }
+  async function createApiKey(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
+    await action(async () => {
+      const data = await request<{ apiKey: ApiKeyItem; key: string }>("/api/auth/api-keys", { method: "POST", body: JSON.stringify({ name: form.get("name") }) });
+      setApiKeys((items) => [data.apiKey, ...items]); setCreatedApiKey(data.key); formElement.reset();
+    }, "API Key 已创建，请立即复制保存");
+  }
+  async function toggleApiKey(item: ApiKeyItem) {
+    await action(async () => {
+      const data = await request<{ apiKey: ApiKeyItem }>(`/api/auth/api-keys/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ enabled: !item.enabled }) });
+      setApiKeys((items) => items.map((key) => key.id === item.id ? data.apiKey : key));
+    }, item.enabled ? "API Key 已禁用" : "API Key 已启用");
+  }
+  async function revokeApiKey(item: ApiKeyItem) {
+    await action(async () => { await request(`/api/auth/api-keys/${encodeURIComponent(item.id)}`, { method: "DELETE" }); setApiKeys((items) => items.filter((key) => key.id !== item.id)); }, "API Key 已撤销");
+  }
 
   const activeTeam = center?.teams.find((team) => team.active);
   return <div className="account-entry" ref={root}>
@@ -127,6 +150,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
                 <CenterNav label="账号信息" active={personalSection === "account"} onClick={() => setPersonalSection("account")} />
                 <CenterNav label="修改密码" active={personalSection === "password"} onClick={() => setPersonalSection("password")} />
                 <CenterNav label="我的团队" active={personalSection === "teams"} onClick={() => setPersonalSection("teams")} />
+                <CenterNav label="API Key" active={personalSection === "apiKeys"} onClick={() => setPersonalSection("apiKeys")} />
               </> : <>
                 <CenterNav label="创建团队" active={adminSection === "create"} onClick={() => setAdminSection("create")} />
                 <CenterNav label="团队管理" active={adminSection === "teams"} onClick={() => setAdminSection("teams")} />
@@ -137,7 +161,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
               </>}
             </nav>
             <div className="account-center-content">
-              {working && !center ? <p className="center-empty">正在加载…</p> : dialog === "personal" ? <PersonalCenter section={personalSection} center={center} activeTeam={activeTeam} updateProfile={updateProfile} changePassword={changePassword} switchTeam={switchTeam} working={working} /> : <AdminCenter section={adminSection} center={center} activeTeam={activeTeam} createTeam={createTeam} invite={invite} changeRole={changeRole} working={working} />}
+              {working && !center ? <p className="center-empty">正在加载…</p> : dialog === "personal" ? <PersonalCenter section={personalSection} center={center} activeTeam={activeTeam} updateProfile={updateProfile} changePassword={changePassword} switchTeam={switchTeam} apiKeys={apiKeys} createdApiKey={createdApiKey} createApiKey={createApiKey} toggleApiKey={toggleApiKey} revokeApiKey={revokeApiKey} working={working} /> : <AdminCenter section={adminSection} center={center} activeTeam={activeTeam} createTeam={createTeam} invite={invite} changeRole={changeRole} working={working} />}
               {notice && <div className="center-notice success" role="status">{notice}</div>}{error && <div className="center-notice error" role="alert">{error}</div>}
             </div>
           </div>}
@@ -148,13 +172,18 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
 
 function CenterNav({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) { return <button className={active ? "active" : ""} onClick={onClick}>{label}</button>; }
 
-function PersonalCenter({ section, center, activeTeam, updateProfile, changePassword, switchTeam, working }: {
-  section: PersonalSection; center: AccountCenter | null; activeTeam?: Team; updateProfile: (event: FormEvent<HTMLFormElement>) => Promise<void>; changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>; switchTeam: (id: string) => Promise<void>; working: boolean;
+function PersonalCenter({ section, center, activeTeam, updateProfile, changePassword, switchTeam, apiKeys, createdApiKey, createApiKey, toggleApiKey, revokeApiKey, working }: {
+  section: PersonalSection; center: AccountCenter | null; activeTeam?: Team; updateProfile: (event: FormEvent<HTMLFormElement>) => Promise<void>; changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>; switchTeam: (id: string) => Promise<void>; apiKeys: ApiKeyItem[]; createdApiKey: string; createApiKey: (event: FormEvent<HTMLFormElement>) => Promise<void>; toggleApiKey: (item: ApiKeyItem) => Promise<void>; revokeApiKey: (item: ApiKeyItem) => Promise<void>; working: boolean;
 }) {
   if (!center) return null;
   if (section === "profile") return <CenterSection title="个人资料" description="设置在 DataPilot 中显示的个人名称。"><form className="center-form" onSubmit={(event) => void updateProfile(event)}><label>显示名称<input name="displayName" defaultValue={center.user.displayName} minLength={2} maxLength={64} required /></label><button disabled={working}>保存资料</button></form></CenterSection>;
   if (section === "account") return <CenterSection title="账号信息" description="账号标识与当前权限上下文由服务端维护。"><dl className="profile-details"><div><dt>用户名</dt><dd>{center.user.username}</dd></div><div><dt>邮箱</dt><dd>{center.user.email || "未设置"}</dd></div><div><dt>角色</dt><dd>{center.user.isRoot ? "平台管理员" : roleLabel(center.user.role)}</dd></div><div><dt>当前团队</dt><dd>{activeTeam?.name || center.user.tenantId}</dd></div><div><dt>账套</dt><dd>{center.user.accountSetId}</dd></div></dl></CenterSection>;
   if (section === "password") return <CenterSection title="修改密码" description="更新后将退出除当前浏览器之外的其他会话。"><form className="center-form" onSubmit={(event) => void changePassword(event)}><label>当前密码<input name="currentPassword" type="password" autoComplete="current-password" required /></label><label>新密码<input name="newPassword" type="password" autoComplete="new-password" minLength={8} required /></label><label>确认新密码<input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} required /></label><button disabled={working}>修改密码</button></form></CenterSection>;
+  if (section === "apiKeys") return <CenterSection title="API Key" description="用于 RAGFlow 或外部 Agent 调用 /api/v1/*；Key 绑定当前团队，完整值只显示一次。">
+    <form className="center-form compact" onSubmit={(event) => void createApiKey(event)}><label>名称<input name="name" minLength={2} maxLength={80} placeholder="例如：RAGFlow 生产环境" required /></label><button disabled={working}>创建 API Key</button></form>
+    {createdApiKey && <div className="api-key-created"><strong>请立即复制，关闭后无法再次查看</strong><code>{createdApiKey}</code><button type="button" onClick={() => void navigator.clipboard.writeText(createdApiKey)}>复制</button></div>}
+    <div className="api-key-list">{apiKeys.length ? apiKeys.map((item) => <article key={item.id}><div><strong>{item.name}</strong><small>{item.tenantId} · 创建于 {new Date(item.createdAt).toLocaleString()} · 最后使用 {item.lastUsedAt ? new Date(item.lastUsedAt).toLocaleString() : "从未"}</small></div><span className={item.enabled ? "enabled" : "disabled"}>{item.enabled ? "已启用" : "已禁用"}</span><button type="button" disabled={working} onClick={() => void toggleApiKey(item)}>{item.enabled ? "禁用" : "启用"}</button><button type="button" className="danger" disabled={working} onClick={() => void revokeApiKey(item)}>撤销</button></article>) : <p className="center-empty">当前团队还没有 API Key。</p>}</div>
+  </CenterSection>;
   return <CenterSection title="我的团队" description="只能切换到你已经加入的团队，切换后业务数据会按新上下文重新加载。"><div className="team-list">{center.teams.map((team) => <article key={team.id} className={team.active ? "active" : ""}><div><strong>{team.name}</strong><small>{roleLabel(team.role)} · {team.memberCount} 位成员</small></div>{team.active ? <span>当前团队</span> : <button disabled={working} onClick={() => void switchTeam(team.id)}>切换</button>}</article>)}</div></CenterSection>;
 }
 

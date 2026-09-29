@@ -4,9 +4,11 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import {
   Background,
+  ConnectionMode,
   Controls,
   Handle,
   MiniMap,
+  MarkerType,
   Position,
   ReactFlow,
   addEdge,
@@ -48,7 +50,7 @@ async function readJson(response: Response) {
 type NodeKind = "start" | "llm" | "agent" | "knowledge_retrieval" | "sql" | "http" | "code" | "condition" | "assign" | "end";
 type NodeState = "pending" | "running" | "success" | "failed" | "skipped";
 type AgentItem = { id: string; name: string; description: string; status: "draft" | "published" | "disabled"; currentVersion: number; createdAt: string; updatedAt: string };
-type NodeData = { label: string; nodeType: NodeKind; config: Record<string, unknown>; runStatus?: NodeState };
+type NodeData = { label: string; nodeType: NodeKind; config: Record<string, unknown>; runStatus?: NodeState; modelName?: string; connectedTools?: string[] };
 type FlowNode = Node<NodeData>;
 type WorkflowDefinition = { nodes: { id: string; type: NodeKind; position: { x: number; y: number }; data: { label: string; config: Record<string, unknown> } }[]; edges: Edge[]; variables: Record<string, unknown> };
 type NodeRun = { nodeId: string; status: NodeState; input: unknown; output: unknown; error: string | null; durationMs: number };
@@ -117,7 +119,7 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     const flowNodes = definition.nodes.map((node) => ({ ...node, data: { ...node.data, nodeType: node.type } })) as FlowNode[];
     setActive(detail.agent); setVariables(definition.variables || {});
     setNodes(flowNodes);
-    setEdges(definition.edges || []); setSources(sourceData.items || []); setKnowledgeBases(knowledgeData.items || []);
+    setEdges((definition.edges || []).map((edge) => ({ ...edge, animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }))); setSources(sourceData.items || []); setKnowledgeBases(knowledgeData.items || []);
   }
 
   async function save() {
@@ -211,9 +213,36 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
 
   const onNodesChange = useCallback((changes: NodeChange<FlowNode>[]) => setNodes((items) => applyNodeChanges(changes, items)), []);
   const onEdgesChange = useCallback((changes: EdgeChange<Edge>[]) => setEdges((items) => applyEdgeChanges(changes, items)), []);
-  const onConnect = useCallback((connection: Connection) => setEdges((items) => addEdge({ ...connection, id: crypto.randomUUID(), animated: true }, items)), []);
+  const onConnect = useCallback((connection: Connection) => {
+    if (connection.targetHandle === "tools") {
+      const source = nodes.find((node) => node.id === connection.source);
+      const target = nodes.find((node) => node.id === connection.target);
+      if (source?.data.nodeType !== "knowledge_retrieval" || target?.data.nodeType !== "agent") {
+        setNotice("Agent 工具列表目前仅支持连接知识库检索节点");
+        return;
+      }
+    }
+    setEdges((items) => items.some((edge) => edge.source === connection.source && edge.target === connection.target && edge.targetHandle === connection.targetHandle)
+      ? items
+      : addEdge({ ...connection, id: crypto.randomUUID(), animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }, items));
+  }, [nodes]);
   const selected = nodes.find((node) => node.id === selectedId);
   const selectedRun = run?.nodeRuns.find((item) => item.nodeId === selectedId);
+  const canvasNodes = nodes.map((node) => node.data.nodeType !== "agent" ? node : {
+    ...node,
+    data: {
+      ...node.data,
+      modelName: models.find((model) => model.id === String(node.data.config.modelId || ""))?.name || "未选择模型",
+      connectedTools: edges
+        .filter((edge) => edge.target === node.id && edge.targetHandle === "tools")
+        .map((edge) => nodes.find((item) => item.id === edge.source)?.data.label || edge.source),
+    },
+  });
+  const canvasEdges = edges.map((edge) => ({
+    ...edge,
+    animated: false,
+    markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" },
+  }));
 
   function updateNode(patch: Partial<NodeData>) {
     setNodes((items) => items.map((node) => node.id === selectedId ? { ...node, data: { ...node.data, ...patch } } : node));
@@ -241,12 +270,12 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     <div className="agent-builder">
       <aside className="agent-node-palette"><h3>节点</h3><p>拖入画布构建流程</p>{nodeCatalog.map((item) => <div key={item.type} draggable onDragStart={(event) => { event.dataTransfer.setData("application/datapilot-node", item.type); event.dataTransfer.effectAllowed = "move"; }}><span>{item.icon}</span><div><strong>{item.label}</strong><small>{item.description}</small></div></div>)}</aside>
       <section className="agent-canvas" ref={canvasRef} onDrop={drop} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}>
-        <ReactFlow<FlowNode, Edge> nodes={nodes} edges={edges} nodeTypes={flowNodeTypes} onInit={setInstance} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_event, node) => setSelectedId(node.id)} onPaneClick={() => setSelectedId("")} fitView deleteKeyCode={["Backspace", "Delete"]}>
+        <ReactFlow<FlowNode, Edge> nodes={canvasNodes} edges={canvasEdges} nodeTypes={flowNodeTypes} connectionMode={ConnectionMode.Loose} defaultEdgeOptions={{ animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }} onInit={setInstance} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeDoubleClick={(_event, node) => setSelectedId(node.id)} onPaneClick={() => setSelectedId("")} connectionRadius={36} fitView deleteKeyCode={["Backspace", "Delete"]}>
           <Background color="#d5e1db" gap={22} /><MiniMap nodeColor="#2d8163" maskColor="rgba(244,247,245,.72)" /><Controls />
         </ReactFlow>
       </section>
       <aside className="agent-config-panel">
-        {selected ? <NodeConfiguration agentId={active.id} node={selected} models={models} sources={sources} knowledgeBases={knowledgeBases} updateLabel={(value) => updateNode({ label: value })} updateConfig={updateConfig} remove={() => { setNodes((items) => items.filter((node) => node.id !== selected.id)); setEdges((items) => items.filter((edge) => edge.source !== selected.id && edge.target !== selected.id)); setSelectedId(""); }} run={selectedRun} /> : <><h3>工作流配置</h3><p>选择一个节点查看配置、输入输出与错误。</p><label>全局变量（JSON）<textarea value={pretty(variables)} onChange={(event) => { const parsed = tryJson(event.target.value); if (parsed) setVariables(parsed); }} rows={8} /></label>{run && <RunSummary run={run} />}</>}
+        {selected ? <NodeConfiguration agentId={active.id} node={selected} models={models} sources={sources} knowledgeBases={knowledgeBases} updateLabel={(value) => updateNode({ label: value })} updateConfig={updateConfig} close={() => setSelectedId("")} run={selectedRun} /> : <><h3>工作流配置</h3><p>双击画布节点查看配置、输入输出与错误。</p><label>全局变量（JSON）<textarea value={pretty(variables)} onChange={(event) => { const parsed = tryJson(event.target.value); if (parsed) setVariables(parsed); }} rows={8} /></label>{run && <RunSummary run={run} />}</>}
       </aside>
     </div>
     {runnerOpen && <WorkflowRunner nodes={nodes} run={run} running={running} close={() => setRunnerOpen(false)} execute={runWorkflow} />}
@@ -264,6 +293,19 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
 function WorkflowNodeCard({ data, selected }: NodeProps<FlowNode>) {
   const condition = data.nodeType === "condition";
   const subtitle = data.nodeType === "start" ? startModeLabel(normalizeStartMode(data.config.mode)) : nodeCatalog.find((item) => item.type === data.nodeType)?.label || data.nodeType;
+  if (data.nodeType === "agent") return <div className={`workflow-node workflow-agent-node ${selected ? "selected" : ""} ${data.runStatus || ""}`}>
+    <header><span className="workflow-node-icon">●</span><div><strong>{data.label}</strong><small>Agent</small></div>{data.runStatus && <i title={data.runStatus} />}</header>
+    <div className="workflow-agent-field"><span>推理模型</span><b>{data.modelName || "未选择模型"}</b></div>
+    <div className="workflow-agent-field"><span>系统提示词</span><p>{String(data.config.systemPrompt || "未配置系统提示词")}</p></div>
+    <div className="workflow-agent-tools">
+      <Handle id="tools" type="target" position={Position.Left} isConnectableStart={false} isConnectableEnd />
+      <span>工具列表</span>
+      {data.connectedTools?.length ? <ul>{data.connectedTools.map((tool, index) => <li key={`${tool}-${index}`}>{tool}</li>)}</ul> : <small>从知识库检索节点连接到这里</small>}
+    </div>
+    <div className="workflow-agent-field workflow-agent-input"><Handle id="input" type="target" position={Position.Left} isConnectableStart={false} isConnectableEnd /><span>用户输入</span><p>{String(data.config.input || "{{start.output.query}}")}</p></div>
+    <div className="workflow-agent-meta"><span>最大迭代 {Number(data.config.maxIterations ?? 5)}</span><span>流式输出 {data.config.streaming === false ? "关闭" : "开启"}</span></div>
+    <footer className="workflow-agent-output"><span>消息输出</span><Handle id="output" type="source" position={Position.Right} isConnectableStart isConnectableEnd={false} /></footer>
+  </div>;
   return <div className={`workflow-node ${data.nodeType} ${selected ? "selected" : ""} ${data.runStatus || ""}`}>
     {data.nodeType !== "start" && <Handle type="target" position={Position.Left} />}
     <span className="workflow-node-icon">{nodeCatalog.find((item) => item.type === data.nodeType)?.icon}</span><div><strong>{data.label}</strong><small>{subtitle}</small></div>{data.runStatus && <i title={data.runStatus} />}
@@ -272,9 +314,9 @@ function WorkflowNodeCard({ data, selected }: NodeProps<FlowNode>) {
   </div>;
 }
 
-function NodeConfiguration({ agentId, node, models, sources, knowledgeBases, updateLabel, updateConfig, remove, run }: { agentId: string; node: FlowNode; models: ModelOption[]; sources: DataSourceOption[]; knowledgeBases: KnowledgeBaseOption[]; updateLabel: (value: string) => void; updateConfig: (key: string, value: unknown) => void; remove: () => void; run?: NodeRun }) {
+function NodeConfiguration({ agentId, node, models, sources, knowledgeBases, updateLabel, updateConfig, close, run }: { agentId: string; node: FlowNode; models: ModelOption[]; sources: DataSourceOption[]; knowledgeBases: KnowledgeBaseOption[]; updateLabel: (value: string) => void; updateConfig: (key: string, value: unknown) => void; close: () => void; run?: NodeRun }) {
   const config = node.data.config;
-  return <><div className="agent-config-title"><div><small>{node.data.nodeType}</small><h3>{node.data.label}</h3></div>{!['start', 'end'].includes(node.data.nodeType) && <button onClick={remove}>删除</button>}</div><label>节点名称<input value={node.data.label} onChange={(event) => updateLabel(event.target.value)} /></label>
+  return <><div className="agent-config-title"><div><small>{node.data.nodeType}</small><h3>{node.data.label}</h3></div><button type="button" className="agent-config-close" aria-label="关闭设置" title="关闭设置" onClick={close}>×</button></div><label>节点名称<input value={node.data.label} onChange={(event) => updateLabel(event.target.value)} /></label>
     {node.data.nodeType === "start" && <StartConfiguration agentId={agentId} config={config} updateConfig={updateConfig} />}
     {node.data.nodeType === "llm" && <><label>模型<select value={String(config.modelId || "")} onChange={(event) => updateConfig("modelId", event.target.value)}><option value="">选择模型</option>{models.filter((item) => item.enabled && ['llm', 'multimodal_llm'].includes(item.modelType)).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>System Prompt<textarea rows={5} value={String(config.systemPrompt || "")} onChange={(event) => updateConfig("systemPrompt", event.target.value)} /></label><label>User Prompt<textarea rows={7} value={String(config.userPrompt || "")} onChange={(event) => updateConfig("userPrompt", event.target.value)} /></label></>}
     {node.data.nodeType === "agent" && <AgentConfiguration config={config} models={models} knowledgeBases={knowledgeBases} updateConfig={updateConfig} />}
@@ -339,6 +381,12 @@ function KnowledgeRetrievalConfiguration({ nodeId, config, models, updateConfig 
   const hybrid = config.retrievalMode === "hybrid";
   const rerank = config.rerank === true;
   return <section className="knowledge-retrieval-configuration">
+    <details className="agent-advanced-settings" open><summary>作为 Agent 工具</summary>
+      <label>工具名称<input value={String(config.toolName || "knowledge_search")} onChange={(event) => updateConfig("toolName", event.target.value)} placeholder="knowledge_search" /></label>
+      <label>工具说明<textarea rows={2} value={String(config.toolDescription || "检索与当前问题相关的知识")} onChange={(event) => updateConfig("toolDescription", event.target.value)} /></label>
+      <label className="agent-switch-row"><span>允许 Agent 动态生成 Metadata Filters</span><input type="checkbox" checked={config.dynamicFilters !== false} onChange={(event) => updateConfig("dynamicFilters", event.target.checked)} /></label>
+      <p className="field-help">将该节点右侧连接到 Agent 的“工具列表”接口后，Agent 会按需调用，不会把它当作普通前置检索节点执行。</p>
+    </details>
     <label>知识库 ID<input value={String(config.knowledgeBaseId || "")} onChange={(event) => updateConfig("knowledgeBaseId", event.target.value)} /></label>
     <label>Query<textarea rows={4} value={String(config.query || "")} onChange={(event) => updateConfig("query", event.target.value)} placeholder="{{nodeId.output.text}}" /></label>
     <label>检索方式<select value={String(config.retrievalMode || "vector")} onChange={(event) => updateConfig("retrievalMode", event.target.value)}><option value="vector">向量检索</option><option value="hybrid">混合检索</option></select></label>
@@ -418,7 +466,8 @@ function WorkflowRunner({ nodes, run, running, close, execute }: { nodes: FlowNo
     }
     const history = messages.filter((item) => item.id !== "prologue").map(({ role, content }) => ({ role, content }));
     const result = await execute({ ...nextInput, __conversationHistory: history });
-    if (result) setMessages((items) => [...items, { id: crypto.randomUUID(), role: "assistant", content: result.status === "success" ? readableRunOutput(result.output) : customerFacingRunError(result.error) }]);
+    const reply = result ? customerFacingRunReply(result, nodes) : customerFacingRunError(null);
+    setMessages((items) => [...items, { id: crypto.randomUUID(), role: "assistant", content: reply }]);
   };
   const submitTask = async () => { if (!running) await execute(taskValues); };
 
@@ -440,8 +489,17 @@ function readableRunOutput(value: unknown) {
     const record = value as Record<string, unknown>;
     for (const key of ["text", "content", "answer", "formalized_content"]) if (typeof record[key] === "string" && record[key].trim()) return record[key].trim();
   }
-  if (value !== undefined && value !== null && pretty(value) !== "{}" && pretty(value) !== "\"\"") return pretty(value);
-  return "工作流运行成功，但没有返回可展示的文本。";
+  return "";
+}
+function customerFacingRunReply(run: WorkflowRun, nodes: FlowNode[]) {
+  if (run.status !== "success") return customerFacingRunError(run.error);
+  const finalText = readableRunOutput(run.output);
+  if (finalText) return finalText;
+  const agentText = [...run.nodeRuns].reverse().find((item) => {
+    if (item.status !== "success" || nodes.find((node) => node.id === item.nodeId)?.data.nodeType !== "agent") return false;
+    return Boolean(readableRunOutput(item.output));
+  });
+  return agentText ? readableRunOutput(agentText.output) : "抱歉，我暂时没有获取到有效的处理结果。您可以换一种方式描述问题，我再帮您看看。";
 }
 function streamingAgentText(run: WorkflowRun | null, nodes: FlowNode[]) {
   if (!run) return "";
@@ -459,7 +517,7 @@ function JsonField({ label, value, update }: { label: string; value: unknown; up
 function RunSummary({ run }: { run: WorkflowRun }) { return <section className={`agent-run-summary ${run.status}`}><h4>最近运行</h4><p>{run.status} · {run.durationMs} ms</p><pre>{pretty(run.output ?? run.error)}</pre></section>; }
 function AgentDialog({ dialog, close, submit }: { dialog: { mode: "create" | "edit" | "delete"; agent?: AgentItem }; close: () => void; submit: (values: { name?: string; description?: string }) => Promise<void> }) { if (dialog.mode === "delete") return <div className="modal-backdrop"><div className="agent-dialog"><h2>删除智能体</h2><p>确认删除“{dialog.agent?.name}”及其工作流版本和运行记录？</p><footer><button onClick={close}>取消</button><button className="danger-confirm" onClick={() => void submit({})}>确认删除</button></footer></div></div>; return <div className="modal-backdrop"><form className="agent-dialog" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submit({ name: String(form.get("name") || ""), description: String(form.get("description") || "") }); }}><h2>{dialog.mode === "create" ? "新建智能体" : "编辑智能体"}</h2><label>名称<input name="name" defaultValue={dialog.agent?.name} required autoFocus /></label><label>描述<textarea name="description" defaultValue={dialog.agent?.description} rows={4} /></label><footer><button type="button" onClick={close}>取消</button><button className="primary-action" type="submit">保存</button></footer></form></div>; }
 
-function defaultConfig(kind: NodeKind, models: ModelOption[], sources: DataSourceOption[]): Record<string, unknown> { if (kind === "start") return defaultStartConfig(); if (kind === "llm") return { modelId: models.find((item) => item.enabled && item.modelType === "llm")?.id || "", systemPrompt: "你是 DataPilot 智能体。", userPrompt: "{{start.output.query}}" }; if (kind === "agent") return { input: "{{start.output.query}}", modelId: models.find((item) => item.enabled && ["llm", "multimodal_llm"].includes(item.modelType))?.id || "", systemPrompt: "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。", userPrompt: "{{agent.input}}", tools: [], maxIterations: 5, timeoutMs: 30000, streaming: true, memory: true }; if (kind === "knowledge_retrieval") return { knowledgeBaseId: "", query: "{{start.output.query}}", retrievalMode: "vector", vectorWeight: 0.7, topK: 5, scoreThreshold: 0.2, filters: {}, rerank: false, rerankModel: "", rerankTopK: 5 }; if (kind === "sql") return { datasourceId: sources[0]?.connectionId || "", sql: "SELECT 1 AS value" }; if (kind === "http") return { method: "GET", url: "https://example.com", headers: {}, query: {}, body: {} }; if (kind === "code") return { input: "{{start.output}}", code: "return { result: input };" }; if (kind === "condition") return { left: "{{start.output.value}}", operator: "==", right: "true" }; if (kind === "assign") return { assignments: { value: "{{start.output.value}}" } }; if (kind === "end") return { output: "{{start.output}}" }; return {}; }
+function defaultConfig(kind: NodeKind, models: ModelOption[], sources: DataSourceOption[]): Record<string, unknown> { if (kind === "start") return defaultStartConfig(); if (kind === "llm") return { modelId: models.find((item) => item.enabled && item.modelType === "llm")?.id || "", systemPrompt: "你是 DataPilot 智能体。", userPrompt: "{{start.output.query}}" }; if (kind === "agent") return { input: "{{start.output.query}}", modelId: models.find((item) => item.enabled && ["llm", "multimodal_llm"].includes(item.modelType))?.id || "", systemPrompt: "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。", userPrompt: "{{agent.input}}", tools: [], maxIterations: 5, timeoutMs: 30000, streaming: true, memory: true }; if (kind === "knowledge_retrieval") return { knowledgeBaseId: "", query: "{{start.output.query}}", toolName: "knowledge_search", toolDescription: "检索与当前问题相关的知识", dynamicFilters: true, retrievalMode: "vector", vectorWeight: 0.7, topK: 5, scoreThreshold: 0.2, filters: {}, rerank: false, rerankModel: "", rerankTopK: 5 }; if (kind === "sql") return { datasourceId: sources[0]?.connectionId || "", sql: "SELECT 1 AS value" }; if (kind === "http") return { method: "GET", url: "https://example.com", headers: {}, query: {}, body: {} }; if (kind === "code") return { input: "{{start.output}}", code: "return { result: input };" }; if (kind === "condition") return { left: "{{start.output.value}}", operator: "==", right: "true" }; if (kind === "assign") return { assignments: { value: "{{start.output.value}}" } }; if (kind === "end") return { output: "{{start.output}}" }; return {}; }
 function defaultStartConfig() { return { mode: "conversation", enablePrologue: true, prologue: "您好，请描述您遇到的问题。", inputs: [] as StartInput[], webhookMethod: "GET", webhookSecurity: "none", webhookRequestMode: "json", webhookResponseMode: "workflow" }; }
 function normalizeStartMode(value: unknown): StartMode { return value === "task" || value === "webhook" ? value : "conversation"; }
 function startModeLabel(mode: StartMode) { return mode === "task" ? "任务" : mode === "webhook" ? "网络钩子" : "对话"; }

@@ -79,8 +79,8 @@ export class DocumentPipeline {
     try {
       this.store.setDocumentStatus(context, documentId, "parsing");
       const parsed = await parseDocumentChunks(extension, source, options);
-      if (!parsed.chunks.length) throw new Error("文档中没有可提取的内容");
       this.store.setDocumentParsing(context, documentId, parsed.parserType, parsed.columns);
+      if (!parsed.chunks.length) throw new Error("文档中没有可提取的内容");
       this.store.setDocumentStatus(context, documentId, "chunking");
       const chunks = parsed.chunks.map((chunk, chunkIndex) => ({
         ...chunk,
@@ -148,7 +148,10 @@ function columnAttributes(column: string, options: ParserOptions): ColumnAttribu
     const qaText = options.parserType !== "qa" || column === options.questionColumn || column === options.answerColumn;
     return { content: qaText, embedding: qaText, metadata: options.metadataFields.includes(column) };
   }
-  const configured = normalizeColumnAttributes(options.columnRoles?.[column]) || { content: false, embedding: false, metadata: false };
+  // Manual mappings belong to a spreadsheet schema. When a replacement file
+  // introduces a new column, do not silently treat that unknown column as
+  // Ignore just because mappings from the previous file still exist.
+  const configured = normalizeColumnAttributes(options.columnRoles?.[column]) || inferColumnAttributes(column);
   return options.metadataFields.includes(column) ? { ...configured, metadata: true } : configured;
 }
 

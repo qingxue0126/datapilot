@@ -30,6 +30,9 @@ test("personal and admin centers expose role-specific sections", () => {
   assert.match(accountUi, /邀请成员/);
   assert.match(accountUi, /角色与权限/);
   assert.match(accountUi, /user\.isRoot && <><span[\s\S]*?所有租户[\s\S]*?所有用户[\s\S]*?平台级管理/);
+  assert.match(accountUi, /API Key/);
+  assert.match(accountUi, /\/api\/auth\/api-keys/);
+  assert.match(accountUi, /完整值只显示一次/);
 });
 
 test("team switch delegates to the server and refreshes the active application context", () => {

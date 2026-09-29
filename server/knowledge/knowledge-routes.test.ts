@@ -7,11 +7,58 @@ import test from "node:test";
 import express, { type Request } from "express";
 import { AccountStore } from "../auth/account-store.js";
 import { installAuthRoutes } from "../auth/auth-routes.js";
+import { EnvironmentIdentityProvider } from "../auth/identity-provider.js";
 import type { RequestContext } from "../core/types.js";
 import { TestEmbeddingProvider } from "./embedding.js";
 import { installKnowledgeRoutes } from "./knowledge-routes.js";
 import { KnowledgeStore } from "./knowledge-store.js";
 import { LocalVectorStore, MilvusVectorStore } from "./vector-store.js";
+
+test("v1 retrieval accepts tenant-bound API keys and rejects disabled, revoked, cross-tenant, and non-v1 use", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "datapilot-api-key-retrieve-"));
+  const accounts = new AccountStore(join(directory, "accounts.json"));
+  const identities = new EnvironmentIdentityProvider(accounts);
+  const store = new KnowledgeStore(":memory:");
+  const vectors = new LocalVectorStore(":memory:");
+  const app = express(); app.use(express.json()); installAuthRoutes(app, accounts);
+  app.use("/api", (request, response, next) => { try { identities.resolve(request); next(); } catch { response.status(401).json({ error: "unauthorized" }); } });
+  installKnowledgeRoutes(app, store, vectors, new TestEmbeddingProvider(), (request) => identities.resolve(request));
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
+  const address = server.address(); if (!address || typeof address === "string") throw new Error("test server did not start");
+  const base = `http://127.0.0.1:${address.port}`;
+  const register = async (identifier: string) => {
+    const response = await fetch(`${base}/api/auth/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier, password: "Secure123", confirmPassword: "Secure123" }) });
+    return response.headers.get("set-cookie")!.split(";")[0];
+  };
+  try {
+    const ownerCookie = await register("key-owner");
+    const createdBase = await fetch(`${base}/api/knowledge-bases`, { method: "POST", headers: { Cookie: ownerCookie, "Content-Type": "application/json" }, body: JSON.stringify({ name: "API KB" }) }).then((response) => response.json()) as { knowledgeBase: { id: string } };
+    const upload = new FormData(); upload.append("file", new Blob(["问题,答案\n如何测试,使用 API Key"], { type: "text/csv" }), "api.csv"); upload.append("parserType", "qa"); upload.append("questionColumn", "问题"); upload.append("answerColumn", "答案");
+    const uploaded = await fetch(`${base}/api/knowledge-bases/${createdBase.knowledgeBase.id}/documents`, { method: "POST", headers: { Cookie: ownerCookie }, body: upload });
+    assert.equal(uploaded.status, 201);
+    const createdKeyResponse = await fetch(`${base}/api/auth/api-keys`, { method: "POST", headers: { Cookie: ownerCookie, "Content-Type": "application/json" }, body: JSON.stringify({ name: "RAGFlow" }) });
+    const createdKey = await createdKeyResponse.json() as { key: string; apiKey: { id: string } };
+    assert.equal(createdKeyResponse.status, 201);
+    const retrieve = (key: string) => fetch(`${base}/api/v1/knowledge/retrieve`, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ knowledge_base_id: createdBase.knowledgeBase.id, query: "如何测试", score_threshold: -1 }) });
+    const sessionRetrieve = await fetch(`${base}/api/v1/knowledge/retrieve`, { method: "POST", headers: { Cookie: ownerCookie, "Content-Type": "application/json" }, body: JSON.stringify({ knowledge_base_id: createdBase.knowledgeBase.id, query: "如何测试", score_threshold: -1 }) });
+    assert.equal(sessionRetrieve.status, 200);
+    assert.equal((await retrieve(createdKey.key)).status, 200);
+    assert.equal((await retrieve("dp_invalid_invalid_invalid_invalid_invalid_invalid")).status, 401);
+    assert.equal((await fetch(`${base}/api/knowledge-bases`, { headers: { Authorization: `Bearer ${createdKey.key}` } })).status, 401);
+
+    const otherCookie = await register("other-tenant");
+    const otherKey = await fetch(`${base}/api/auth/api-keys`, { method: "POST", headers: { Cookie: otherCookie, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Other Agent" }) }).then((response) => response.json()) as { key: string };
+    assert.equal((await retrieve(otherKey.key)).status, 404);
+
+    await fetch(`${base}/api/auth/api-keys/${createdKey.apiKey.id}`, { method: "PATCH", headers: { Cookie: ownerCookie, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) });
+    assert.equal((await retrieve(createdKey.key)).status, 401);
+    await fetch(`${base}/api/auth/api-keys/${createdKey.apiKey.id}`, { method: "PATCH", headers: { Cookie: ownerCookie, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: true }) });
+    await fetch(`${base}/api/auth/api-keys/${createdKey.apiKey.id}`, { method: "DELETE", headers: { Cookie: ownerCookie } });
+    assert.equal((await retrieve(createdKey.key)).status, 401);
+  } finally {
+    server.close(); await once(server, "close"); rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering, and owner isolation", async () => {
   const store = new KnowledgeStore(":memory:");

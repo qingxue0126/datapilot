@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
 import type { RequestContext, Role } from "../core/types.js";
-import type { AccountStore } from "./account-store.js";
+import { AuthError, type AccountStore } from "./account-store.js";
 import { sessionToken } from "./auth-routes.js";
 
 export interface IdentityProvider {
@@ -11,24 +11,37 @@ export interface IdentityProvider {
 /** Cookie sessions are primary; a verified HS256 bearer token remains available
  * for existing service-to-service integrations when AUTH_JWT_SECRET is set. */
 export class EnvironmentIdentityProvider implements IdentityProvider {
+  private readonly resolved = new WeakMap<Request, RequestContext>();
   constructor(private readonly accounts?: AccountStore) {}
 
   resolve(request: Request): RequestContext {
+    const cached = this.resolved.get(request);
+    if (cached) return cached;
     const token = sessionToken(request);
-    if (token && this.accounts) return this.accounts.authenticate(token).context;
+    const bearer = request.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+    if (token && this.accounts) {
+      try { return this.remember(request, this.accounts.authenticate(token).context); }
+      catch (error) { if (!bearer?.startsWith("dp_")) throw error; }
+    }
+    if (bearer?.startsWith("dp_")) {
+      const requestPath = request.originalUrl.split("?", 1)[0];
+      if (!requestPath.startsWith("/api/v1/")) throw new AuthError("API Key 仅允许访问 /api/v1/*", 401);
+      return this.remember(request, this.accounts!.authenticateApiKey(bearer));
+    }
     const secret = process.env.AUTH_JWT_SECRET?.trim();
     if (!secret) return this.accounts!.authenticate(token).context;
     const claims = verifyJwt(request, secret);
     const role = claims.role as Role;
     if (!(["tenant_owner", "tenant_admin", "finance_analyst", "finance_viewer"] as string[]).includes(role)) throw new Error("无效的用户角色");
-    return {
+    return this.remember(request, {
       tenantId: safeId(claims.tenant_id, "租户"),
       accountSetId: safeId(claims.account_set_id, "账套"),
       userId: safeId(claims.sub, "用户"),
       role,
       sessionId: safeId(request.header("x-session-id")?.trim() || randomUUID(), "会话"),
-    };
+    });
   }
+  private remember(request: Request, context: RequestContext) { this.resolved.set(request, context); return context; }
 }
 
 type Claims = { sub: string; tenant_id: string; account_set_id: string; role: string; exp?: number };
