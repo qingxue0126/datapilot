@@ -33,6 +33,18 @@ test("RAGFlow import API creates a tenant-scoped editable workflow", async () =>
     assert.equal(imported.agent.name, "客服 V4");
     assert.equal(imported.report.importedNodes, 3);
     assert.deepEqual(imported.workflow.definition.nodes.map((node) => node.type), ["start", "llm", "end"]);
-    assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob" } })).status, 404);
+    const unpublishedVersions = await fetch(`${base}/api/agents/${imported.agent.id}/versions`);
+    assert.deepEqual((await unpublishedVersions.json() as { items: unknown[] }).items, []);
+    const publish = await fetch(`${base}/api/agents/${imported.agent.id}/publish`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ permission: "tenant" }) });
+    assert.equal(publish.status, 200);
+    const published = await publish.json() as { agent: { permission: string }; version: { version: number } };
+    assert.equal(published.agent.permission, "tenant"); assert.equal(published.version.version, 1);
+    const versions = await fetch(`${base}/api/agents/${imported.agent.id}/versions`);
+    assert.equal((await versions.json() as { items: unknown[] }).items.length, 1);
+    const exported = await fetch(`${base}/api/agents/${imported.agent.id}/export`);
+    assert.match(exported.headers.get("content-disposition") || "", /attachment/);
+    assert.equal((await exported.json() as { format: string }).format, "datapilot-agent");
+    assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob" } })).status, 200);
+    assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob", "x-tenant": "tenant-b" } })).status, 404);
   } finally { server.close(); await once(server, "close"); }
 });

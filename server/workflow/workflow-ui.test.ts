@@ -10,6 +10,7 @@ test("sidebar places the agent module between new analysis and datasource naviga
   const agent = page.indexOf(">智能体</button>");
   const datasource = page.indexOf(">数据源</button>");
   assert.ok(newAnalysis >= 0 && agent > newAnalysis && datasource > agent);
+  assert.match(page, /!chatHasConversation && view !== "agents"/);
 });
 
 test("agent studio exposes all V1 nodes, workflow controls, and execution inspection", () => {
@@ -41,6 +42,18 @@ test("agent studio exposes all V1 nodes, workflow controls, and execution inspec
   for (const setting of ["Metadata Filters", "检索方式", "Score Threshold", "重排模型", "重排 Top K"]) assert.match(studio, new RegExp(setting));
   for (const setting of ["添加 ELSEIF", "满足全部 AND", "满足任一 OR", "嵌套组", "其他所有情况"]) assert.match(studio, new RegExp(setting));
   assert.match(studio, /conditionBranches\.map/);
+  assert.match(studio, /className="agent-palette-group" open/);
+  assert.match(studio, /输入\/输出/);
+  assert.match(studio, /inputOutputNodes\.map/);
+  assert.match(studio, /<span>AI<\/span>/);
+  assert.match(studio, /aiNodes\.map/);
+  assert.match(studio, /KnowledgeCylinderIcon/);
+  assert.match(studio, /<span>工具<\/span>/);
+  assert.match(studio, /toolNodes\.map/);
+  assert.match(studio, /<span>逻辑<\/span>/);
+  assert.match(studio, /logicNodes\.map/);
+  assert.match(studio, /CodeTerminalIcon/);
+  assert.match(studio, /PaletteChevronIcon/);
 });
 
 test("workflow run opens a mode-aware side panel instead of a top JSON input", () => {
@@ -56,4 +69,11 @@ test("workflow run opens a mode-aware side panel instead of a top JSON input", (
   assert.match(studio, /customerFacingRunReply\(result, nodes\)/);
   assert.match(studio, /const reply = result \?[^\n]+: customerFacingRunError\(null\)/);
   assert.doesNotMatch(studio, /return pretty\(value\)/);
+});
+
+test("agent editor exposes publish, version history, logs, export, settings, and permissions", () => {
+  for (const control of ["确认发布", "历史版本", "运行日志", "导出", "智能体设置", "仅自己", "当前团队", "回退到此版本"]) assert.match(studio, new RegExp(control));
+  assert.match(studio, /\/versions\/\$\{version\}\/restore/);
+  assert.match(studio, /\/workflow-runs\/\$\{id\}/);
+  assert.match(studio, /URL\.createObjectURL/);
 });

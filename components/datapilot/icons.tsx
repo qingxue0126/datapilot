@@ -77,9 +77,8 @@ export function AgentWorkflowIcon({ className = "" }: { className?: string }) {
     strokeLinejoin="round"
     aria-hidden="true"
   >
-    <rect x="3" y="4" width="6" height="5" rx="1.3" />
-    <rect x="15" y="15" width="6" height="5" rx="1.3" />
-    <path d="M9 6.5h3a3 3 0 0 1 3 3v3a3 3 0 0 0 3 3" />
-    <circle cx="15" cy="9.5" r="1.5" />
+    <path d="M12 3v4M9 3h6" />
+    <rect x="5" y="7" width="14" height="12" rx="2.5" />
+    <path d="M5 11H3.8A1.8 1.8 0 0 0 2 12.8v1.4A1.8 1.8 0 0 0 3.8 16H5M19 11h1.2a1.8 1.8 0 0 1 1.8 1.8v1.4a1.8 1.8 0 0 1-1.8 1.8H19M9 13h6" />
   </svg>;
 }

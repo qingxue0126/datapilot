@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { RequestContext } from "../core/types.js";
-import { initialWorkflow, type AgentRecord, type WorkflowDefinition, type WorkflowNodeRun, type WorkflowNodeRunStatus, type WorkflowRecord, type WorkflowRun, type WorkflowRunStatus, type WorkflowStatus } from "./workflow-types.js";
+import { initialWorkflow, type AgentPermission, type AgentRecord, type WorkflowDefinition, type WorkflowNodeRun, type WorkflowNodeRunStatus, type WorkflowRecord, type WorkflowRun, type WorkflowRunStatus, type WorkflowStatus, type WorkflowVersionRecord } from "./workflow-types.js";
 
 type Row = Record<string, unknown>;
 
@@ -23,12 +23,12 @@ export class WorkflowStore {
   }
 
   listAgents(context: RequestContext): AgentRecord[] {
-    return (this.database.prepare(`${agentSelect} WHERE tenant_id=? AND account_set_id=? AND user_id=? ORDER BY updated_at DESC`)
+    return (this.database.prepare(`${agentSelect} WHERE tenant_id=? AND account_set_id=? AND (user_id=? OR (permission='tenant' AND status='published')) ORDER BY updated_at DESC`)
       .all(context.tenantId, context.accountSetId, context.userId) as Row[]).map(agentFromRow);
   }
 
   getAgent(context: RequestContext, id: string): AgentRecord {
-    return agentFromRow(this.agentRow(context, id));
+    return agentFromRow(this.readableAgentRow(context, id));
   }
 
   createAgent(context: RequestContext, input: { name: string; description?: string }): { agent: AgentRecord; workflow: WorkflowRecord } {
@@ -36,21 +36,21 @@ export class WorkflowStore {
     const workflowId = randomUUID();
     const now = new Date().toISOString();
     const name = cleanName(input.name);
-    this.database.prepare("INSERT INTO agents (id,tenant_id,account_set_id,user_id,name,description,status,current_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)")
-      .run(id, context.tenantId, context.accountSetId, context.userId, name, String(input.description || "").trim().slice(0, 500), "draft", 1, now, now);
+    this.database.prepare("INSERT INTO agents (id,tenant_id,account_set_id,user_id,name,description,status,permission,current_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .run(id, context.tenantId, context.accountSetId, context.userId, name, String(input.description || "").trim().slice(0, 500), "draft", "private", 0, now, now);
     this.database.prepare("INSERT INTO workflows (id,agent_id,definition_json,version,created_at,updated_at) VALUES (?,?,?,?,?,?)")
-      .run(workflowId, id, JSON.stringify(initialWorkflow()), 1, now, now);
-    this.saveVersion(id, 1, initialWorkflow(), "draft", now);
+      .run(workflowId, id, JSON.stringify(initialWorkflow()), 0, now, now);
     return { agent: this.getAgent(context, id), workflow: this.getWorkflow(context, id) };
   }
 
-  updateAgent(context: RequestContext, id: string, input: { name?: string; description?: string; status?: WorkflowStatus }): AgentRecord {
-    const current = this.getAgent(context, id);
+  updateAgent(context: RequestContext, id: string, input: { name?: string; description?: string; status?: WorkflowStatus; permission?: AgentPermission }): AgentRecord {
+    const current = agentFromRow(this.ownedAgentRow(context, id));
     const name = input.name === undefined ? current.name : cleanName(input.name);
     const description = input.description === undefined ? current.description : String(input.description).trim().slice(0, 500);
     const status = input.status === undefined ? current.status : validateStatus(input.status);
-    this.database.prepare("UPDATE agents SET name=?,description=?,status=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
-      .run(name, description, status, new Date().toISOString(), id, context.tenantId, context.accountSetId, context.userId);
+    const permission = input.permission === undefined ? current.permission : validatePermission(input.permission);
+    this.database.prepare("UPDATE agents SET name=?,description=?,status=?,permission=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
+      .run(name, description, status, permission, new Date().toISOString(), id, context.tenantId, context.accountSetId, context.userId);
     return this.getAgent(context, id);
   }
 
@@ -62,44 +62,66 @@ export class WorkflowStore {
   }
 
   deleteAgent(context: RequestContext, id: string) {
-    this.agentRow(context, id);
+    this.ownedAgentRow(context, id);
     this.database.prepare("DELETE FROM agents WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
       .run(id, context.tenantId, context.accountSetId, context.userId);
   }
 
   getWorkflow(context: RequestContext, agentId: string): WorkflowRecord {
-    this.agentRow(context, agentId);
+    this.readableAgentRow(context, agentId);
     const row = this.database.prepare("SELECT * FROM workflows WHERE agent_id=?").get(agentId) as Row | undefined;
     if (!row) throw new WorkflowStoreError("工作流不存在", 404);
     return workflowFromRow(row);
   }
 
   saveWorkflow(context: RequestContext, agentId: string, definition: WorkflowDefinition): WorkflowRecord {
-    const agent = this.getAgent(context, agentId);
-    const workflow = this.getWorkflow(context, agentId);
-    const version = workflow.version + 1;
+    this.ownedAgentRow(context, agentId);
     const now = new Date().toISOString();
-    this.database.prepare("UPDATE workflows SET definition_json=?,version=?,updated_at=? WHERE agent_id=?")
-      .run(JSON.stringify(definition), version, now, agentId);
-    this.database.prepare("UPDATE agents SET current_version=?,status='draft',updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
-      .run(version, now, agentId, context.tenantId, context.accountSetId, context.userId);
-    this.saveVersion(agentId, version, definition, agent.status, now);
+    this.database.prepare("UPDATE workflows SET definition_json=?,updated_at=? WHERE agent_id=?")
+      .run(JSON.stringify(definition), now, agentId);
+    this.database.prepare("UPDATE agents SET status='draft',updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
+      .run(now, agentId, context.tenantId, context.accountSetId, context.userId);
     return this.getWorkflow(context, agentId);
   }
 
-  publish(context: RequestContext, agentId: string, enabled = true): AgentRecord {
-    const agent = this.getAgent(context, agentId);
+  publish(context: RequestContext, agentId: string, enabled = true, permission?: AgentPermission): { agent: AgentRecord; version: WorkflowVersionRecord | null } {
+    const agent = agentFromRow(this.ownedAgentRow(context, agentId));
     const workflow = this.getWorkflow(context, agentId);
     const status: WorkflowStatus = enabled ? "published" : "disabled";
+    const nextPermission = permission === undefined ? agent.permission : validatePermission(permission);
     const now = new Date().toISOString();
-    this.database.prepare("UPDATE agents SET status=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
-      .run(status, now, agentId, context.tenantId, context.accountSetId, context.userId);
-    this.saveVersion(agentId, workflow.version, workflow.definition, status, now, true);
-    return { ...agent, status, updatedAt: now };
+    if (!enabled) {
+      this.database.prepare("UPDATE agents SET status=?,permission=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
+        .run(status, nextPermission, now, agentId, context.tenantId, context.accountSetId, context.userId);
+      return { agent: { ...agent, status, permission: nextPermission, updatedAt: now }, version: null };
+    }
+    const row = this.database.prepare("SELECT COALESCE(MAX(version),0) AS version FROM workflow_versions WHERE agent_id=? AND status='published'").get(agentId) as Row;
+    const version = Number(row.version) + 1;
+    this.database.prepare("UPDATE workflows SET version=?,updated_at=? WHERE agent_id=?").run(version, now, agentId);
+    this.database.prepare("UPDATE agents SET status='published',permission=?,current_version=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
+      .run(nextPermission, version, now, agentId, context.tenantId, context.accountSetId, context.userId);
+    this.saveVersion(agentId, version, workflow.definition, "published", now, true);
+    return { agent: this.getAgent(context, agentId), version: this.getVersion(context, agentId, version) };
+  }
+
+  listVersions(context: RequestContext, agentId: string): WorkflowVersionRecord[] {
+    this.ownedAgentRow(context, agentId);
+    return (this.database.prepare("SELECT * FROM workflow_versions WHERE agent_id=? AND status='published' ORDER BY version DESC").all(agentId) as Row[]).map(versionFromRow);
+  }
+
+  getVersion(context: RequestContext, agentId: string, version: number): WorkflowVersionRecord {
+    this.ownedAgentRow(context, agentId);
+    const row = this.database.prepare("SELECT * FROM workflow_versions WHERE agent_id=? AND version=? AND status='published'").get(agentId, version) as Row | undefined;
+    if (!row) throw new WorkflowStoreError("工作流版本不存在", 404);
+    return versionFromRow(row);
+  }
+
+  restoreVersion(context: RequestContext, agentId: string, version: number): WorkflowRecord {
+    return this.saveWorkflow(context, agentId, this.getVersion(context, agentId, version).definition);
   }
 
   createRun(context: RequestContext, agentId: string, version: number, input: unknown): WorkflowRun {
-    this.agentRow(context, agentId);
+    this.readableAgentRow(context, agentId);
     const id = randomUUID(); const now = new Date().toISOString();
     this.database.prepare("INSERT INTO workflow_runs (id,agent_id,tenant_id,account_set_id,user_id,workflow_version,status,input_json,output_json,error,duration_ms,started_at,finished_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")
       .run(id, agentId, context.tenantId, context.accountSetId, context.userId, version, "running", json(input), null, null, 0, now, null);
@@ -137,13 +159,20 @@ export class WorkflowStore {
   }
 
   listRuns(context: RequestContext, agentId: string): WorkflowRun[] {
-    this.agentRow(context, agentId);
+    this.readableAgentRow(context, agentId);
     return (this.database.prepare("SELECT * FROM workflow_runs WHERE agent_id=? AND tenant_id=? AND account_set_id=? AND user_id=? ORDER BY started_at DESC LIMIT 30")
       .all(agentId, context.tenantId, context.accountSetId, context.userId) as Row[]).map((row) => runFromRow(row, []));
   }
 
-  private agentRow(context: RequestContext, id: string): Row {
+  private ownedAgentRow(context: RequestContext, id: string): Row {
     const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?`)
+      .get(id, context.tenantId, context.accountSetId, context.userId) as Row | undefined;
+    if (!row) throw new WorkflowStoreError("智能体不存在或无权访问", 404);
+    return row;
+  }
+
+  private readableAgentRow(context: RequestContext, id: string): Row {
+    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND account_set_id=? AND (user_id=? OR (permission='tenant' AND status='published'))`)
       .get(id, context.tenantId, context.accountSetId, context.userId) as Row | undefined;
     if (!row) throw new WorkflowStoreError("智能体不存在或无权访问", 404);
     return row;
@@ -188,15 +217,19 @@ export class WorkflowStore {
       input_json TEXT, output_json TEXT, error TEXT, duration_ms INTEGER NOT NULL DEFAULT 0, started_at TEXT, finished_at TEXT,
       FOREIGN KEY(run_id) REFERENCES workflow_runs(id) ON DELETE CASCADE
     );`);
+    const columns = this.database.prepare("PRAGMA table_info(agents)").all() as Row[];
+    if (!columns.some((column) => String(column.name) === "permission")) this.database.exec("ALTER TABLE agents ADD COLUMN permission TEXT NOT NULL DEFAULT 'private'");
   }
 }
 
 const agentSelect = "SELECT * FROM agents";
 function cleanName(value: unknown) { const name = String(value || "").trim(); if (!name) throw new WorkflowStoreError("请输入智能体名称"); return name.slice(0, 100); }
 function validateStatus(value: unknown): WorkflowStatus { if (!['draft', 'published', 'disabled'].includes(String(value))) throw new WorkflowStoreError("无效的智能体状态"); return value as WorkflowStatus; }
+function validatePermission(value: unknown): AgentPermission { if (!['private', 'tenant'].includes(String(value))) throw new WorkflowStoreError("无效的智能体权限"); return value as AgentPermission; }
 function json(value: unknown) { return JSON.stringify(value ?? null); }
 function parse(value: unknown) { if (value === null || value === undefined || value === "") return null; try { return JSON.parse(String(value)); } catch { return null; } }
-function agentFromRow(row: Row): AgentRecord { return { id: String(row.id), name: String(row.name), description: String(row.description || ""), status: validateStatus(row.status), currentVersion: Number(row.current_version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
+function agentFromRow(row: Row): AgentRecord { return { id: String(row.id), name: String(row.name), description: String(row.description || ""), status: validateStatus(row.status), permission: validatePermission(row.permission || "private"), currentVersion: Number(row.current_version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
 function workflowFromRow(row: Row): WorkflowRecord { return { id: String(row.id), agentId: String(row.agent_id), definition: parse(row.definition_json) as WorkflowDefinition, version: Number(row.version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
+function versionFromRow(row: Row): WorkflowVersionRecord { return { id: String(row.id), agentId: String(row.agent_id), version: Number(row.version), definition: parse(row.definition_json) as WorkflowDefinition, status: validateStatus(row.status), createdAt: String(row.created_at) }; }
 function nodeRunFromRow(row: Row): WorkflowNodeRun { return { id: String(row.id), runId: String(row.run_id), nodeId: String(row.node_id), nodeType: String(row.node_type) as WorkflowNodeRun["nodeType"], status: String(row.status) as WorkflowNodeRunStatus, input: parse(row.input_json), output: parse(row.output_json), error: row.error == null ? null : String(row.error), durationMs: Number(row.duration_ms), startedAt: row.started_at == null ? null : String(row.started_at), finishedAt: row.finished_at == null ? null : String(row.finished_at) }; }
 function runFromRow(row: Row, nodeRuns: WorkflowNodeRun[]): WorkflowRun { return { id: String(row.id), agentId: String(row.agent_id), workflowVersion: Number(row.workflow_version), status: String(row.status) as WorkflowRunStatus, input: parse(row.input_json), output: parse(row.output_json), error: row.error == null ? null : String(row.error), durationMs: Number(row.duration_ms), startedAt: String(row.started_at), finishedAt: row.finished_at == null ? null : String(row.finished_at), nodeRuns }; }

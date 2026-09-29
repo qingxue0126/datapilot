@@ -29,7 +29,18 @@ export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine
   app.patch("/api/agents/:id", (request, response) => handle(response, () => ({ agent: store.updateAgent(identity(request), request.params.id, request.body || {}) })));
   app.delete("/api/agents/:id", (request, response) => handle(response, () => { store.deleteAgent(identity(request), request.params.id); return undefined; }, 204));
   app.post("/api/agents/:id/copy", (request, response) => handle(response, () => store.copyAgent(identity(request), request.params.id), 201));
-  app.post("/api/agents/:id/publish", (request, response) => handle(response, () => ({ agent: store.publish(identity(request), request.params.id, request.body?.enabled !== false) })));
+  app.post("/api/agents/:id/publish", (request, response) => handle(response, () => store.publish(identity(request), request.params.id, request.body?.enabled !== false, request.body?.permission)));
+  app.get("/api/agents/:id/versions", (request, response) => handle(response, () => ({ items: store.listVersions(identity(request), request.params.id) })));
+  app.get("/api/agents/:id/versions/:version", (request, response) => handle(response, () => ({ version: store.getVersion(identity(request), request.params.id, versionNumber(request.params.version)) })));
+  app.post("/api/agents/:id/versions/:version/restore", (request, response) => handle(response, () => ({ workflow: store.restoreVersion(identity(request), request.params.id, versionNumber(request.params.version)), agent: store.getAgent(identity(request), request.params.id) })));
+  app.get("/api/agents/:id/runs", (request, response) => handle(response, () => ({ items: store.listRuns(identity(request), request.params.id) })));
+  app.get("/api/agents/:id/export", (request, response) => {
+    try {
+      const context = identity(request); const agent = store.getAgent(context, request.params.id); const workflow = store.getWorkflow(context, request.params.id);
+      response.setHeader("Content-Disposition", `attachment; filename="datapilot-agent-${agent.id}.json"`);
+      response.json({ format: "datapilot-agent", schemaVersion: 1, exportedAt: new Date().toISOString(), agent: { name: agent.name, description: agent.description, permission: agent.permission }, workflow: workflow.definition });
+    } catch (error) { workflowError(response, error); }
+  });
   app.put("/api/agents/:id/workflow", (request, response) => handle(response, () => {
     const definition = request.body?.definition as WorkflowDefinition;
     validateAndSort(definition);
@@ -48,3 +59,4 @@ function handle(response: Response, operation: () => unknown, status = 200) {
 }
 function workflowError(response: Response, error: unknown) { const status = error instanceof WorkflowStoreError ? error.status : 400; return response.status(status).json({ error: error instanceof Error ? error.message : "工作流操作失败" }); }
 function cleanInput(value: unknown) { if (value === undefined || value === null) return {}; if (!value || typeof value !== "object" || Array.isArray(value)) throw new WorkflowStoreError("运行输入必须是 JSON 对象"); return value as Record<string, unknown>; }
+function versionNumber(value: string) { const version = Number(value); if (!Number.isInteger(version) || version < 1) throw new WorkflowStoreError("无效的版本号"); return version; }

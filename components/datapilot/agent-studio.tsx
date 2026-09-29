@@ -25,6 +25,7 @@ import {
 } from "@xyflow/react";
 import type { ModelOption } from "./model-management";
 import { customerFacingRunError, extractConversationInput, hasRunInputValue, missingConversationPrompt } from "./conversation-input";
+import { AgentWorkflowIcon } from "./icons";
 
 const LOCAL_API_BASE = "http://localhost:3001";
 
@@ -50,12 +51,15 @@ async function readJson(response: Response) {
 
 type NodeKind = "start" | "llm" | "agent" | "knowledge_retrieval" | "sql" | "http" | "code" | "condition" | "assign" | "end";
 type NodeState = "pending" | "running" | "success" | "failed" | "skipped";
-type AgentItem = { id: string; name: string; description: string; status: "draft" | "published" | "disabled"; currentVersion: number; createdAt: string; updatedAt: string };
+type AgentPermission = "private" | "tenant";
+type AgentItem = { id: string; name: string; description: string; status: "draft" | "published" | "disabled"; permission: AgentPermission; currentVersion: number; createdAt: string; updatedAt: string };
 type NodeData = { label: string; nodeType: NodeKind; config: Record<string, unknown>; runStatus?: NodeState; modelName?: string; connectedTools?: string[] };
 type FlowNode = Node<NodeData>;
 type WorkflowDefinition = { nodes: { id: string; type: NodeKind; position: { x: number; y: number }; data: { label: string; config: Record<string, unknown> } }[]; edges: Edge[]; variables: Record<string, unknown> };
-type NodeRun = { nodeId: string; status: NodeState; input: unknown; output: unknown; error: string | null; durationMs: number };
-type WorkflowRun = { id: string; status: "pending" | "running" | "success" | "failed"; output: unknown; error: string | null; durationMs: number; nodeRuns: NodeRun[] };
+type NodeRun = { nodeId: string; nodeType?: NodeKind; status: NodeState; input: unknown; output: unknown; error: string | null; durationMs: number };
+type WorkflowRun = { id: string; workflowVersion?: number; status: "pending" | "running" | "success" | "failed"; input?: unknown; output: unknown; error: string | null; durationMs: number; startedAt?: string; finishedAt?: string | null; nodeRuns: NodeRun[] };
+type WorkflowVersion = { id: string; agentId: string; version: number; definition: WorkflowDefinition; status: "published"; createdAt: string };
+type ManagePanel = "versions" | "logs" | "settings";
 type DataSourceOption = { connectionId: string; name: string };
 type KnowledgeBaseOption = { id: string; name: string; documentCount?: number; chunkCount?: number };
 type ChatMessage = { id: string; role: "assistant" | "user"; content: string };
@@ -70,18 +74,55 @@ function MessageNodeIcon() {
   return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 3h13a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3h-2l-3 3-4-4H5a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Z" fill="currentColor"/><path d="M6 8h11M6 12h7" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>;
 }
 
+function LlmBrainIcon() {
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M10.5 3.5A4 4 0 0 0 6.7 7a3.5 3.5 0 0 0-1.2 6.5A4 4 0 0 0 8 19.8V21a2 2 0 0 0 2 2h.5c1.4 0 2.5-1.1 2.5-2.5V6a2.5 2.5 0 0 0-2.5-2.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M7 8.5c.8 0 1.5.3 2 .9M6.4 14.5c1-.1 1.9.2 2.5.9M10 19.8c.8-.2 1.5-.7 2-1.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    <path d="M13 7h4l1.5-1.5M13 12h6M13 17h4l1.5 1.5" stroke="#12bfae" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="20" cy="4" r="1.5" fill="#12bfae" /><circle cx="21" cy="12" r="1.5" fill="#12bfae" /><circle cx="20" cy="20" r="1.5" fill="#12bfae" />
+  </svg>;
+}
+
+function ConditionBranchIcon() {
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 21V10.5M12 10.5 5 3.5M5 3.5v5M5 3.5h5M12 10.5l7-7M19 3.5v5M19 3.5h-5" />
+  </svg>;
+}
+
+function KnowledgeCylinderIcon() {
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <ellipse cx="12" cy="5" rx="8" ry="3" />
+    <path d="M4 5v7c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7" />
+  </svg>;
+}
+
+function PaletteChevronIcon() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m5 8 7 7 7-7" /></svg>;
+}
+
+function CodeTerminalIcon() {
+  return <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="2.5" y="4" width="19" height="16" rx="2" />
+    <path d="m7 9 3 3-3 3M13 16h4" />
+  </svg>;
+}
+
 const nodeCatalog: { type: NodeKind; label: string; description: string; icon: ReactNode }[] = [
   { type: "start", label: "消息输入", description: "接收用户消息", icon: <MessageNodeIcon /> },
-  { type: "llm", label: "LLM", description: "调用已启用模型", icon: "✦" },
-  { type: "agent", label: "Agent", description: "自主推理并调用工具", icon: "◇" },
-  { type: "knowledge_retrieval", label: "知识库检索", description: "向量或混合检索知识块", icon: "⌕" },
+  { type: "llm", label: "LLM", description: "调用已启用模型", icon: <LlmBrainIcon /> },
+  { type: "agent", label: "Agent", description: "自主推理并调用工具", icon: <AgentWorkflowIcon /> },
+  { type: "knowledge_retrieval", label: "知识库检索", description: "向量或混合检索知识块", icon: <KnowledgeCylinderIcon /> },
   { type: "sql", label: "SQL 查询", description: "执行只读安全查询", icon: "▦" },
   { type: "http", label: "HTTP 请求", description: "调用外部 API", icon: "↗" },
-  { type: "code", label: "代码", description: "安全执行 JavaScript", icon: "{}" },
-  { type: "condition", label: "条件分支", description: "IF / ELSEIF / ELSE 多分支", icon: "◇" },
+  { type: "code", label: "代码", description: "安全执行 JavaScript", icon: <CodeTerminalIcon /> },
+  { type: "condition", label: "条件分支", description: "IF / ELSEIF / ELSE 多分支", icon: <ConditionBranchIcon /> },
   { type: "assign", label: "变量赋值", description: "生成结构化变量", icon: "=" },
   { type: "end", label: "消息输出", description: "返回回复消息", icon: <MessageNodeIcon /> },
 ];
+const inputOutputNodes = nodeCatalog.filter((item) => item.type === "start" || item.type === "end");
+const aiNodes = nodeCatalog.filter((item) => ["llm", "agent", "knowledge_retrieval"].includes(item.type));
+const toolNodes = nodeCatalog.filter((item) => ["sql", "http", "code", "assign"].includes(item.type));
+const logicNodes = nodeCatalog.filter((item) => item.type === "condition");
 
 const flowNodeTypes = Object.fromEntries(nodeCatalog.map((item) => [item.type, WorkflowNodeCard]));
 
@@ -102,6 +143,12 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
   const [importing, setImporting] = useState(false);
   const [run, setRun] = useState<WorkflowRun | null>(null);
   const [dialog, setDialog] = useState<{ mode: "create" | "edit" | "delete"; agent?: AgentItem } | null>(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [managePanel, setManagePanel] = useState<ManagePanel | null>(null);
+  const [versions, setVersions] = useState<WorkflowVersion[]>([]);
+  const [historyRuns, setHistoryRuns] = useState<WorkflowRun[]>([]);
+  const [historyRun, setHistoryRun] = useState<WorkflowRun | null>(null);
   const [instance, setInstance] = useState<ReactFlowInstance<FlowNode, Edge> | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -130,21 +177,74 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     setEdges((definition.edges || []).map((edge) => ({ ...edge, animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }))); setSources(sourceData.items || []); setKnowledgeBases(knowledgeData.items || []);
   }
 
-  async function save() {
-    if (!active) return;
+  function currentDefinition(): WorkflowDefinition {
+    return {
+      nodes: nodes.map((node) => ({ id: node.id, type: node.data.nodeType, position: node.position, data: { label: node.data.label, config: node.data.config } })),
+      edges: edges.map(({ id, source, target, sourceHandle, targetHandle }) => ({ id, source, target, sourceHandle, targetHandle })),
+      variables,
+    };
+  }
+
+  async function save(quiet = false) {
+    if (!active) return false;
     setSaving(true); setNotice("");
     try {
-      const definition: WorkflowDefinition = {
-        nodes: nodes.map((node) => ({ id: node.id, type: node.data.nodeType, position: node.position, data: { label: node.data.label, config: node.data.config } })),
-        edges: edges.map(({ id, source, target, sourceHandle, targetHandle }) => ({ id, source, target, sourceHandle, targetHandle })),
-        variables,
-      };
+      const definition = currentDefinition();
       const response = await api(`/api/agents/${active.id}/workflow`, { method: "PUT", headers: jsonHeaders, body: JSON.stringify({ definition }) });
       const data = await readJson(response); if (!response.ok) throw new Error(data.error || "保存失败");
-      const next = { ...active, status: "draft" as const, currentVersion: data.workflow.version, updatedAt: data.workflow.updatedAt };
-      setActive(next); setAgents((items) => items.map((item) => item.id === next.id ? next : item)); setNotice("工作流草稿已保存");
-    } catch (error) { setNotice(message(error)); }
+      const next = { ...active, status: "draft" as const, updatedAt: data.workflow.updatedAt };
+      setActive(next); setAgents((items) => items.map((item) => item.id === next.id ? next : item)); if (!quiet) setNotice("工作流草稿已保存");
+      return true;
+    } catch (error) { setNotice(message(error)); return false; }
     finally { setSaving(false); }
+  }
+
+  async function publish(permission: AgentPermission) {
+    if (!active || !(await save(true))) return;
+    try {
+      const response = await api(`/api/agents/${active.id}/publish`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ enabled: true, permission }) });
+      const data = await readJson(response); if (!response.ok) throw new Error(data.error || "发布失败");
+      setActive(data.agent); setAgents((items) => items.map((item) => item.id === data.agent.id ? data.agent : item)); setPublishOpen(false);
+      setNotice(`已发布版本 v${data.version.version}`);
+    } catch (error) { setNotice(message(error)); }
+  }
+
+  async function openManage(panel: ManagePanel) {
+    if (!active) return;
+    setManageOpen(false); setManagePanel(panel); setHistoryRun(null);
+    try {
+      if (panel === "versions") {
+        const response = await api(`/api/agents/${active.id}/versions`); const data = await readJson(response);
+        if (!response.ok) throw new Error(data.error || "无法读取历史版本"); setVersions(data.items || []);
+      } else if (panel === "logs") {
+        const response = await api(`/api/agents/${active.id}/runs`); const data = await readJson(response);
+        if (!response.ok) throw new Error(data.error || "无法读取运行日志"); setHistoryRuns(data.items || []);
+      }
+    } catch (error) { setNotice(message(error)); }
+  }
+
+  async function restoreVersion(version: number) {
+    if (!active) return;
+    try {
+      const response = await api(`/api/agents/${active.id}/versions/${version}/restore`, { method: "POST" }); const data = await readJson(response);
+      if (!response.ok) throw new Error(data.error || "版本回退失败");
+      const definition = data.workflow.definition as WorkflowDefinition;
+      setNodes(definition.nodes.map((node) => ({ ...node, data: { ...node.data, nodeType: node.type } })) as FlowNode[]); setEdges(definition.edges || []); setVariables(definition.variables || {}); setActive(data.agent);
+      setManagePanel(null); setNotice(`已将 v${version} 恢复为当前草稿，请确认后重新发布`);
+    } catch (error) { setNotice(message(error)); }
+  }
+
+  async function showRunDetail(id: string) {
+    try { const response = await api(`/api/workflow-runs/${id}`); const data = await readJson(response); if (!response.ok) throw new Error(data.error || "无法读取日志详情"); setHistoryRun(data.run); }
+    catch (error) { setNotice(message(error)); }
+  }
+
+  async function exportAgent() {
+    if (!active) return;
+    try {
+      const response = await api(`/api/agents/${active.id}/export`); if (!response.ok) { const data = await readJson(response); throw new Error(data.error || "导出失败"); }
+      const url = URL.createObjectURL(await response.blob()); const link = document.createElement("a"); link.href = url; link.download = `${safeFileName(active.name)}.json`; link.click(); URL.revokeObjectURL(url); setManageOpen(false); setNotice("智能体 JSON 已导出");
+    } catch (error) { setNotice(message(error)); }
   }
 
   async function runWorkflow(input: Record<string, unknown>): Promise<WorkflowRun | null> {
@@ -278,14 +378,14 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
   if (active) return <div className="agent-editor-page">
     <header className="agent-editor-header">
       <div><button onClick={() => { setActive(null); setRun(null); void loadAgents(); }}>← 智能体列表</button><h2>{active.name}</h2><span className={`agent-status ${active.status}`}>{statusLabel(active.status)}</span><small>v{active.currentVersion}</small></div>
-      <div><button onClick={() => void save()} disabled={saving || running}>{saving ? "保存中…" : "保存"}</button><button className="primary-action" onClick={() => setRunnerOpen(true)} disabled={running}>{running ? "运行中…" : "▶ 运行"}</button></div>
+      <div className="agent-editor-actions"><button onClick={() => setRunnerOpen(true)} disabled={running}>{running ? "运行中…" : "▶ 运行"}</button><span className="agent-manage-wrap"><button className="agent-manage-trigger" onClick={() => setManageOpen((open) => !open)}><PaletteChevronIcon />管理</button>{manageOpen && <menu className="agent-manage-menu"><button onClick={() => void openManage("versions")}>历史版本</button><button onClick={() => void openManage("logs")}>日志</button><button onClick={() => void exportAgent()}>导出</button><button onClick={() => void openManage("settings")}>设置</button></menu>}</span><button className="save-action" onClick={() => void save()} disabled={saving || running}>{saving ? "保存中…" : "保存"}</button><button className="primary-action" onClick={() => setPublishOpen(true)}>发布</button></div>
     </header>
     {notice && <div className={`agent-notice ${run?.status === "failed" ? "error" : ""}`}>{notice}</div>}
     <div className="agent-builder">
-      <aside className="agent-node-palette"><h3>节点</h3><p>拖入画布构建流程</p>{nodeCatalog.map((item) => <div key={item.type} draggable onDragStart={(event) => { event.dataTransfer.setData("application/datapilot-node", item.type); event.dataTransfer.effectAllowed = "move"; }}><span>{item.icon}</span><div><strong>{item.label}</strong><small>{item.description}</small></div></div>)}</aside>
+      <aside className="agent-node-palette"><h3>节点</h3><p>拖入画布构建流程</p><details className="agent-palette-group" open><summary><span>输入/输出</span><i><PaletteChevronIcon /></i></summary><div>{inputOutputNodes.map((item) => <PaletteNode key={item.type} item={item} />)}</div></details><details className="agent-palette-group" open><summary><span>AI</span><i><PaletteChevronIcon /></i></summary><div>{aiNodes.map((item) => <PaletteNode key={item.type} item={item} />)}</div></details><details className="agent-palette-group" open><summary><span>工具</span><i><PaletteChevronIcon /></i></summary><div>{toolNodes.map((item) => <PaletteNode key={item.type} item={item} />)}</div></details><details className="agent-palette-group" open><summary><span>逻辑</span><i><PaletteChevronIcon /></i></summary><div>{logicNodes.map((item) => <PaletteNode key={item.type} item={item} />)}</div></details></aside>
       <section className="agent-canvas" ref={canvasRef} onDrop={drop} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}>
         <ReactFlow<FlowNode, Edge> nodes={canvasNodes} edges={canvasEdges} nodeTypes={flowNodeTypes} connectionMode={ConnectionMode.Loose} defaultEdgeOptions={{ animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }} onInit={setInstance} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeDoubleClick={(_event, node) => setSelectedId(node.id)} onPaneClick={() => setSelectedId("")} connectionRadius={36} fitView deleteKeyCode={["Backspace", "Delete"]}>
-          <Background color="#d5e1db" gap={22} /><MiniMap nodeColor="#2d8163" maskColor="rgba(244,247,245,.72)" /><Controls />
+          <Background color="#aeb3bc" gap={32} size={1.4} /><MiniMap nodeColor="#2d8163" maskColor="rgba(247,248,249,.76)" /><Controls />
         </ReactFlow>
       </section>
       <aside className="agent-config-panel">
@@ -293,6 +393,10 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
       </aside>
     </div>
     {runnerOpen && <WorkflowRunner nodes={nodes} run={run} running={running} close={() => setRunnerOpen(false)} execute={runWorkflow} />}
+    {publishOpen && <PublishDialog agent={active} close={() => setPublishOpen(false)} submit={publish} />}
+    {managePanel === "versions" && <VersionPanel versions={versions} close={() => setManagePanel(null)} restore={restoreVersion} />}
+    {managePanel === "logs" && <RunHistoryPanel runs={historyRuns} selected={historyRun} close={() => setManagePanel(null)} select={showRunDetail} />}
+    {managePanel === "settings" && <AgentSettingsDialog agent={active} close={() => setManagePanel(null)} submit={async (values) => { try { const response = await api(`/api/agents/${active.id}`, { method: "PATCH", headers: jsonHeaders, body: JSON.stringify(values) }); const data = await readJson(response); if (!response.ok) throw new Error(data.error || "设置保存失败"); setActive(data.agent); setAgents((items) => items.map((item) => item.id === data.agent.id ? data.agent : item)); setManagePanel(null); setNotice("智能体设置已保存"); } catch (error) { setNotice(message(error)); } }} />}
   </div>;
 
   return <div className="module-content agent-list-page">
@@ -304,6 +408,10 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
   </div>;
 }
 
+function PaletteNode({ item }: { item: (typeof nodeCatalog)[number] }) {
+  return <div className="agent-palette-item" draggable onDragStart={(event) => { event.dataTransfer.setData("application/datapilot-node", item.type); event.dataTransfer.effectAllowed = "move"; }}><span>{item.icon}</span><div><strong>{item.label}</strong><small>{item.description}</small></div></div>;
+}
+
 function WorkflowNodeCard({ id, data, selected }: NodeProps<FlowNode>) {
   const condition = data.nodeType === "condition";
   const conditionBranches = condition ? normalizeConditionBranches(data.config) : [];
@@ -311,7 +419,7 @@ function WorkflowNodeCard({ id, data, selected }: NodeProps<FlowNode>) {
   useEffect(() => { if (condition) updateNodeInternals(id); }, [condition, conditionBranches.map((branch) => branch.id).join("|"), id, updateNodeInternals]);
   const subtitle = data.nodeType === "start" ? startModeLabel(normalizeStartMode(data.config.mode)) : nodeCatalog.find((item) => item.type === data.nodeType)?.label || data.nodeType;
   if (data.nodeType === "agent") return <div className={`workflow-node workflow-agent-node ${selected ? "selected" : ""} ${data.runStatus || ""}`}>
-    <header><span className="workflow-node-icon">●</span><div><strong>{data.label}</strong><small>Agent</small></div>{data.runStatus && <i title={data.runStatus} />}</header>
+    <header><span className="workflow-node-icon"><AgentWorkflowIcon /></span><div><strong>{data.label}</strong><small>Agent</small></div>{data.runStatus && <i title={data.runStatus} />}</header>
     <div className="workflow-agent-field"><span>推理模型</span><b>{data.modelName || "未选择模型"}</b></div>
     <div className="workflow-agent-field"><span>系统提示词</span><p>{String(data.config.systemPrompt || "未配置系统提示词")}</p></div>
     <div className="workflow-agent-tools">
@@ -594,6 +702,28 @@ function setNestedInput(setter: (value: (current: Record<string, unknown>) => Re
   setter((current) => { const next = structuredClone(current); setObjectPath(next, path, value); return next; });
 }
 
+function PermissionField({ value, change }: { value: AgentPermission; change: (value: AgentPermission) => void }) {
+  return <fieldset className="agent-permission"><legend>访问权限</legend><label><input type="radio" checked={value === "private"} onChange={() => change("private")} /><span><strong>仅自己</strong><small>只有创建者可以查看和运行</small></span></label><label><input type="radio" checked={value === "tenant"} onChange={() => change("tenant")} /><span><strong>当前团队</strong><small>发布后，同一租户和账套成员可使用</small></span></label></fieldset>;
+}
+
+function PublishDialog({ agent, close, submit }: { agent: AgentItem; close: () => void; submit: (permission: AgentPermission) => Promise<void> }) {
+  const [permission, setPermission] = useState<AgentPermission>(agent.permission || "private");
+  return <div className="modal-backdrop"><div className="agent-dialog"><h2>确认发布</h2><p>发布后会生成一个不可变的新版本。后续保存仍是草稿，只有再次发布才会形成新版本。</p><PermissionField value={permission} change={setPermission} /><footer><button onClick={close}>取消</button><button className="primary-action" onClick={() => void submit(permission)}>确认发布</button></footer></div></div>;
+}
+
+function AgentSettingsDialog({ agent, close, submit }: { agent: AgentItem; close: () => void; submit: (values: { name: string; description: string; permission: AgentPermission }) => Promise<void> }) {
+  const [permission, setPermission] = useState<AgentPermission>(agent.permission || "private");
+  return <div className="modal-backdrop"><form className="agent-dialog" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submit({ name: String(form.get("name") || ""), description: String(form.get("description") || ""), permission }); }}><h2>智能体设置</h2><label>名称<input name="name" defaultValue={agent.name} required /></label><label>描述<textarea name="description" defaultValue={agent.description} rows={4} /></label><PermissionField value={permission} change={setPermission} /><footer><button type="button" onClick={close}>取消</button><button className="primary-action" type="submit">保存设置</button></footer></form></div>;
+}
+
+function VersionPanel({ versions, close, restore }: { versions: WorkflowVersion[]; close: () => void; restore: (version: number) => Promise<void> }) {
+  return <aside className="agent-manage-panel"><header><div><strong>历史版本</strong><small>仅发布操作生成版本</small></div><button onClick={close}>×</button></header><div className="agent-version-list">{versions.length ? versions.map((item) => <article key={item.id}><div><strong>v{item.version}</strong><span>已发布</span></div><small>{formatFullDate(item.createdAt)} · {item.definition.nodes.length} 个节点 · {item.definition.edges.length} 条连线</small><details><summary>查看版本内容</summary><pre>{pretty(item.definition)}</pre></details><button onClick={() => void restore(item.version)}>回退到此版本</button></article>) : <div className="runner-empty">尚无已发布版本</div>}</div></aside>;
+}
+
+function RunHistoryPanel({ runs, selected, close, select }: { runs: WorkflowRun[]; selected: WorkflowRun | null; close: () => void; select: (id: string) => Promise<void> }) {
+  return <aside className="agent-manage-panel agent-history-panel"><header><div><strong>运行日志</strong><small>查看历史测试链路和节点输入输出</small></div><button onClick={close}>×</button></header><div className="agent-history-layout"><nav>{runs.length ? runs.map((item) => <button className={selected?.id === item.id ? "selected" : ""} key={item.id} onClick={() => void select(item.id)}><span className={`run-dot ${item.status}`} /><strong>{formatFullDate(item.startedAt || "")}</strong><small>{item.status} · {item.durationMs} ms · v{item.workflowVersion ?? 0}</small></button>) : <div className="runner-empty">尚无运行日志</div>}</nav><section>{selected ? <><div className="agent-log-summary"><strong>{selected.status}</strong><span>{selected.durationMs} ms</span></div><details open><summary>工作流输入 / 输出</summary><pre>{pretty({ input: selected.input, output: selected.output, error: selected.error })}</pre></details>{selected.nodeRuns.map((nodeRun, index) => <details key={`${nodeRun.nodeId}-${index}`} open={nodeRun.status === "failed"}><summary><span className={`run-dot ${nodeRun.status}`} />{nodeRun.nodeId}<small>{nodeRun.durationMs} ms</small></summary><pre>{pretty({ status: nodeRun.status, input: nodeRun.input, output: nodeRun.output, error: nodeRun.error })}</pre></details>)}</> : <div className="runner-empty">选择一条记录查看完整执行链路</div>}</section></div></aside>;
+}
+
 function JsonField({ label, value, update }: { label: string; value: unknown; update: (value: Record<string, unknown>) => void }) { const [text, setText] = useState(pretty(value || {})); return <label>{label}<textarea rows={5} value={text} onChange={(event) => { setText(event.target.value); const parsed = tryJson(event.target.value); if (parsed) update(parsed); }} /></label>; }
 function RunSummary({ run }: { run: WorkflowRun }) { return <section className={`agent-run-summary ${run.status}`}><h4>最近运行</h4><p>{run.status} · {run.durationMs} ms</p><pre>{pretty(run.output ?? run.error)}</pre></section>; }
 function AgentDialog({ dialog, close, submit }: { dialog: { mode: "create" | "edit" | "delete"; agent?: AgentItem }; close: () => void; submit: (values: { name?: string; description?: string }) => Promise<void> }) { if (dialog.mode === "delete") return <div className="modal-backdrop"><div className="agent-dialog"><h2>删除智能体</h2><p>确认删除“{dialog.agent?.name}”及其工作流版本和运行记录？</p><footer><button onClick={close}>取消</button><button className="danger-confirm" onClick={() => void submit({})}>确认删除</button></footer></div></div>; return <div className="modal-backdrop"><form className="agent-dialog" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submit({ name: String(form.get("name") || ""), description: String(form.get("description") || "") }); }}><h2>{dialog.mode === "create" ? "新建智能体" : "编辑智能体"}</h2><label>名称<input name="name" defaultValue={dialog.agent?.name} required autoFocus /></label><label>描述<textarea name="description" defaultValue={dialog.agent?.description} rows={4} /></label><footer><button type="button" onClick={close}>取消</button><button className="primary-action" type="submit">保存</button></footer></form></div>; }
@@ -645,5 +775,7 @@ function tryJson(value: string): Record<string, unknown> | null { try { const pa
 function pretty(value: unknown) { try { return JSON.stringify(value ?? null, null, 2); } catch { return String(value); } }
 function statusLabel(status: AgentItem["status"]) { return status === "published" ? "已发布" : status === "disabled" ? "已停用" : "草稿"; }
 function formatDate(value: string) { return new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
+function formatFullDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? "未知时间" : new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date); }
+function safeFileName(value: string) { return value.replace(/[\\/:*?"<>|]/g, "-").trim() || "datapilot-agent"; }
 function message(error: unknown) { return error instanceof Error ? error.message : "操作失败"; }
 const jsonHeaders = { "Content-Type": "application/json" };
