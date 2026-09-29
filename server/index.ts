@@ -24,6 +24,7 @@ import { installKnowledgeRoutes } from "./knowledge/knowledge-routes.js";
 import { KnowledgeStore } from "./knowledge/knowledge-store.js";
 import { ManagedEmbeddingProvider } from "./knowledge/embedding.js";
 import { createVectorStore } from "./knowledge/vector-store.js";
+import { KnowledgeRetrievalService } from "./knowledge/retrieval-service.js";
 import { assertAgentSql } from "./security/sql-policy.js";
 import { DatabaseQueryTool } from "./tools/database-query-tool.js";
 import { MetricSearchTool } from "./tools/metric-search-tool.js";
@@ -48,6 +49,7 @@ const mappingReview = new MappingReviewService(mappingRegistry, permissions);
 const knowledge = new KnowledgeStore();
 const vectors = createVectorStore();
 const embeddings = new ManagedEmbeddingProvider(model);
+const knowledgeRetrieval = new KnowledgeRetrievalService(knowledge, vectors, embeddings, model);
 const tools = new ToolRegistry()
   .register(new MetricSearchTool())
   .register(new SchemaSearchTool(permissions, mappingRegistry))
@@ -57,6 +59,7 @@ const workflows = new WorkflowStore();
 const workflowEngine = new WorkflowEngine({
   store: workflows,
   models: model,
+  knowledgeRetrieval,
   permissions,
   connection: (context, id) => getConnectionItem(id, context).config,
 });
@@ -78,7 +81,7 @@ app.get("/api/me", (request, response) => {
 });
 
 installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getConnectionItem(datasourceId, context); });
-installKnowledgeRoutes(app, knowledge, vectors, embeddings, identity, model);
+installKnowledgeRoutes(app, knowledge, vectors, embeddings, identity, model, knowledgeRetrieval);
 installModelRoutes(app, model, permissions, identity);
 installWorkflowRoutes(app, workflows, workflowEngine, identity);
 

@@ -59,14 +59,16 @@ export class ModelService implements StructuredModelClient {
     }
   }
 
-  async chat(context: RequestContext, modelId: string, messages: ChatMessage[]) {
+  async chat(context: RequestContext, modelId: string, messages: ChatMessage[], options: { temperature?: number; timeout?: number; maxTokens?: number; structured?: boolean; onToken?: (token: string) => void } = {}) {
     const model = this.store.runtime(context, modelId);
     if (!model.enabled || !isChatCapableModel(model)) throw new Error("所选模型不是已启用的 LLM 模型");
     return this.providers.get(model.provider).chat(model, {
       messages,
-      temperature: model.temperature,
-      timeout: model.timeout,
-      maxTokens: Math.min(4000, model.contextWindow),
+      temperature: options.temperature ?? model.temperature,
+      timeout: options.timeout ?? model.timeout,
+      maxTokens: Math.min(options.maxTokens ?? 4000, model.contextWindow),
+      structured: options.structured,
+      onToken: options.onToken,
     });
   }
 

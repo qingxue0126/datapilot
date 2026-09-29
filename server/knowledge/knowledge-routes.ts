@@ -17,9 +17,10 @@ export function installKnowledgeRoutes(
   embeddings: EmbeddingProvider,
   resolveIdentity: (request: Request) => RequestContext,
   reranker?: RerankService,
+  retrievalService?: KnowledgeRetrievalService,
 ) {
   const pipeline = new DocumentPipeline(store, vectors, embeddings);
-  const retrieval = new KnowledgeRetrievalService(store, vectors, embeddings, reranker);
+  const retrieval = retrievalService || new KnowledgeRetrievalService(store, vectors, embeddings, reranker);
 
   app.get("/api/knowledge-bases", (request, response) => {
     try { response.json({ items: store.list(resolveIdentity(request)), vectorStore: vectors.provider }); }

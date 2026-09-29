@@ -66,6 +66,7 @@ export type ChatRequest = {
   timeout: number;
   maxTokens?: number;
   structured?: boolean;
+  onToken?: (token: string) => void;
 };
 export type ChatResponse = { content: string; latencyMs: number };
 

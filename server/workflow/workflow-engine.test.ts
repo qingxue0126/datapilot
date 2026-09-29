@@ -3,6 +3,7 @@ import test from "node:test";
 import type { RequestContext } from "../core/types.js";
 import { PermissionService } from "../auth/permission-service.js";
 import type { ModelService } from "../llm/model-service.js";
+import type { KnowledgeRetrievalService } from "../knowledge/retrieval-service.js";
 import { WorkflowEngine, resolveValue, validateAndSort } from "./workflow-engine.js";
 import { WorkflowStore } from "./workflow-store.js";
 import type { WorkflowDefinition } from "./workflow-types.js";
@@ -37,6 +38,33 @@ test("workflow engine executes a DAG, resolves variables, and skips an inactive 
   assert.equal(run.nodeRuns.find((item) => item.nodeId === "success")?.status, "success");
 });
 
+test("references to an intentionally skipped branch resolve as empty values for downstream merge nodes", async () => {
+  const store = new WorkflowStore(":memory:");
+  const created = store.createAgent(context, { name: "分支合流" });
+  store.saveWorkflow(context, created.agent.id, {
+    variables: {},
+    nodes: [
+      { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "开始", config: {} } },
+      { id: "condition", type: "condition", position: { x: 1, y: 0 }, data: { label: "判断", config: { left: "known", operator: "==", right: "missing" } } },
+      { id: "form", type: "assign", position: { x: 2, y: -1 }, data: { label: "表单", config: { assignments: { product: "{{start.output.product}}" } } } },
+      { id: "merge", type: "assign", position: { x: 2, y: 1 }, data: { label: "合并", config: { assignments: { optionalProduct: "{{form.output.product}}" } } } },
+      { id: "end", type: "end", position: { x: 3, y: 0 }, data: { label: "结束", config: { output: "{{merge.output}}" } } },
+    ],
+    edges: [
+      { id: "a", source: "start", target: "condition" },
+      { id: "b", source: "condition", target: "form", sourceHandle: "true" },
+      { id: "c", source: "condition", target: "merge", sourceHandle: "false" },
+      { id: "d", source: "form", target: "merge" },
+      { id: "e", source: "merge", target: "end" },
+    ],
+  });
+  const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models: {} as ModelService, connection: () => { throw new Error("unused"); } });
+  const run = await engine.run(context, created.agent.id, {});
+  assert.equal(run.status, "success");
+  assert.deepEqual(run.output, { optionalProduct: "" });
+  assert.equal(run.nodeRuns.find((item) => item.nodeId === "form")?.status, "skipped");
+});
+
 test("start.output resolves runtime input when an imported start node keeps the RAGFlow begin id", async () => {
   const store = new WorkflowStore(":memory:");
   const created = store.createAgent(context, { name: "RAGFlow 开始节点兼容" });
@@ -55,6 +83,29 @@ test("start.output resolves runtime input when an imported start node keeps the 
   assert.deepEqual(run.output, { query: "凭证问题" });
 });
 
+test("start node validates configured required input fields and their types", async () => {
+  const store = new WorkflowStore(":memory:");
+  const created = store.createAgent(context, { name: "开始输入校验" });
+  store.saveWorkflow(context, created.agent.id, {
+    variables: {},
+    nodes: [
+      { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "开始", config: { mode: "task", inputs: [{ key: "query", name: "问题", type: "string", required: true }, { key: "limit", name: "数量", type: "number", required: false }] } } },
+      { id: "end", type: "end", position: { x: 1, y: 0 }, data: { label: "结束", config: { output: "{{start.output}}" } } },
+    ],
+    edges: [{ id: "a", source: "start", target: "end" }],
+  });
+  const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models: {} as ModelService, connection: () => { throw new Error("unused"); } });
+  const missing = await engine.run(context, created.agent.id, {});
+  assert.equal(missing.status, "failed");
+  assert.match(missing.error || "", /运行输入缺少字段：query/);
+  const invalid = await engine.run(context, created.agent.id, { query: "问题", limit: "10" });
+  assert.equal(invalid.status, "failed");
+  assert.match(invalid.error || "", /limit 类型错误，应为 number/);
+  const success = await engine.run(context, created.agent.id, { query: "问题", limit: 10 });
+  assert.equal(success.status, "success");
+  assert.deepEqual(success.output, { query: "问题", limit: 10 });
+});
+
 test("workflow validation rejects cycles and variable resolution preserves full JSON values", () => {
   const cyclic: WorkflowDefinition = {
     variables: {},
@@ -70,6 +121,7 @@ test("workflow validation rejects cycles and variable resolution preserves full 
     () => resolveValue("{{start.output.query}}", { start: { output: {} } }),
     /运行输入缺少字段：query/,
   );
+  assert.equal(resolveValue("{{start.output.company_name?}}", { start: { output: {} } }), "");
 });
 
 test("code nodes cannot access host modules", async () => {
@@ -89,4 +141,74 @@ test("code nodes cannot access host modules", async () => {
   assert.equal(run.status, "failed");
   assert.match(run.error || "", /禁止访问系统/);
   assert.equal(run.nodeRuns.find((item) => item.nodeId === "end")?.status, "skipped");
+});
+
+test("knowledge retrieval nodes resolve dynamic filters and expose complete retrieval output", async () => {
+  const store = new WorkflowStore(":memory:");
+  const created = store.createAgent(context, { name: "客服检索" });
+  store.saveWorkflow(context, created.agent.id, {
+    variables: {},
+    nodes: [
+      { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "开始", config: {} } },
+      { id: "retrieve", type: "knowledge_retrieval", position: { x: 1, y: 0 }, data: { label: "知识库检索", config: { knowledgeBaseId: "kb-1", query: "{{start.output.query}}", filters: { Porduct: "{{start.output.product}}" }, retrievalMode: "hybrid", topK: 5, scoreThreshold: 0.2, rerank: false } } },
+      { id: "end", type: "end", position: { x: 2, y: 0 }, data: { label: "结束", config: { output: "{{retrieve.output}}" } } },
+    ],
+    edges: [{ id: "a", source: "start", target: "retrieve" }, { id: "b", source: "retrieve", target: "end" }],
+  });
+  let request: Record<string, unknown> | undefined;
+  const retrieval = { retrieve: async (_context: RequestContext, value: Record<string, unknown>) => {
+    request = value;
+    return { items: [{ rank: 1, chunkId: "c1", documentId: "d1", filename: "qa.xlsx", fileType: "XLSX", chunkIndex: 0, content: "Question：如何增加外币科目？\nAnswer：进入设置。", score: 0.91, metadata: { Porduct: "好会计" } }] };
+  } } as unknown as KnowledgeRetrievalService;
+  const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models: {} as ModelService, knowledgeRetrieval: retrieval, connection: () => { throw new Error("unused"); } });
+  const run = await engine.run(context, created.agent.id, { query: "怎么增加外币科目？", product: "好会计" });
+  assert.equal(run.status, "success");
+  assert.deepEqual(request?.filters, { Porduct: "好会计" });
+  assert.equal((run.output as { hitCount: number }).hitCount, 1);
+  assert.equal((run.output as { topScore: number }).topScore, 0.91);
+  assert.match((run.output as { items: { content: string }[] }).items[0].content, /Question/);
+});
+
+test("Agent autonomously calls a configured knowledge tool, carries memory, and records trace details", async () => {
+  const store = new WorkflowStore(":memory:");
+  const created = store.createAgent(context, { name: "通用 Agent 工具循环" });
+  store.saveWorkflow(context, created.agent.id, {
+    variables: {},
+    nodes: [
+      { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "开始", config: {} } },
+      { id: "agent", type: "agent", position: { x: 1, y: 0 }, data: { label: "Agent", config: {
+        input: "{{start.output.query}}", modelId: "model-1", systemPrompt: "通用助理", userPrompt: "问题：{{agent.input}}",
+        maxIterations: 2, timeoutMs: 30000, streaming: false, memory: true,
+        tools: [{ id: "kb-tool", type: "knowledge_retrieval", name: "kb_search", description: "搜索知识", knowledgeBaseId: "kb-1", filters: { tenant: "acme" }, dynamicFilters: true, retrievalMode: "hybrid", topK: 3, scoreThreshold: 0.1, rerank: true, rerankModel: "ranker", rerankTopK: 2, vectorWeight: 0.6 }],
+      } } },
+      { id: "end", type: "end", position: { x: 2, y: 0 }, data: { label: "结束", config: { output: "{{agent.output.text}}" } } },
+    ],
+    edges: [{ id: "a", source: "start", target: "agent" }, { id: "b", source: "agent", target: "end" }],
+  });
+  const calls: { messages: { role: string; content: string }[]; options?: Record<string, unknown> }[] = [];
+  const models = { chat: async (_context: RequestContext, _modelId: string, messages: { role: string; content: string }[], options?: Record<string, unknown>) => {
+    calls.push({ messages, options });
+    return { content: calls.length === 1
+      ? '{"action":"tool_call","tool_name":"kb_search","arguments":{"query":"查找退款策略","filters":{"product":"Pro"}}}'
+      : "请按现行退款策略提交申请。", latencyMs: 12 };
+  } } as unknown as ModelService;
+  let retrievalRequest: Record<string, unknown> | undefined;
+  const knowledgeRetrieval = { retrieve: async (_context: RequestContext, request: Record<string, unknown>) => {
+    retrievalRequest = request;
+    return { items: [{ rank: 1, chunkId: "c1", documentId: "d1", filename: "policy.md", fileType: "MD", chunkIndex: 0, content: "可在订单页申请退款。", score: 0.94, metadata: { product: "Pro" } }] };
+  } } as unknown as KnowledgeRetrievalService;
+  const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models, knowledgeRetrieval, connection: () => { throw new Error("unused"); } });
+  const run = await engine.run(context, created.agent.id, { query: "如何退款？", __conversationHistory: [{ role: "user", content: "上一轮问过订单状态" }, { role: "assistant", content: "请提供订单号" }] });
+
+  assert.equal(run.status, "success");
+  assert.equal(run.output, "请按现行退款策略提交申请。");
+  assert.deepEqual(retrievalRequest?.filters, { tenant: "acme", product: "Pro" });
+  assert.equal(retrievalRequest?.query, "查找退款策略");
+  assert.equal(retrievalRequest?.retrievalMode, "hybrid");
+  assert.match(calls[0].messages.map((message) => message.content).join("\n"), /上一轮问过订单状态/);
+  assert.match(calls[1].messages.map((message) => message.content).join("\n"), /可在订单页申请退款/);
+  const agentRun = run.nodeRuns.find((item) => item.nodeId === "agent");
+  const trace = (agentRun?.output as { trace: { type: string; durationMs: number }[] }).trace;
+  assert.deepEqual(trace.map((item) => item.type), ["llm", "tool", "llm"]);
+  assert.ok(trace.every((item) => item.durationMs >= 0));
 });

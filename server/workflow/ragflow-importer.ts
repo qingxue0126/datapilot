@@ -65,6 +65,13 @@ export function importRagflowWorkflow(value: unknown, options: { defaultModelId?
   } else if (startNodes.length > 1) {
     throw new Error("RAGFlow 工作流包含多个 Begin 节点，无法确定唯一入口");
   }
+  const startNode = nodes.find((node) => node.type === "start");
+  if (startNode) {
+    const existing = Array.isArray(startNode.data.config.inputs) ? startNode.data.config.inputs : [];
+    const supplemental = sourceNodes.filter((source) => sourceKind(source) === "userfillup").flatMap((source) => ragflowInputDefinitions(optionalObject(optionalObject(source.data).form), false));
+    const seen = new Set(existing.map((item) => String(optionalObject(item).key || "")));
+    startNode.data.config.inputs = [...existing, ...supplemental.filter((item) => !seen.has(String(item.key)))];
+  }
 
   const edges: WorkflowEdge[] = [];
   for (const [index, raw] of sourceEdges.entries()) {
@@ -103,7 +110,7 @@ export function importRagflowWorkflow(value: unknown, options: { defaultModelId?
 }
 
 function convertConfig(nodeId: string, source: string, target: WorkflowNodeType, form: JsonObject, mappedTypes: Map<string, WorkflowNodeType>, defaultModelId: string, unsupported: RagflowImportReport["unsupported"]): JsonObject {
-  if (target === "start") return {};
+  if (target === "start") return convertStartConfig(form);
   if (target === "llm") {
     const prompts = Array.isArray(form.prompts) ? form.prompts.map(optionalObject) : [];
     const userPrompt = prompts.filter((item) => String(item.role || "user") === "user").map((item) => String(item.content || "")).filter(Boolean).join("\n\n") || String(form.user_prompt || "") || "{sys.query}";
@@ -125,8 +132,8 @@ function convertConfig(nodeId: string, source: string, target: WorkflowNodeType,
     };
   }
   if (source === "userfillup") {
-    const fields = Object.keys(optionalObject(form.outputs ?? form.inputs));
-    const assignments = Object.fromEntries(fields.map((field) => [field, `{{start.output.${field}}}`]));
+    const fields = ragflowInputDefinitions(form, true);
+    const assignments = Object.fromEntries(fields.map((field) => [String(field.key), `{{start.output.${String(field.key)}${field.required === false ? "?" : ""}}}`]));
     unsupported.push({ nodeId, sourceType: "UserFillUp", replacement: "assign", reason: "DataPilot V1 暂不支持运行中暂停收集表单，已改为从运行输入读取同名字段。" });
     return { assignments };
   }
@@ -144,6 +151,32 @@ function convertConfig(nodeId: string, source: string, target: WorkflowNodeType,
   }
   unsupported.push({ nodeId, sourceType: source || "unknown", replacement: "code", reason: "DataPilot 暂无对应执行器，已保留节点和原始配置供手动适配。" });
   return { input: "{{start.output}}", code: `return { importedNode: ${JSON.stringify(source || "unknown")}, requiresConfiguration: true, input };`, importedConfig: form };
+}
+
+function convertStartConfig(form: JsonObject): JsonObject {
+  const sourceMode = String(form.mode || "conversational").toLowerCase();
+  const mode = sourceMode === "task" ? "task" : sourceMode === "webhook" ? "webhook" : "conversation";
+  const inputs = ragflowInputDefinitions(form, true);
+  return {
+    mode,
+    enablePrologue: form.enablePrologue !== false,
+    prologue: String(form.prologue || ""),
+    inputs,
+    webhookMethod: String(form.method || "GET").toUpperCase(),
+    webhookSecurity: "none",
+    webhookRequestMode: "json",
+    webhookResponseMode: "workflow",
+  };
+}
+
+function ragflowInputDefinitions(form: JsonObject, preserveRequired: boolean) {
+  const rawInputs = optionalObject(form.inputs ?? form.outputs);
+  return Object.entries(rawInputs).map(([key, raw]) => {
+    const input = optionalObject(raw);
+    const sourceType = String(input.type || "string").toLowerCase();
+    const type = sourceType === "number" ? "number" : sourceType === "boolean" ? "boolean" : sourceType === "object" ? "object" : "string";
+    return { key, name: String(input.name || input.label || key), type, required: preserveRequired ? input.optional !== true && input.required !== false : false, options: Array.isArray(input.options) ? input.options.map(String) : undefined };
+  });
 }
 
 function convertReferences(value: string, mappedTypes: Map<string, WorkflowNodeType>) {

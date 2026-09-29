@@ -1,4 +1,4 @@
-export const workflowNodeTypes = ["start", "llm", "sql", "http", "code", "condition", "assign", "end"] as const;
+export const workflowNodeTypes = ["start", "llm", "agent", "knowledge_retrieval", "sql", "http", "code", "condition", "assign", "end"] as const;
 export type WorkflowNodeType = typeof workflowNodeTypes[number];
 export type WorkflowStatus = "draft" | "published" | "disabled";
 export type WorkflowRunStatus = "pending" | "running" | "success" | "failed";
@@ -74,7 +74,7 @@ export type WorkflowRun = {
 
 export const initialWorkflow = (): WorkflowDefinition => ({
   nodes: [
-    { id: "start", type: "start", position: { x: 120, y: 240 }, data: { label: "开始", config: {} } },
+    { id: "start", type: "start", position: { x: 120, y: 240 }, data: { label: "开始", config: { mode: "conversation", enablePrologue: true, prologue: "您好，请描述您遇到的问题。", inputs: [], webhookMethod: "GET", webhookSecurity: "none", webhookRequestMode: "json", webhookResponseMode: "workflow" } } },
     { id: "end", type: "end", position: { x: 520, y: 240 }, data: { label: "结束", config: { output: "{{start.output}}" } } },
   ],
   edges: [{ id: "start-end", source: "start", target: "end" }],

@@ -24,7 +24,7 @@ export interface ModelProvider {
 export class OpenAICompatibleProvider implements ModelProvider {
   async chat(model: RuntimeModelConfig, request: ChatRequest): Promise<ChatResponse> {
     return this.sendChat(model, request.messages, request.temperature, request.timeout, request.maxTokens,
-      Boolean(request.structured && model.supportsStructuredOutput));
+      Boolean(request.structured && model.supportsStructuredOutput), false, request.onToken);
   }
 
   async multimodalChat(model: RuntimeModelConfig, request: MultimodalChatRequest): Promise<ChatResponse> {
@@ -77,6 +77,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     maxTokens?: number,
     structured = false,
     disableThinking = false,
+    onToken?: (token: string) => void,
   ): Promise<ChatResponse> {
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -89,10 +90,16 @@ export class OpenAICompatibleProvider implements ModelProvider {
         body: JSON.stringify({ model: model.modelId, messages, temperature,
           ...(maxTokens ? { max_tokens: maxTokens } : {}),
           ...(structured ? { response_format: { type: "json_object" } } : {}),
+          ...(onToken ? { stream: true } : {}),
           // DeepSeek may spend a short test's entire output budget on reasoning.
           // Connection tests only need a final answer, so explicitly disable it.
           ...(disableThinking ? { thinking: { type: "disabled" } } : {}) }),
       });
+      if (onToken && response.ok && response.headers.get("content-type")?.includes("text/event-stream")) {
+        const content = await readChatStream(response, onToken);
+        if (!content.trim()) throw new Error("模型未返回有效内容");
+        return { content, latencyMs: Date.now() - startedAt };
+      }
       const raw = await response.text();
       const body = parseResponse(raw);
       if (!response.ok) throw new Error(`模型请求失败（${response.status}）：${safeError(body)}`);
@@ -102,6 +109,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
       // a false negative when the HTTP request itself succeeded.
       const content = message?.content?.trim() || message?.reasoning_content?.trim();
       if (!content) throw new Error("模型未返回有效内容");
+      if (onToken) onToken(content);
       return { content, latencyMs: Date.now() - startedAt };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") throw new Error(`模型请求超时（${timeout}ms）`);
@@ -153,6 +161,35 @@ export class OpenAICompatibleProvider implements ModelProvider {
       throw error;
     } finally { clearTimeout(timer); }
   }
+}
+
+async function readChatStream(response: Response, onToken: (token: string) => void) {
+  if (!response.body) throw new Error("模型未提供流式响应内容");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let content = "";
+  const consumeLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return;
+    const data = trimmed.slice(5).trim();
+    if (!data || data === "[DONE]") return;
+    let payload: { choices?: { delta?: { content?: string | null }; message?: { content?: string | null } }[]; error?: { message?: string } };
+    try { payload = JSON.parse(data) as typeof payload; } catch { return; }
+    if (payload.error?.message) throw new Error(payload.error.message.slice(0, 300));
+    const token = payload.choices?.[0]?.delta?.content || payload.choices?.[0]?.message?.content || "";
+    if (token) { content += token; onToken(token); }
+  };
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    for (const line of lines) consumeLine(line);
+    if (done) break;
+  }
+  if (buffer) consumeLine(buffer);
+  return content;
 }
 
 const testImageDataUrl = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";

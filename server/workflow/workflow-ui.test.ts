@@ -13,12 +13,28 @@ test("sidebar places the agent module between new analysis and datasource naviga
 });
 
 test("agent studio exposes all V1 nodes, workflow controls, and execution inspection", () => {
-  for (const label of ["开始", "LLM", "SQL 查询", "HTTP 请求", "代码", "条件分支", "变量赋值", "结束"]) assert.match(studio, new RegExp(label));
+  for (const label of ["开始", "LLM", "Agent", "知识库检索", "SQL 查询", "HTTP 请求", "代码", "条件分支", "变量赋值", "结束"]) assert.match(studio, new RegExp(label));
+  for (const section of ["用户输入（支持变量引用）", "系统提示词", "用户提示词", "Tools", "最大迭代次数", "响应超时", "流式输出", "上下文 / Memory", "高级设置 · 模型参数"]) assert.match(studio, new RegExp(section));
   for (const control of ["保存", "运行", "Input", "Output", "Error", "Duration"]) assert.match(studio, new RegExp(control));
   assert.match(studio, /导入 JSON 文件/);
   assert.match(studio, /accept="\.json,application\/json"/);
   assert.match(studio, /createRunInputTemplate/);
-  assert.match(studio, /请在运行输入中填写/);
+  assert.match(studio, /请在右侧运行面板补充字段/);
+  for (const mode of ["对话", "任务", "网络钩子"]) assert.match(studio, new RegExp(mode));
+  for (const setting of ["开场白开关", "开场白文案", "Webhook URL", "Security", "Response"]) assert.match(studio, new RegExp(setting));
   assert.match(studio, /ReactFlow/);
   assert.match(studio, /application\/datapilot-node/);
+  for (const setting of ["Metadata Filters", "检索方式", "Score Threshold", "重排模型", "重排 Top K"]) assert.match(studio, new RegExp(setting));
+});
+
+test("workflow run opens a mode-aware side panel instead of a top JSON input", () => {
+  assert.doesNotMatch(studio, /className="agent-run-input"/);
+  assert.match(studio, /setRunnerOpen\(true\)/);
+  assert.match(studio, /agent-runner-shell/);
+  assert.match(studio, /对话调试/);
+  assert.match(studio, /任务运行/);
+  assert.match(studio, /执行日志/);
+  assert.match(studio, /请输入消息/);
+  assert.match(studio, /extractConversationInput\(query, inputs, conversationValues\)/);
+  assert.match(studio, /execute\(\{ \.\.\.nextInput, __conversationHistory: history \}\)/);
 });
