@@ -77,3 +77,15 @@ test("agent editor exposes publish, version history, logs, export, settings, and
   assert.match(studio, /\/workflow-runs\/\$\{id\}/);
   assert.match(studio, /URL\.createObjectURL/);
 });
+
+test("team agent permissions and smart Q&A configuration expose use and edit flows", () => {
+  assert.match(studio, /成员权限/);
+  assert.match(studio, /<option value="use">使用<\/option>/);
+  assert.match(studio, /<option value="edit">编辑<\/option>/);
+  assert.match(studio, /accessLevel !== "use"/);
+  assert.match(page, /chat-config-trigger/);
+  assert.match(page, />智能体<select value=\{selectedAgentId\}/);
+  assert.match(page, />知识库<select disabled=\{Boolean\(selectedAgentId\)\}/);
+  assert.match(page, /chat-config-summary/);
+  assert.match(page, /\/api\/agents\/\$\{encodeURIComponent\(selectedAgentId\)\}\/run/);
+});

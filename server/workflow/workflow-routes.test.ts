@@ -11,7 +11,7 @@ test("RAGFlow import API creates a tenant-scoped editable workflow", async () =>
   const store = new WorkflowStore(":memory:");
   const app = express(); app.use(express.json({ limit: "6mb" }));
   installWorkflowRoutes(app, store, {} as WorkflowEngine, (request: Request) => ({
-    tenantId: String(request.header("x-tenant") || "tenant-a"), accountSetId: "books", userId: String(request.header("x-user") || "alice"), role: "tenant_admin", sessionId: "s",
+    tenantId: String(request.header("x-tenant") || "tenant-a"), accountSetId: "books", userId: String(request.header("x-user") || "alice"), role: request.header("x-role") === "member" ? "finance_viewer" : "tenant_admin", sessionId: "s",
   } satisfies RequestContext));
   const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
   const address = server.address(); if (!address || typeof address === "string") throw new Error("测试服务未启动");
@@ -44,7 +44,12 @@ test("RAGFlow import API creates a tenant-scoped editable workflow", async () =>
     const exported = await fetch(`${base}/api/agents/${imported.agent.id}/export`);
     assert.match(exported.headers.get("content-disposition") || "", /attachment/);
     assert.equal((await exported.json() as { format: string }).format, "datapilot-agent");
-    assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob" } })).status, 200);
-    assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob", "x-tenant": "tenant-b" } })).status, 404);
+    assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob", "x-role": "member" } })).status, 403);
+    const grant = await fetch(`${base}/api/agents/${imported.agent.id}/member-permissions/bob`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access: "use" }) });
+    assert.equal(grant.status, 200);
+    const bobList = await fetch(`${base}/api/agents`, { headers: { "x-user": "bob", "x-role": "member" } });
+    assert.equal((await bobList.json() as { items: unknown[] }).items.length, 1);
+    assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob", "x-role": "member" } })).status, 403);
+    assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob", "x-tenant": "tenant-b", "x-role": "member" } })).status, 403);
   } finally { server.close(); await once(server, "close"); }
 });

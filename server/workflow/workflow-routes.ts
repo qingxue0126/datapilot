@@ -25,11 +25,13 @@ export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine
       throw error;
     }
   }, 201));
-  app.get("/api/agents/:id", (request, response) => handle(response, () => ({ agent: store.getAgent(identity(request), request.params.id), workflow: store.getWorkflow(identity(request), request.params.id), runs: store.listRuns(identity(request), request.params.id) })));
+  app.get("/api/agents/:id", (request, response) => handle(response, () => { const context = identity(request); store.requireEdit(context, request.params.id); return { agent: store.getAgent(context, request.params.id), workflow: store.getWorkflow(context, request.params.id), runs: store.listRuns(context, request.params.id) }; }));
   app.patch("/api/agents/:id", (request, response) => handle(response, () => ({ agent: store.updateAgent(identity(request), request.params.id, request.body || {}) })));
   app.delete("/api/agents/:id", (request, response) => handle(response, () => { store.deleteAgent(identity(request), request.params.id); return undefined; }, 204));
   app.post("/api/agents/:id/copy", (request, response) => handle(response, () => store.copyAgent(identity(request), request.params.id), 201));
   app.post("/api/agents/:id/publish", (request, response) => handle(response, () => store.publish(identity(request), request.params.id, request.body?.enabled !== false, request.body?.permission)));
+  app.get("/api/agents/:id/member-permissions", (request, response) => handle(response, () => ({ items: store.listMemberPermissions(identity(request), request.params.id) })));
+  app.put("/api/agents/:id/member-permissions/:userId", (request, response) => handle(response, () => ({ items: store.setMemberPermission(identity(request), request.params.id, request.params.userId, request.body?.access === null ? null : request.body?.access) })));
   app.get("/api/agents/:id/versions", (request, response) => handle(response, () => ({ items: store.listVersions(identity(request), request.params.id) })));
   app.get("/api/agents/:id/versions/:version", (request, response) => handle(response, () => ({ version: store.getVersion(identity(request), request.params.id, versionNumber(request.params.version)) })));
   app.post("/api/agents/:id/versions/:version/restore", (request, response) => handle(response, () => ({ workflow: store.restoreVersion(identity(request), request.params.id, versionNumber(request.params.version)), agent: store.getAgent(identity(request), request.params.id) })));

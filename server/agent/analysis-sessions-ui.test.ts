@@ -27,7 +27,7 @@ test("empty new sessions stay out of the recent list until the first exchange is
 });
 
 test("query requests carry the selected session id and render a message stream", () => {
-  assert.match(page, /JSON\.stringify\(\{ sessionId, question: query, connectionId: activeSource\.connectionId, model: selectedModel \}\)/);
+  assert.match(page, /JSON\.stringify\(\{ sessionId, question: query, connectionId: activeSource\.connectionId, model: selectedModel, knowledgeBaseId:/);
   assert.match(page, /className="message-stream"/);
   assert.match(page, /item\.role === "user"/);
 });
@@ -40,7 +40,7 @@ test("the composer moves below the message stream after a conversation starts", 
 
 test("conversation mode removes the top bar and landing hero", () => {
   assert.match(page, /const chatHasConversation = view === "chat" && messages\.length > 0/);
-  assert.match(page, /\{!chatHasConversation && <header className="topbar">/);
+  assert.match(page, /\{!chatHasConversation && view !== "agents" && <header className="topbar">/);
   assert.match(page, /\{!hasConversation && <section className="hero-copy">/);
 });
 
@@ -56,7 +56,7 @@ test("user messages render without an avatar", () => {
 });
 
 test("chat exposes model selection and model management navigation", () => {
-  assert.match(page, /<ModelSelector models=\{models\} value=\{selectedModel\}/);
+  assert.match(page, />模型<select disabled=\{Boolean\(selectedAgentId\)\} value=\{selectedModel\}/);
   assert.match(page, />模型管理<\/button>/);
   assert.match(page, /<ModelManagement models=\{models\}/);
 });

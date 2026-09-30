@@ -2,6 +2,7 @@ export const workflowNodeTypes = ["start", "llm", "agent", "knowledge_retrieval"
 export type WorkflowNodeType = typeof workflowNodeTypes[number];
 export type WorkflowStatus = "draft" | "published" | "disabled";
 export type AgentPermission = "private" | "tenant";
+export type AgentAccess = "use" | "edit";
 export type WorkflowRunStatus = "pending" | "running" | "success" | "failed";
 export type WorkflowNodeRunStatus = "pending" | "running" | "success" | "failed" | "skipped";
 
@@ -32,6 +33,8 @@ export type AgentRecord = {
   description: string;
   status: WorkflowStatus;
   permission: AgentPermission;
+  ownerId: string;
+  accessLevel: AgentAccess | "owner";
   currentVersion: number;
   createdAt: string;
   updatedAt: string;

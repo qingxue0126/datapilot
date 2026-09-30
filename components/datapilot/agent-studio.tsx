@@ -42,14 +42,14 @@ async function readJson(response: Response) {
 type NodeKind = "start" | "llm" | "agent" | "knowledge_retrieval" | "sql" | "http" | "code" | "condition" | "assign" | "end";
 type NodeState = "pending" | "running" | "success" | "failed" | "skipped";
 type AgentPermission = "private" | "tenant";
-type AgentItem = { id: string; name: string; description: string; status: "draft" | "published" | "disabled"; permission: AgentPermission; currentVersion: number; createdAt: string; updatedAt: string };
+type AgentItem = { id: string; name: string; description: string; status: "draft" | "published" | "disabled"; permission: AgentPermission; ownerId: string; accessLevel: "use" | "edit" | "owner"; currentVersion: number; createdAt: string; updatedAt: string };
 type NodeData = { label: string; nodeType: NodeKind; config: Record<string, unknown>; runStatus?: NodeState; modelName?: string; connectedTools?: string[] };
 type FlowNode = Node<NodeData>;
 type WorkflowDefinition = { nodes: { id: string; type: NodeKind; position: { x: number; y: number }; data: { label: string; config: Record<string, unknown> } }[]; edges: Edge[]; variables: Record<string, unknown> };
 type NodeRun = { nodeId: string; nodeType?: NodeKind; status: NodeState; input: unknown; output: unknown; error: string | null; durationMs: number };
 type WorkflowRun = { id: string; workflowVersion?: number; status: "pending" | "running" | "success" | "failed"; input?: unknown; output: unknown; error: string | null; durationMs: number; startedAt?: string; finishedAt?: string | null; nodeRuns: NodeRun[] };
 type WorkflowVersion = { id: string; agentId: string; version: number; definition: WorkflowDefinition; status: "published"; createdAt: string };
-type ManagePanel = "versions" | "logs" | "settings";
+type ManagePanel = "versions" | "logs" | "settings" | "permissions";
 type DataSourceOption = { connectionId: string; name: string };
 type KnowledgeBaseOption = { id: string; name: string; documentCount?: number; chunkCount?: number };
 type ChatMessage = { id: string; role: "assistant" | "user"; content: string };
@@ -116,7 +116,7 @@ const logicNodes = nodeCatalog.filter((item) => item.type === "condition");
 
 const flowNodeTypes = Object.fromEntries(nodeCatalog.map((item) => [item.type, WorkflowNodeCard]));
 
-export function AgentStudio({ models }: { models: ModelOption[] }) {
+export function AgentStudio({ models, canManageTenant = false }: { models: ModelOption[]; canManageTenant?: boolean }) {
   const [agents, setAgents] = useState<AgentItem[]>([]);
   const [active, setActive] = useState<AgentItem | null>(null);
   const [nodes, setNodes] = useState<FlowNode[]>([]);
@@ -368,7 +368,7 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
   if (active) return <div className="agent-editor-page">
     <header className="agent-editor-header">
       <div><button onClick={() => { setActive(null); setRun(null); void loadAgents(); }}>← 智能体列表</button><h2>{active.name}</h2><span className={`agent-status ${active.status}`}>{statusLabel(active.status)}</span><small>v{active.currentVersion}</small></div>
-      <div className="agent-editor-actions"><button onClick={() => setRunnerOpen(true)} disabled={running}>{running ? "运行中…" : "▶ 运行"}</button><span className="agent-manage-wrap"><button className="agent-manage-trigger" onClick={() => setManageOpen((open) => !open)}><PaletteChevronIcon />管理</button>{manageOpen && <menu className="agent-manage-menu"><button onClick={() => void openManage("versions")}>历史版本</button><button onClick={() => void openManage("logs")}>日志</button><button onClick={() => void exportAgent()}>导出</button><button onClick={() => void openManage("settings")}>设置</button></menu>}</span><button className="save-action" onClick={() => void save()} disabled={saving || running}>{saving ? "保存中…" : "保存"}</button><button className="primary-action" onClick={() => setPublishOpen(true)}>发布</button></div>
+      <div className="agent-editor-actions"><button onClick={() => setRunnerOpen(true)} disabled={running}>{running ? "运行中…" : "▶ 运行"}</button><span className="agent-manage-wrap"><button className="agent-manage-trigger" onClick={() => setManageOpen((open) => !open)}><PaletteChevronIcon />管理</button>{manageOpen && <menu className="agent-manage-menu"><button onClick={() => void openManage("versions")}>历史版本</button><button onClick={() => void openManage("logs")}>日志</button><button onClick={() => void exportAgent()}>导出</button><button onClick={() => void openManage("settings")}>设置</button>{canManageTenant && active.permission === "tenant" && <button onClick={() => void openManage("permissions")}>成员权限</button>}</menu>}</span><button className="save-action" onClick={() => void save()} disabled={saving || running}>{saving ? "保存中…" : "保存"}</button><button className="primary-action" onClick={() => setPublishOpen(true)}>发布</button></div>
     </header>
     {notice && <div className={`agent-notice ${run?.status === "failed" ? "error" : ""}`}>{notice}</div>}
     <div className="agent-builder">
@@ -387,13 +387,14 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
     {managePanel === "versions" && <VersionPanel versions={versions} close={() => setManagePanel(null)} restore={restoreVersion} />}
     {managePanel === "logs" && <RunHistoryPanel runs={historyRuns} selected={historyRun} close={() => setManagePanel(null)} select={showRunDetail} />}
     {managePanel === "settings" && <AgentSettingsDialog agent={active} close={() => setManagePanel(null)} submit={async (values) => { try { const response = await api(`/api/agents/${active.id}`, { method: "PATCH", headers: jsonHeaders, body: JSON.stringify(values) }); const data = await readJson(response); if (!response.ok) throw new Error(data.error || "设置保存失败"); setActive(data.agent); setAgents((items) => items.map((item) => item.id === data.agent.id ? data.agent : item)); setManagePanel(null); setNotice("智能体设置已保存"); } catch (error) { setNotice(message(error)); } }} />}
+    {managePanel === "permissions" && <AgentMemberPermissions agent={active} close={() => setManagePanel(null)} notify={setNotice} />}
   </div>;
 
   return <div className="module-content agent-list-page">
     <div className="module-heading"><div><span className="eyebrow">AGENT WORKFLOW</span><h2>智能体</h2><p>用可视化工作流连接模型、数据和业务动作。</p></div><div className="module-heading-actions"><button onClick={() => importInputRef.current?.click()} disabled={importing}>{importing ? "导入中…" : "导入 JSON 文件"}</button><button className="primary-action" onClick={() => setDialog({ mode: "create" })}>＋ 新建智能体</button></div></div>
     <input ref={importInputRef} type="file" accept=".json,application/json" hidden onChange={(event) => void importRagflow(event)} />
     {notice && <div className="agent-notice">{notice}</div>}
-    {loading ? <div className="empty-state"><p>正在加载智能体…</p></div> : agents.length === 0 ? <div className="empty-state agent-empty"><span>◇</span><h3>创建第一个智能体</h3><p>从消息输入节点出发，拖入 LLM、SQL、HTTP 或代码节点。</p><button onClick={() => setDialog({ mode: "create" })}>新建智能体</button></div> : <div className="agent-grid">{agents.map((agent) => <article className="agent-card" key={agent.id} onClick={() => void openAgent(agent).catch((error) => setNotice(message(error)))}><div className="agent-card-icon">◇</div><div><div className="agent-card-title"><h3>{agent.name}</h3><span className={`agent-status ${agent.status}`}>{statusLabel(agent.status)}</span></div><p>{agent.description || "暂无描述"}</p><small>v{agent.currentVersion} · 更新于 {formatDate(agent.updatedAt)}</small></div><footer><button onClick={(event) => { event.stopPropagation(); setDialog({ mode: "edit", agent }); }}>编辑</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/copy`, { method: "POST" }).catch((error) => setNotice(message(error))); }}>复制</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/publish`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ enabled: agent.status !== "published" }) }).catch((error) => setNotice(message(error))); }}>{agent.status === "published" ? "停用" : "发布"}</button><button className="danger" onClick={(event) => { event.stopPropagation(); setDialog({ mode: "delete", agent }); }}>删除</button></footer></article>)}</div>}
+    {loading ? <div className="empty-state"><p>正在加载智能体…</p></div> : agents.filter((item) => item.accessLevel !== "use").length === 0 ? <div className="empty-state agent-empty"><span>◇</span><h3>创建第一个智能体</h3><p>拥有使用权限的团队智能体请在“智能问答”中使用。</p><button onClick={() => setDialog({ mode: "create" })}>新建智能体</button></div> : <div className="agent-grid">{agents.filter((item) => item.accessLevel !== "use").map((agent) => <article className="agent-card" key={agent.id} onClick={() => void openAgent(agent).catch((error) => setNotice(message(error)))}><div className="agent-card-icon">◇</div><div><div className="agent-card-title"><h3>{agent.name}</h3><span className={`agent-status ${agent.status}`}>{statusLabel(agent.status)}</span></div><p>{agent.description || "暂无描述"}</p><small>v{agent.currentVersion} · 更新于 {formatDate(agent.updatedAt)}</small></div><footer><button onClick={(event) => { event.stopPropagation(); setDialog({ mode: "edit", agent }); }}>编辑</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/copy`, { method: "POST" }).catch((error) => setNotice(message(error))); }}>复制</button><button onClick={(event) => { event.stopPropagation(); void mutateAgent(`/api/agents/${agent.id}/publish`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ enabled: agent.status !== "published" }) }).catch((error) => setNotice(message(error))); }}>{agent.status === "published" ? "停用" : "发布"}</button>{agent.ownerId && <button className="danger" onClick={(event) => { event.stopPropagation(); setDialog({ mode: "delete", agent }); }}>删除</button>}</footer></article>)}</div>}
     {dialog && <AgentDialog dialog={dialog} close={() => setDialog(null)} submit={async (values) => { try { if (dialog.mode === "create") await mutateAgent("/api/agents", { method: "POST", headers: jsonHeaders, body: JSON.stringify(values) }); else if (dialog.mode === "edit" && dialog.agent) await mutateAgent(`/api/agents/${dialog.agent.id}`, { method: "PATCH", headers: jsonHeaders, body: JSON.stringify(values) }); else if (dialog.agent) await mutateAgent(`/api/agents/${dialog.agent.id}`, { method: "DELETE" }); setDialog(null); } catch (error) { setNotice(message(error)); } }} />}
   </div>;
 }
@@ -696,6 +697,27 @@ function setNestedInput(setter: (value: (current: Record<string, unknown>) => Re
 
 function PermissionField({ value, change }: { value: AgentPermission; change: (value: AgentPermission) => void }) {
   return <fieldset className="agent-permission"><legend>访问权限</legend><label><input type="radio" checked={value === "private"} onChange={() => change("private")} /><span><strong>仅自己</strong><small>只有创建者可以查看和运行</small></span></label><label><input type="radio" checked={value === "tenant"} onChange={() => change("tenant")} /><span><strong>当前团队</strong><small>发布后，同一租户和账套成员可使用</small></span></label></fieldset>;
+}
+
+function AgentMemberPermissions({ agent, close, notify }: { agent: AgentItem; close: () => void; notify: (value: string) => void }) {
+  const [members, setMembers] = useState<{ userId: string; displayName: string; username: string; role: string }[]>([]);
+  const [grants, setGrants] = useState<Record<string, "" | "use" | "edit">>({});
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    void Promise.all([api("/api/auth/account-center"), api(`/api/agents/${agent.id}/member-permissions`)]).then(async ([centerResponse, grantsResponse]) => {
+      const center = await readJson(centerResponse); const permissionData = await readJson(grantsResponse);
+      if (!centerResponse.ok || !grantsResponse.ok) throw new Error(center.error || permissionData.error || "无法读取成员权限");
+      const teamMembers = (center.admin?.members || []).filter((item: { tenantId: string; userId: string; role: string }) => item.tenantId === center.user.tenantId && item.userId !== agent.ownerId && ["finance_analyst", "finance_viewer"].includes(item.role));
+      setMembers(teamMembers);
+      setGrants(Object.fromEntries((permissionData.items || []).map((item: { userId: string; access: "use" | "edit" }) => [item.userId, item.access])));
+    }).catch((error) => notify(message(error))).finally(() => setLoading(false));
+  }, [agent.id, agent.ownerId, notify]);
+  const change = async (userId: string, access: "" | "use" | "edit") => {
+    const response = await api(`/api/agents/${agent.id}/member-permissions/${encodeURIComponent(userId)}`, { method: "PUT", headers: jsonHeaders, body: JSON.stringify({ access: access || null }) });
+    const data = await readJson(response); if (!response.ok) { notify(data.error || "成员权限保存失败"); return; }
+    setGrants((current) => ({ ...current, [userId]: access })); notify("成员权限已保存");
+  };
+  return <aside className="agent-manage-panel agent-permission-panel"><header><div><strong>成员权限</strong><small>“使用”只能在智能问答中运行；“编辑”可以进入画布修改</small></div><button onClick={close}>×</button></header>{loading ? <div className="runner-empty">正在读取团队成员…</div> : <div className="agent-member-access-list">{members.map((member) => <article key={member.userId}><div><strong>{member.displayName}</strong><small>{member.username} · {member.role}</small></div><select aria-label={`设置 ${member.displayName} 的智能体权限`} value={grants[member.userId] || ""} onChange={(event) => void change(member.userId, event.target.value as "" | "use" | "edit")}><option value="">无权限</option><option value="use">使用</option><option value="edit">编辑</option></select></article>)}{members.length === 0 && <div className="runner-empty">当前团队没有可授权的普通成员</div>}</div>}</aside>;
 }
 
 function PublishDialog({ agent, close, submit }: { agent: AgentItem; close: () => void; submit: (permission: AgentPermission) => Promise<void> }) {
