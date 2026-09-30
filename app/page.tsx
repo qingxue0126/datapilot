@@ -15,6 +15,7 @@ import { RecentAnalyses } from "../components/datapilot/recent-analyses";
 import type { AnalysisMessage, AnalysisSession, AnalysisSessionDetail, DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
 import { apiUrl } from "../components/datapilot/api-base";
 import { streamApi } from "../components/datapilot/sse-client";
+import { generateUUID } from "../components/datapilot/generate-uuid";
 
 type View = "chat" | "agents" | "sources" | "source-detail" | "database" | "knowledge" | "models";
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
@@ -28,7 +29,7 @@ const suggestions = ["本月营业收入是多少？", "按月展示今年营业
 function agentHeaders() {
   const key = "datapilot-session-id";
   let sessionId = window.localStorage.getItem(key);
-  if (!sessionId) { sessionId = window.crypto.randomUUID(); window.localStorage.setItem(key, sessionId); }
+  if (!sessionId) { sessionId = generateUUID(); window.localStorage.setItem(key, sessionId); }
   return { "Content-Type": "application/json", "X-Session-Id": sessionId };
 }
 
@@ -306,7 +307,7 @@ export default function Home() {
     if (!query || loading) return;
     const showInConversation = view !== "database";
     const optimisticMessage: AnalysisMessage | undefined = showInConversation ? {
-      id: `pending-${window.crypto.randomUUID()}`, sessionId: activeSessionId, role: "user", content: query, createdAt: new Date().toISOString(),
+      id: `pending-${generateUUID()}`, sessionId: activeSessionId, role: "user", content: query, createdAt: new Date().toISOString(),
     } : undefined;
     setQuestion(""); setLoading(true); setError(""); setResult(null);
     if (optimisticMessage) { setMessages((items) => [...items, optimisticMessage]); setView("chat"); }
@@ -353,7 +354,7 @@ export default function Home() {
 
   async function streamQuestion(sessionId: string, query: string, optimisticId?: string) {
     if (!activeSource) return;
-    const answerId = `stream-answer-${window.crypto.randomUUID()}`;
+    const answerId = `stream-answer-${generateUUID()}`;
     const controller = new AbortController();
     chatStreamRef.current = controller;
     let streamedText = "";
@@ -391,8 +392,8 @@ export default function Home() {
     if (!selectedAgentId) { setError("请先在配置中选择一个有使用权限的智能体"); return; }
     if (!query || loading) return;
     const sessionId = await ensureAnalysisSession();
-    const userMessage: AnalysisMessage = { id: `agent-user-${window.crypto.randomUUID()}`, sessionId, role: "user", content: query, createdAt: new Date().toISOString() };
-    const answerId = `agent-answer-${window.crypto.randomUUID()}`;
+    const userMessage: AnalysisMessage = { id: `agent-user-${generateUUID()}`, sessionId, role: "user", content: query, createdAt: new Date().toISOString() };
+    const answerId = `agent-answer-${generateUUID()}`;
     const controller = new AbortController();
     chatStreamRef.current = controller;
     let streamedText = "";

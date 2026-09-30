@@ -30,6 +30,7 @@ import { AgentWorkflowIcon } from "./icons";
 import { buildWorkflowVariableGroups, insertVariableAt, variableExpression, type WorkflowVariableGroup } from "./workflow-variables";
 import { apiUrl, resolveApiBase } from "./api-base";
 import { streamApi } from "./sse-client";
+import { generateUUID } from "./generate-uuid";
 
 const api = (path: string, init: RequestInit = {}) => fetch(apiUrl(path), { ...init, credentials: "include" });
 
@@ -355,7 +356,7 @@ export function AgentStudio({ models, canManageTenant = false }: { models: Model
     }
     setEdges((items) => items.some((edge) => edge.source === connection.source && edge.target === connection.target && edge.targetHandle === connection.targetHandle)
       ? items
-      : addEdge({ ...connection, id: crypto.randomUUID(), animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }, items));
+      : addEdge({ ...connection, id: generateUUID(), animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }, items));
   }, [nodes]);
   const selected = nodes.find((node) => node.id === selectedId);
   const selectedRun = run?.nodeRuns.find((item) => item.nodeId === selectedId);
@@ -391,7 +392,7 @@ export function AgentStudio({ models, canManageTenant = false }: { models: Model
     const kind = event.dataTransfer.getData("application/datapilot-node") as NodeKind;
     const catalog = nodeCatalog.find((item) => item.type === kind); if (!catalog) return;
     const position = instance.screenToFlowPosition({ x: event.clientX, y: event.clientY });
-    const id = `${kind}-${crypto.randomUUID().slice(0, 8)}`;
+    const id = `${kind}-${generateUUID().slice(0, 8)}`;
     const node = { id, type: kind, position, data: { label: catalog.label, nodeType: kind, config: defaultConfig(kind, models, sources) } } as FlowNode;
     const next = [...nodes, node];
     setNodes(next);
@@ -549,7 +550,7 @@ function AgentConfiguration({ config, models, knowledgeBases, updateConfig, vari
   const selectedModel = llms.find((item) => item.id === String(config.modelId || ""));
   const tools = normalizeAgentToolConfigs(config.tools);
   const updateTool = (index: number, patch: Partial<AgentToolConfig>) => updateConfig("tools", tools.map((tool, itemIndex) => itemIndex === index ? { ...tool, ...patch } : tool));
-  const addTool = () => updateConfig("tools", [...tools, { id: crypto.randomUUID(), type: "knowledge_retrieval", name: `knowledge_search_${tools.length + 1}`, description: "检索与当前问题相关的知识", knowledgeBaseId: knowledgeBases[0]?.id || "", filters: {}, dynamicFilters: true, retrievalMode: "vector", topK: 5, scoreThreshold: 0.2, rerank: false, rerankModel: "", rerankTopK: 5, vectorWeight: 0.7, candidateCount: 15 } satisfies AgentToolConfig]);
+  const addTool = () => updateConfig("tools", [...tools, { id: generateUUID(), type: "knowledge_retrieval", name: `knowledge_search_${tools.length + 1}`, description: "检索与当前问题相关的知识", knowledgeBaseId: knowledgeBases[0]?.id || "", filters: {}, dynamicFilters: true, retrievalMode: "vector", topK: 5, scoreThreshold: 0.2, rerank: false, rerankModel: "", rerankTopK: 5, vectorWeight: 0.7, candidateCount: 15 } satisfies AgentToolConfig]);
   return <div className="agent-node-settings">
     <section className="agent-settings-section"><h4>输入</h4><VariableTextField label="用户输入（支持变量引用）" rows={3} value={String(config.input ?? "{{start.output.query}}")} update={(value) => updateConfig("input", value)} groups={variableGroups} placeholder="选择消息输入的 query" /><p className="field-help">默认读取消息输入节点的对话输入，可引用任意上游变量。</p></section>
     <section className="agent-settings-section"><h4>模型</h4><label>LLM<select value={String(config.modelId || "")} onChange={(event) => updateConfig("modelId", event.target.value)}><option value="">选择已配置的 LLM</option>{llms.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></section>
@@ -670,19 +671,19 @@ function WorkflowRunner({ nodes, run, running, close, execute, stop }: { nodes: 
 
   const submitConversation = async () => {
     const query = messageText.trim(); if (!query || running) return;
-    const userMessage: ChatMessage = { id: crypto.randomUUID(), role: "user", content: query };
+    const userMessage: ChatMessage = { id: generateUUID(), role: "user", content: query };
     setMessages((items) => [...items, userMessage]); setMessageText("");
     const nextInput = extractConversationInput(query, inputs, conversationValues);
     setConversationValues(nextInput);
     const missing = inputs.filter((input) => input.required && !hasRunInputValue(nextInput, input.key));
     if (missing.length) {
-      setMessages((items) => [...items, { id: crypto.randomUUID(), role: "assistant", content: missingConversationPrompt(missing) }]);
+      setMessages((items) => [...items, { id: generateUUID(), role: "assistant", content: missingConversationPrompt(missing) }]);
       return;
     }
     const history = messages.filter((item) => item.id !== "prologue").map(({ role, content }) => ({ role, content }));
     const result = await execute({ ...nextInput, __conversationHistory: history });
     const reply = result ? customerFacingRunReply(result, nodes) : customerFacingRunError(null);
-    setMessages((items) => [...items, { id: crypto.randomUUID(), role: "assistant", content: reply }]);
+    setMessages((items) => [...items, { id: generateUUID(), role: "assistant", content: reply }]);
   };
   const submitTask = async () => { if (!running) await execute(taskValues); };
 

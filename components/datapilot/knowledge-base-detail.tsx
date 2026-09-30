@@ -3,6 +3,7 @@
 import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest, formatTime, message, responseJson } from "./knowledge-client";
 import { ConfirmDialog } from "./confirm-dialog";
+import { generateUUID } from "./generate-uuid";
 
 export type ParserType = "general" | "table" | "qa";
 export type Metadata = Record<string, string | number | boolean>;
@@ -455,7 +456,7 @@ function RetrievalPanel({ config, query, setQuery, metadataFacets, metadataFilte
             <select value={filter.value} disabled={!filter.field} onChange={(event) => updateFilter(filter.id, { value: event.target.value })}><option value="">选择值</option>{facet?.values.map((value) => <option key={String(value)} value={String(value)}>{String(value)}</option>)}</select>
             <button type="button" aria-label="删除过滤条件" onClick={() => setMetadataFilters(metadataFilters.filter((item) => item.id !== filter.id))}>×</button>
           </div>; })}
-          <button type="button" className="add-filter" disabled={!metadataFacets.length} onClick={() => setMetadataFilters([...metadataFilters, { id: crypto.randomUUID(), field: "", value: "" }])}>＋ 添加过滤条件</button>
+          <button type="button" className="add-filter" disabled={!metadataFacets.length} onClick={() => setMetadataFilters([...metadataFilters, { id: generateUUID(), field: "", value: "" }])}>＋ 添加过滤条件</button>
         </fieldset>
         <label className="retrieval-toggle"><input type="checkbox" checked={rerankEnabled} onChange={(event) => setRerankEnabled(event.target.checked)} /><span>启用重排</span></label>
         {rerankEnabled && <div className="rerank-settings"><label>Rerank 模型<select name="rerankModel" required defaultValue=""><option value="" disabled>选择已启用的重排模型</option>{rerankModels.map((model) => <option key={model.id} value={model.id}>{model.name} · {model.modelId}</option>)}</select></label>
