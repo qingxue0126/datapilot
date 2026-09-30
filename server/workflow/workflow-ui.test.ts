@@ -10,7 +10,7 @@ test("sidebar places the agent module between smart Q&A and datasource navigatio
   const agent = page.indexOf(">智能体</button>");
   const datasource = page.indexOf(">数据源</button>");
   assert.ok(smartQa >= 0 && agent > smartQa && datasource > agent);
-  assert.match(page, /!chatHasConversation && view !== "agents"/);
+  assert.doesNotMatch(page, /className="topbar"/);
 });
 
 test("agent studio exposes all V1 nodes, workflow controls, and execution inspection", () => {

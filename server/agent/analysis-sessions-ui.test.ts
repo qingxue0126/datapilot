@@ -38,9 +38,9 @@ test("the composer moves below the message stream after a conversation starts", 
   assert.match(page, /!hasConversation && composer/);
 });
 
-test("conversation mode removes the top bar and landing hero", () => {
+test("the global top bar stays removed and conversation mode hides the landing hero", () => {
   assert.match(page, /const chatHasConversation = view === "chat" && messages\.length > 0/);
-  assert.match(page, /\{!chatHasConversation && view !== "agents" && <header className="topbar">/);
+  assert.doesNotMatch(page, /className="topbar"/);
   assert.match(page, /\{!hasConversation && <section className="hero-copy">/);
 });
 

@@ -20,9 +20,9 @@ test("sidebar shortcut derives connected and offline states from source status",
   assert.match(componentSource, /status-dot.*source\.status/s);
 });
 
-test("sidebar shortcut opens the active datasource detail", () => {
-  assert.match(pageSource, /CurrentDatasourceShortcut source=\{activeSource\}/);
-  assert.match(pageSource, /activeSource \? void openSourceDetail\(activeSource\) : setView\("sources"\)/);
+test("sidebar no longer displays the current datasource shortcut", () => {
+  assert.doesNotMatch(pageSource, /CurrentDatasourceShortcut/);
+  assert.match(pageSource, /<UserAccountMenu/);
 });
 
 test("sidebar shortcut shares the canonical active datasource", () => {

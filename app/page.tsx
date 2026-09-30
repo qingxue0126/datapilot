@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { AuthScreen, UserAccountMenu, type AuthUser } from "../components/datapilot/account-access";
 import { AgentTracePanel, AnswerExplanation, BusinessErrorCard } from "../components/datapilot/agent-explanation";
-import { CurrentDatasourceShortcut } from "../components/datapilot/current-datasource-shortcut";
 import { ConfirmDialog } from "../components/datapilot/confirm-dialog";
 import { DatasourceDetail } from "../components/datapilot/datasource-detail";
 import { erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
@@ -295,15 +294,6 @@ export default function Home() {
   const activeSource = sources.find((source) => source.id === activeSourceId);
   const activeSession = analysisSessions.find((session) => session.id === activeSessionId);
   const chatHasConversation = view === "chat" && messages.length > 0;
-  const viewTitles: Record<View, [string, string]> = {
-    chat: [activeSession?.title || "分析工作区", "连续追问，完整上下文仅在当前分析中生效"], sources: ["数据源", "查看数据库连接与 ERP Schema 理解状态"],
-    agents: ["智能体", "编排、发布并运行可复用的业务工作流"],
-    "source-detail": [activeSource?.name || "数据源详情", "ERP Schema Mapping、Join Path 与验证结果"],
-    database: [activeSource?.name || "数据库编辑台", "浏览数据结构并通过自然语言或 SQL 操作数据"],
-    knowledge: ["知识库", "管理文档、检索配置与向量检索测试"],
-    models: ["模型管理", "管理智能问数模型并设置当前默认模型"],
-  };
-
   async function ask(text?: string) {
     const query = (text ?? question).trim();
     if (chatTarget === "agent") { await askAgent(query); return; }
@@ -447,12 +437,11 @@ export default function Home() {
         <RecentAnalyses sessions={analysisSessions} activeSessionId={activeSessionId} onOpen={(session) => void openAnalysis(session)} onPin={pinAnalysis} onRename={renameAnalysis} onDelete={async (session) => setPendingSessionDelete(session)} />
       </div>
       <div className="sidebar-footer">
-        <CurrentDatasourceShortcut source={activeSource} onOpen={() => activeSource ? void openSourceDetail(activeSource) : setView("sources")} />
         <div className="sidebar-bottom"><UserAccountMenu user={currentUser} onLogout={logout} onDelete={deleteAccount} onContextChanged={accountContextChanged} /></div>
       </div>
     </aside>
 
-    <section className={`workspace ${chatHasConversation ? "chat-conversation-active" : ""}`}>{!chatHasConversation && view !== "agents" && <header className="topbar"><div><h1>{viewTitles[view][0]}</h1><p>{viewTitles[view][1]}</p></div><div className="top-actions"><span className="connection"><i className={activeSource?.status === "connected" ? "" : "offline"} />{activeSource ? sourceState(activeSource).title : "等待连接"}</span><button aria-label="帮助" title="帮助中心" onClick={() => setInteractionNotice("帮助中心功能开发中")}>?</button></div></header>}
+    <section className={`workspace ${chatHasConversation ? "chat-conversation-active" : ""}`}>
       {view === "chat" && <ChatView session={activeSession} messages={messages} createAnalysis={startAnalysis} sources={sources} activeSource={activeSource} activeSourceId={activeSourceId} selectSource={selectQuerySource} models={models} selectedModel={selectedModel} selectModel={selectModel} knowledgeBases={chatKnowledgeBases} selectedKnowledgeBaseId={selectedKnowledgeBaseId} selectKnowledgeBase={setSelectedKnowledgeBaseId} usableAgents={usableAgents} selectedAgentId={selectedAgentId} selectAgent={(id) => { setSelectedAgentId(id); setChatTarget(id ? "agent" : "database"); }} chatTarget={chatTarget} question={question} setQuestion={setQuestion} ask={ask} loading={loading} error={error} result={result} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}
       {view === "agents" && <AgentStudio models={models} canManageTenant={currentUser?.canManageTenant} />}
       {view === "sources" && <SourcesView sources={sources} activeSourceId={activeSourceId} testingSource={testingSource} notice={connectionNotice} add={() => { setConnectionNotice(""); setShowAddSource(true); }} open={(source) => void openSourceDetail(source)} test={testConnection} workbench={openDatabase} remove={removeSource} />}
