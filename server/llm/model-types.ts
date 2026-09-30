@@ -67,6 +67,7 @@ export type ChatRequest = {
   maxTokens?: number;
   structured?: boolean;
   onToken?: (token: string) => void;
+  signal?: AbortSignal;
 };
 export type ChatResponse = { content: string; latencyMs: number };
 

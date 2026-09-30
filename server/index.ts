@@ -26,6 +26,7 @@ import { ManagedEmbeddingProvider } from "./knowledge/embedding.js";
 import { createVectorStore } from "./knowledge/vector-store.js";
 import { KnowledgeRetrievalService } from "./knowledge/retrieval-service.js";
 import { assertAgentSql } from "./security/sql-policy.js";
+import { closeSse, openSse, sseAbortSignal, writeSse } from "./http/sse.js";
 import { DatabaseQueryTool } from "./tools/database-query-tool.js";
 import { MetricSearchTool } from "./tools/metric-search-tool.js";
 import { SchemaSearchTool } from "./tools/schema-search-tool.js";
@@ -247,6 +248,36 @@ app.post("/api/query", async (request, response) => {
     const preferredModelId = String(request.body?.model || "").trim() || undefined;
     return response.json(await agent.run({ question, context, sessionId, datasourceId, connection: item.config, preferredModelId }));
   } catch (error) { return response.status(error instanceof SessionStoreError ? error.status : 400).json({ error: errorMessage(error) }); }
+});
+
+app.post("/api/query/stream", async (request, response) => {
+  let streamRunId = "";
+  try {
+    const context = identity(request);
+    const question = String(request.body?.question || "").trim().slice(0, 500);
+    if (!question) return response.status(400).json({ error: "请输入问题" });
+    const sessionId = String(request.body?.sessionId || "").trim();
+    if (!sessionId) return response.status(400).json({ error: "请先创建或选择一个分析" });
+    sessions.get(context, sessionId);
+    const datasourceId = String(request.body?.connectionId || "");
+    const item = getConnectionItem(datasourceId, context);
+    const preferredModelId = String(request.body?.model || "").trim() || undefined;
+    const runId = randomUUID();
+    streamRunId = runId;
+    openSse(response);
+    const signal = sseAbortSignal(response);
+    writeSse(response, "start", { runId });
+    const result = await agent.run({ question, context, sessionId, datasourceId, connection: item.config, preferredModelId, runId, signal,
+      onToken: (delta) => writeSse(response, "delta", { runId, delta }) });
+    if (!signal.aborted) writeSse(response, "done", { runId, result });
+    closeSse(response);
+  } catch (error) {
+    if (response.headersSent) {
+      writeSse(response, "error", { runId: streamRunId || undefined, message: errorMessage(error) });
+      return closeSse(response);
+    }
+    return response.status(error instanceof SessionStoreError ? error.status : 400).json({ error: errorMessage(error) });
+  }
 });
 
 app.listen(port, "0.0.0.0", () => console.log(`DataPilot API: http://0.0.0.0:${port}`));

@@ -48,7 +48,7 @@ test("the global top bar stays removed and conversation mode hides the landing h
 test("sending a question immediately enters conversation mode before the answer returns", () => {
   assert.match(page, /const optimisticMessage: AnalysisMessage \| undefined/);
   assert.match(page, /setMessages\(\(items\) => \[\.\.\.items, optimisticMessage\]\); setView\("chat"\)/);
-  assert.match(page, /items\.filter\(\(item\) => item\.id !== optimisticMessage\?\.id\)/);
+  assert.match(page, /items\.filter\(\(item\) => item\.id !== optimisticId && item\.id !== answerId\)/);
 });
 
 test("user messages render without an avatar", () => {

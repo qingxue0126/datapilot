@@ -29,6 +29,7 @@ import { customerFacingRunError, extractConversationInput, hasRunInputValue, mis
 import { AgentWorkflowIcon } from "./icons";
 import { buildWorkflowVariableGroups, insertVariableAt, variableExpression, type WorkflowVariableGroup } from "./workflow-variables";
 import { apiUrl, resolveApiBase } from "./api-base";
+import { streamApi } from "./sse-client";
 
 const api = (path: string, init: RequestInit = {}) => fetch(apiUrl(path), { ...init, credentials: "include" });
 
@@ -142,8 +143,10 @@ export function AgentStudio({ models, canManageTenant = false }: { models: Model
   const [instance, setInstance] = useState<ReactFlowInstance<FlowNode, Edge> | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const runStreamRef = useRef<AbortController | null>(null);
 
   useEffect(() => { void loadAgents(); }, []);
+  useEffect(() => () => runStreamRef.current?.abort(), []);
 
   async function loadAgents() {
     setLoading(true);
@@ -249,28 +252,58 @@ export function AgentStudio({ models, canManageTenant = false }: { models: Model
     }
     setRunning(true); setNotice(""); setRun(null);
     setNodes((items) => items.map((node) => ({ ...node, data: { ...node.data, runStatus: "pending" } })));
+    return runWorkflowStream(input);
+  }
+
+  async function runWorkflowStream(input: Record<string, unknown>): Promise<WorkflowRun | null> {
+    if (!active) return null;
+    const agentId = active.id;
+    const controller = new AbortController();
+    runStreamRef.current = controller;
+    const completion: { value: WorkflowRun | null } = { value: null };
     try {
-      const response = await api(`/api/agents/${active.id}/run`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ input }) });
-      const data = await readJson(response); if (!response.ok) throw new Error(data.error || "运行失败");
-      let completed = data.run as WorkflowRun;
-      for (let attempt = 0; attempt < 400 && completed.status === "running"; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 300));
-        const poll = await api(`/api/workflow-runs/${completed.id}`); const pollData = await readJson(poll);
-        if (!poll.ok) throw new Error(pollData.error || "无法读取运行状态");
-        completed = pollData.run as WorkflowRun; setRun(completed);
-        const liveStates = new Map(completed.nodeRuns.map((item) => [item.nodeId, item.status]));
-        setNodes((items) => items.map((node) => ({ ...node, data: { ...node.data, runStatus: liveStates.get(node.id) || "pending" } })));
-      }
-      if (completed.status === "running") throw new Error("工作流运行超时");
+      await streamApi(`/api/agents/${agentId}/run/stream`, {
+        method: "POST",
+        headers: jsonHeaders,
+        body: JSON.stringify({ input }),
+        signal: controller.signal,
+      }, {
+        start: (payload) => {
+          const id = String(payload.runId || "");
+          setRun({ id, status: "running", input, output: null, error: null, durationMs: 0, nodeRuns: [] });
+        },
+        delta: (payload) => {
+          const nodeId = String(payload.nodeId || "");
+          const text = typeof payload.text === "string" ? payload.text : "";
+          if (!nodeId) return;
+          setRun((current) => {
+            const base = current || { id: String(payload.runId || ""), status: "running" as const, input, output: null, error: null, durationMs: 0, nodeRuns: [] };
+            const previous = base.nodeRuns.find((item) => item.nodeId === nodeId);
+            const live: NodeRun = { nodeId, nodeType: nodes.find((node) => node.id === nodeId)?.data.nodeType, status: "running", input: previous?.input ?? null, output: { text }, error: null, durationMs: 0 };
+            return { ...base, nodeRuns: [...base.nodeRuns.filter((item) => item.nodeId !== nodeId), live] };
+          });
+          setNodes((items) => items.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, runStatus: "running" } } : node));
+        },
+        done: (payload) => { completion.value = payload.result as WorkflowRun; },
+      });
+      const completed = completion.value;
+      if (!completed) throw new Error("流式运行结束，但未返回运行结果");
       setRun(completed);
       const states = new Map(completed.nodeRuns.map((item) => [item.nodeId, item.status]));
       setNodes((items) => items.map((node) => ({ ...node, data: { ...node.data, runStatus: states.get(node.id) } })));
       setNotice(completed.status === "success" ? `运行成功 · ${completed.durationMs} ms` : "运行未成功，请查看执行日志");
       return completed;
-    } catch (error) { setNotice(message(error)); }
-    finally { setRunning(false); }
-    return null;
+    } catch (error) {
+      if (isAbortError(error)) setNotice("已停止本次运行");
+      else setNotice(message(error));
+      return null;
+    } finally {
+      if (runStreamRef.current === controller) runStreamRef.current = null;
+      setRunning(false);
+    }
   }
+
+  function stopWorkflow() { runStreamRef.current?.abort(); }
 
   async function mutateAgent(path: string, init: RequestInit) {
     const response = await api(path, init); const data = response.status === 204 ? {} : await readJson(response);
@@ -382,7 +415,7 @@ export function AgentStudio({ models, canManageTenant = false }: { models: Model
         {selected ? <NodeConfiguration agentId={active.id} node={selected} nodes={nodes} edges={edges} models={models} sources={sources} knowledgeBases={knowledgeBases} updateLabel={(value) => updateNode({ label: value })} updateConfig={updateConfig} close={() => setSelectedId("")} run={selectedRun} /> : <><h3>工作流配置</h3><p>双击画布节点查看配置、输入输出与错误。</p><label>全局变量（JSON）<textarea value={pretty(variables)} onChange={(event) => { const parsed = tryJson(event.target.value); if (parsed) setVariables(parsed); }} rows={8} /></label>{run && <RunSummary run={run} />}</>}
       </aside>
     </div>
-    {runnerOpen && <WorkflowRunner nodes={nodes} run={run} running={running} close={() => setRunnerOpen(false)} execute={runWorkflow} />}
+    {runnerOpen && <WorkflowRunner nodes={nodes} run={run} running={running} close={() => setRunnerOpen(false)} execute={runWorkflow} stop={stopWorkflow} />}
     {publishOpen && <PublishDialog agent={active} close={() => setPublishOpen(false)} submit={publish} />}
     {managePanel === "versions" && <VersionPanel versions={versions} close={() => setManagePanel(null)} restore={restoreVersion} />}
     {managePanel === "logs" && <RunHistoryPanel runs={historyRuns} selected={historyRun} close={() => setManagePanel(null)} select={showRunDetail} />}
@@ -620,7 +653,7 @@ function StartInputs({ inputs, add, update, remove }: { inputs: StartInput[]; ad
   </section>;
 }
 
-function WorkflowRunner({ nodes, run, running, close, execute }: { nodes: FlowNode[]; run: WorkflowRun | null; running: boolean; close: () => void; execute: (input: Record<string, unknown>) => Promise<WorkflowRun | null> }) {
+function WorkflowRunner({ nodes, run, running, close, execute, stop }: { nodes: FlowNode[]; run: WorkflowRun | null; running: boolean; close: () => void; execute: (input: Record<string, unknown>) => Promise<WorkflowRun | null>; stop: () => void }) {
   const start = nodes.find((node) => node.id === "start" && node.data.nodeType === "start") || nodes.find((node) => node.data.nodeType === "start");
   const config = start?.data.config || {};
   const mode = normalizeStartMode(config.mode);
@@ -658,8 +691,8 @@ function WorkflowRunner({ nodes, run, running, close, execute }: { nodes: FlowNo
       <div className="agent-run-log-list">{run?.nodeRuns.length ? run.nodeRuns.map((nodeRun) => <details key={nodeRun.nodeId} open={nodeRun.status === "failed"}><summary><span className={`run-dot ${nodeRun.status}`} />{nodeLabel(nodes, nodeRun.nodeId)}<small>{nodeRun.durationMs} ms</small></summary><div><strong>Input</strong><pre>{pretty(nodeRun.input)}</pre><strong>Output</strong><pre>{pretty(nodeRun.output)}</pre>{nodeRun.error && <><strong>Error</strong><pre className="error">{nodeRun.error}</pre></>}</div></details>) : <div className="runner-empty">尚未运行工作流</div>}</div>
     </section>
     <section className="agent-run-surface"><header><div><strong>{mode === "conversation" ? "对话调试" : mode === "task" ? "任务运行" : "网络钩子"}</strong><small>{startModeLabel(mode)}模式</small></div><button type="button" onClick={close} aria-label="关闭运行面板">×</button></header>
-      {mode === "conversation" && <><div className="agent-chat-messages">{messages.length ? messages.map((item) => <article className={item.role} key={item.id}><span>{item.role === "assistant" ? "DP" : "我"}</span><p>{item.content}</p></article>) : <div className="runner-empty">输入消息开始调试</div>}{running && <article className="assistant pending"><span>DP</span><p>{streamingAgentText(run, nodes) || "工作流运行中…"}</p></article>}</div><div className="agent-chat-composer"><textarea rows={3} value={messageText} onChange={(event) => setMessageText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitConversation(); } }} placeholder="请输入消息…" /><button type="button" disabled={!messageText.trim() || running} onClick={() => void submitConversation()}>发送</button></div></>}
-      {mode === "task" && <div className="agent-task-runner"><p>填写消息输入节点定义的输入，然后运行工作流。</p>{inputs.length ? inputs.map((input) => <label key={input.key}>{input.name || input.key}{input.required && <em>*</em>}{input.type === "boolean" ? <select value={String(inputPath(taskValues, input.key) ?? false)} onChange={(event) => setNestedInput(setTaskValues, input.key, event.target.value === "true")}><option value="false">false</option><option value="true">true</option></select> : input.options?.length ? <select value={String(inputPath(taskValues, input.key) ?? "")} onChange={(event) => setNestedInput(setTaskValues, input.key, event.target.value)}><option value="">请选择</option>{input.options.map((option) => <option key={option}>{option}</option>)}</select> : <input type={input.type === "number" ? "number" : "text"} value={String(inputPath(taskValues, input.key) ?? "")} onChange={(event) => setNestedInput(setTaskValues, input.key, input.type === "number" ? Number(event.target.value) : event.target.value)} />}</label>) : <div className="runner-empty">消息输入节点尚未配置输入字段</div>}<button className="runner-primary" type="button" onClick={() => void submitTask()} disabled={running}>{running ? "运行中…" : "运行任务"}</button>{run && <div className={`agent-task-result ${run.status}`}><strong>运行结果</strong><pre>{pretty(run.status === "success" ? run.output : "运行未成功，请查看执行日志")}</pre></div>}</div>}
+      {mode === "conversation" && <><div className="agent-chat-messages">{messages.length ? messages.map((item) => <article className={item.role} key={item.id}><span>{item.role === "assistant" ? "DP" : "我"}</span><p>{item.content}</p></article>) : <div className="runner-empty">输入消息开始调试</div>}{running && <article className="assistant pending"><span>DP</span><p>{streamingAgentText(run, nodes) || "工作流运行中…"}</p></article>}</div><div className="agent-chat-composer"><textarea rows={3} value={messageText} onChange={(event) => setMessageText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void submitConversation(); } }} placeholder="请输入消息…" /><button type="button" disabled={!running && !messageText.trim()} onClick={() => running ? stop() : void submitConversation()}>{running ? "停止" : "发送"}</button></div></>}
+      {mode === "task" && <div className="agent-task-runner"><p>填写消息输入节点定义的输入，然后运行工作流。</p>{inputs.length ? inputs.map((input) => <label key={input.key}>{input.name || input.key}{input.required && <em>*</em>}{input.type === "boolean" ? <select value={String(inputPath(taskValues, input.key) ?? false)} onChange={(event) => setNestedInput(setTaskValues, input.key, event.target.value === "true")}><option value="false">false</option><option value="true">true</option></select> : input.options?.length ? <select value={String(inputPath(taskValues, input.key) ?? "")} onChange={(event) => setNestedInput(setTaskValues, input.key, event.target.value)}><option value="">请选择</option>{input.options.map((option) => <option key={option}>{option}</option>)}</select> : <input type={input.type === "number" ? "number" : "text"} value={String(inputPath(taskValues, input.key) ?? "")} onChange={(event) => setNestedInput(setTaskValues, input.key, input.type === "number" ? Number(event.target.value) : event.target.value)} />}</label>) : <div className="runner-empty">消息输入节点尚未配置输入字段</div>}<button className="runner-primary" type="button" onClick={() => running ? stop() : void submitTask()}>{running ? "停止运行" : "运行任务"}</button>{run && <div className={`agent-task-result ${run.status}`}><strong>运行结果</strong><pre>{pretty(run.status === "success" ? run.output : "运行未成功，请查看执行日志")}</pre></div>}</div>}
       {mode === "webhook" && <div className="agent-webhook-runner"><p>网络钩子模式通过消息输入节点中配置的 URL 接收请求，请先保存并发布智能体。</p><code>{String(config.webhookMethod || "GET")} /api/v1/agents/&lt;agent-id&gt;/webhook</code><div className="runner-empty">当前面板不模拟外部网络钩子请求</div></div>}
     </section>
   </aside>;
@@ -685,7 +718,7 @@ function customerFacingRunReply(run: WorkflowRun, nodes: FlowNode[]) {
 }
 function streamingAgentText(run: WorkflowRun | null, nodes: FlowNode[]) {
   if (!run) return "";
-  const active = [...run.nodeRuns].reverse().find((item) => item.status === "running" && nodes.find((node) => node.id === item.nodeId)?.data.nodeType === "agent");
+  const active = [...run.nodeRuns].reverse().find((item) => item.status === "running" && ["agent", "llm"].includes(nodes.find((node) => node.id === item.nodeId)?.data.nodeType || ""));
   const output = active?.output;
   return output && typeof output === "object" && typeof (output as Record<string, unknown>).text === "string" ? String((output as Record<string, unknown>).text) : "";
 }
@@ -903,4 +936,5 @@ function formatDate(value: string) { return new Intl.DateTimeFormat("zh-CN", { m
 function formatFullDate(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? "未知时间" : new Intl.DateTimeFormat("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(date); }
 function safeFileName(value: string) { return value.replace(/[\\/:*?"<>|]/g, "-").trim() || "datapilot-agent"; }
 function message(error: unknown) { return error instanceof Error ? error.message : "操作失败"; }
+function isAbortError(error: unknown) { return error instanceof DOMException ? error.name === "AbortError" : error instanceof Error && error.name === "AbortError"; }
 const jsonHeaders = { "Content-Type": "application/json" };

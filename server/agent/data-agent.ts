@@ -24,9 +24,9 @@ export class DataAgent {
     private readonly erp: ErpQueryService,
   ) {}
 
-  async run(input: { question: string; context: RequestContext; sessionId: string; datasourceId: string; connection: DatabaseConfig; preferredModelId?: string }) {
+  async run(input: { question: string; context: RequestContext; sessionId: string; datasourceId: string; connection: DatabaseConfig; preferredModelId?: string; runId?: string; onToken?: (token: string) => void; signal?: AbortSignal }) {
     const started = Date.now();
-    const runId = randomUUID();
+    const runId = input.runId || randomUUID();
     const trace: AgentTraceEvent[] = [];
     const toolContext = { request: input.context, datasourceId: input.datasourceId, connection: input.connection };
     this.permissions.require(input.context, "agent:query");
@@ -40,6 +40,7 @@ export class DataAgent {
 
     const history = this.sessions.history(input.context, input.sessionId);
     let previousError: string | undefined;
+    let answerStarted = false;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         const plan = await this.step(trace, `sql.generate.${attempt}`, () =>
@@ -50,7 +51,10 @@ export class DataAgent {
           this.tools.call<{ sql: string }, QueryResult>("database.query", { sql: plan.sql }, toolContext));
         const summary = await this.step(trace, "result.analyze", () =>
           this.erp.analyze({ question: input.question, sql: result.sql, rows: result.rows, rowCount: result.rowCount,
-            context: input.context, preferredModelId: input.preferredModelId }));
+            context: input.context, preferredModelId: input.preferredModelId, onToken: input.onToken ? (token) => {
+              answerStarted = true;
+              input.onToken?.(token);
+            } : undefined, signal: input.signal }));
         const queryResult = {
           question: input.question,
           summary,
@@ -73,6 +77,7 @@ export class DataAgent {
         });
         return { ...queryResult, session: persisted.session, persistedMessages: persisted.messages };
       } catch (error) {
+        if (answerStarted || input.signal?.aborted) throw error;
         previousError = safeError(error);
         if (attempt === 3) throw error;
       }

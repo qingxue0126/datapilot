@@ -1,5 +1,5 @@
 import type { ChatTurn, RequestContext } from "../../core/types.js";
-import type { StructuredModelClient } from "../../llm/model-service.js";
+import type { StreamingModelClient, StructuredModelClient } from "../../llm/model-service.js";
 import type { ModelTask } from "../../llm/model-types.js";
 import type { FinanceMetricPrompt } from "./metrics.js";
 import { assertSqlUsesValidatedJoinPaths } from "./schema-mapping/join-policy.js";
@@ -9,7 +9,7 @@ type SqlPlan = { status?: "ready" | "insufficient"; sql: string; title: string; 
 type Answer = { summary: string };
 
 export class ErpQueryService {
-  constructor(private readonly model: StructuredModelClient) {}
+  constructor(private readonly model: StructuredModelClient & Partial<Pick<StreamingModelClient, "text">>) {}
 
   async generateSql(input: {
     question: string;
@@ -102,7 +102,14 @@ export class ErpQueryService {
     return plan;
   }
 
-  async analyze(input: { question: string; sql: string; rows: Record<string, unknown>[]; rowCount: number; context: RequestContext; preferredModelId?: string }) {
+  async analyze(input: { question: string; sql: string; rows: Record<string, unknown>[]; rowCount: number; context: RequestContext; preferredModelId?: string; onToken?: (token: string) => void; signal?: AbortSignal }) {
+    if (input.onToken) {
+      if (!this.model.text) throw new Error("当前模型客户端不支持流式回答");
+      return this.model.text([
+        { role: "system", content: "你是 ERP 财务分析助手。基于真实查询结果给出简洁中文结论，不虚构原因或数据；若结果为空要明确说明。直接输出面向用户的回答，不要输出 JSON 或 Markdown 代码块。" },
+        { role: "user", content: JSON.stringify({ question: input.question, sql: input.sql, rowCount: input.rowCount, rows: input.rows.slice(0, 50) }) },
+      ], { context: input.context, task: "answer", preferredModelId: input.preferredModelId, onToken: input.onToken, signal: input.signal });
+    }
     const answer = await this.model.structured<Answer>([
       {
         role: "system",

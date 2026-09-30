@@ -5,6 +5,7 @@ import { validateAndSort } from "./workflow-engine.js";
 import { importRagflowWorkflow } from "./ragflow-importer.js";
 import { WorkflowStore, WorkflowStoreError } from "./workflow-store.js";
 import type { WorkflowDefinition } from "./workflow-types.js";
+import { closeSse, openSse, sseAbortSignal, writeSse } from "../http/sse.js";
 
 export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine: WorkflowEngine, identity: (request: Request) => RequestContext) {
   app.get("/api/agents", (request, response) => handle(response, () => ({ items: store.listAgents(identity(request)) })));
@@ -51,6 +52,28 @@ export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine
   app.post("/api/agents/:id/run", (request, response) => {
     try { response.status(202).json({ run: engine.start(identity(request), request.params.id, cleanInput(request.body?.input)) }); }
     catch (error) { workflowError(response, error); }
+  });
+  app.post("/api/agents/:id/run/stream", async (request, response) => {
+    let streamRunId = "";
+    try {
+      const context = identity(request);
+      const input = cleanInput(request.body?.input);
+      openSse(response);
+      const signal = sseAbortSignal(response);
+      const run = await engine.run(context, request.params.id, input, {
+        signal,
+        onStart: (started) => { streamRunId = started.id; writeSse(response, "start", { runId: started.id }); },
+        onDelta: (event) => writeSse(response, "delta", event),
+      });
+      if (!signal.aborted) writeSse(response, "done", { runId: run.id, result: run });
+      closeSse(response);
+    } catch (error) {
+      if (response.headersSent) {
+        writeSse(response, "error", { runId: streamRunId || undefined, message: error instanceof Error ? error.message : "工作流运行失败" });
+        return closeSse(response);
+      }
+      return workflowError(response, error);
+    }
   });
   app.get("/api/workflow-runs/:id", (request, response) => handle(response, () => ({ run: store.getRun(identity(request), request.params.id) })));
 }

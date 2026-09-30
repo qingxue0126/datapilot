@@ -95,6 +95,22 @@ test("metric filter validation rejects ungrouped account OR conditions", () => {
   assert.doesNotThrow(() => assertGroupedMetricFilters("SELECT SUM(credit_amount) FROM voucher_entry WHERE (account_code LIKE '6001%' OR account_code LIKE '6051%') AND status='POSTED'"));
 });
 
+test("ERP answer analysis forwards real streaming tokens", async () => {
+  const tokens: string[] = [];
+  const model = {
+    async structured<T>() { return { summary: "非流式" } as T; },
+    async text(_messages: unknown, options: { onToken: (token: string) => void }) {
+      options.onToken("营业收入");
+      options.onToken("为 100 元");
+      return "营业收入为 100 元";
+    },
+  };
+  const service = new ErpQueryService(model);
+  const result = await service.analyze({ question: "营业收入？", sql: "SELECT 100", rows: [{ value: 100 }], rowCount: 1, context, onToken: (token) => tokens.push(token) });
+  assert.equal(result, "营业收入为 100 元");
+  assert.deepEqual(tokens, ["营业收入", "为 100 元"]);
+});
+
 function ledgerWithAccountSchema() {
   return mapErpSchema([
     { name: "voucher_entry", rows: 10, columns: [

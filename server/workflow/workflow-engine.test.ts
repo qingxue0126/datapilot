@@ -33,6 +33,31 @@ test("multiple message inputs and outputs execute and survive workflow persisten
   for (const node of run.nodeRuns.filter((item) => item.nodeType === "end")) assert.equal(node.output, "测试消息");
 });
 
+test("LLM nodes emit exact deltas while preserving the assembled node output", async () => {
+  const store = new WorkflowStore(":memory:");
+  const created = store.createAgent(context, { name: "流式 LLM" });
+  store.saveWorkflow(context, created.agent.id, {
+    variables: {},
+    nodes: [
+      { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "消息输入", config: {} } },
+      { id: "llm", type: "llm", position: { x: 1, y: 0 }, data: { label: "LLM", config: { modelId: "model-1", userPrompt: "{{start.output.query}}" } } },
+      { id: "end", type: "end", position: { x: 2, y: 0 }, data: { label: "消息输出", config: { output: "{{llm.output.text}}" } } },
+    ],
+    edges: [{ id: "a", source: "start", target: "llm" }, { id: "b", source: "llm", target: "end" }],
+  });
+  const models = { chat: async (_context: RequestContext, _modelId: string, _messages: unknown, options: { onToken?: (value: string) => void }) => {
+    options.onToken?.("你"); options.onToken?.("好");
+    return { content: "你好", latencyMs: 1 };
+  } } as unknown as ModelService;
+  const deltas: { nodeId: string; delta: string; text: string }[] = [];
+  const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models, connection: () => { throw new Error("unused"); } });
+  const run = await engine.run(context, created.agent.id, { query: "问候" }, { onDelta: (event) => deltas.push({ nodeId: event.nodeId, delta: event.delta, text: event.text }) });
+  assert.equal(run.status, "success");
+  assert.equal(run.output, "你好");
+  assert.deepEqual(deltas, [{ nodeId: "llm", delta: "你", text: "你" }, { nodeId: "llm", delta: "好", text: "你好" }]);
+  assert.deepEqual(run.nodeRuns.find((item) => item.nodeId === "llm")?.output, { text: "你好" });
+});
+
 test("workflow engine executes a DAG, resolves variables, and skips an inactive condition branch", async () => {
   const store = new WorkflowStore(":memory:");
   const created = store.createAgent(context, { name: "条件工作流" });

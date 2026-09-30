@@ -6,6 +6,9 @@ import { isChatCapableModel, isRerankModel, isTextEmbeddingModel, type ChatMessa
 
 export type StructuredOptions = { context: RequestContext; task: ModelTask; preferredModelId?: string };
 export interface StructuredModelClient { structured<T>(messages: ChatMessage[], options: StructuredOptions): Promise<T>; }
+export interface StreamingModelClient extends StructuredModelClient {
+  text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal }): Promise<string>;
+}
 
 export class ModelService implements StructuredModelClient {
   constructor(private readonly store: ModelStore, private readonly router: ModelRouter, private readonly providers = new ModelProviderRegistry()) {}
@@ -59,7 +62,7 @@ export class ModelService implements StructuredModelClient {
     }
   }
 
-  async chat(context: RequestContext, modelId: string, messages: ChatMessage[], options: { temperature?: number; timeout?: number; maxTokens?: number; structured?: boolean; onToken?: (token: string) => void } = {}) {
+  async chat(context: RequestContext, modelId: string, messages: ChatMessage[], options: { temperature?: number; timeout?: number; maxTokens?: number; structured?: boolean; onToken?: (token: string) => void; signal?: AbortSignal } = {}) {
     const model = this.store.runtime(context, modelId);
     if (!model.enabled || !isChatCapableModel(model)) throw new Error("所选模型不是已启用的 LLM 模型");
     return this.providers.get(model.provider).chat(model, {
@@ -69,7 +72,30 @@ export class ModelService implements StructuredModelClient {
       maxTokens: Math.min(options.maxTokens ?? 4000, model.contextWindow),
       structured: options.structured,
       onToken: options.onToken,
+      signal: options.signal,
     });
+  }
+
+  async text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal }) {
+    const resolved = this.router.getModel(options.context, options.task, options.preferredModelId);
+    const candidates = [resolved.primary, resolved.fallback].filter(Boolean) as RuntimeModelConfig[];
+    let lastError: unknown;
+    let emitted = false;
+    const onToken = (token: string) => { emitted = true; options.onToken(token); };
+    for (const model of candidates) {
+      const attempts = Math.max(1, resolved.route.maxRetries + 1);
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        try {
+          const result = await this.providers.get(model.provider).chat(model, { messages, temperature: resolved.route.temperature,
+            timeout: resolved.route.timeout, maxTokens: Math.min(4000, model.contextWindow), onToken, signal: options.signal });
+          return result.content;
+        } catch (error) {
+          lastError = error;
+          if (emitted || options.signal?.aborted) throw error;
+        }
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error("模型调用失败");
   }
 
   async structured<T>(messages: ChatMessage[], options: StructuredOptions): Promise<T> {

@@ -89,3 +89,9 @@ test("team agent permissions and smart Q&A configuration expose use and edit flo
   assert.match(page, /chat-config-summary/);
   assert.match(page, /\/api\/agents\/\$\{encodeURIComponent\(selectedAgentId\)\}\/run/);
 });
+
+test("agent studio uses the streaming run endpoint and exposes interruption", () => {
+  assert.match(studio, /\/run\/stream/);
+  assert.match(studio, /runStreamRef\.current\?\.abort\(\)/);
+  assert.match(studio, /停止运行/);
+});

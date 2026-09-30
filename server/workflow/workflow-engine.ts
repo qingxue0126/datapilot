@@ -10,6 +10,11 @@ import type { WorkflowStore } from "./workflow-store.js";
 import { workflowNodeTypes, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode, type WorkflowNodeRun, type WorkflowNodeRunStatus, type WorkflowRun } from "./workflow-types.js";
 
 type Scope = Record<string, unknown>;
+export type WorkflowStreamListener = {
+  signal?: AbortSignal;
+  onStart?: (run: WorkflowRun) => void;
+  onDelta?: (event: { runId: string; nodeId: string; delta: string; text: string }) => void;
+};
 type AgentTraceEntry = { type: "llm" | "tool"; name: string; input: unknown; output?: unknown; error?: string; durationMs: number; iteration: number };
 type AgentToolConfig = Record<string, unknown> & { id: string; name: string; type: string };
 class AgentExecutionError extends Error {
@@ -27,11 +32,12 @@ type EngineDependencies = {
 export class WorkflowEngine {
   constructor(private readonly dependencies: EngineDependencies) {}
 
-  async run(context: RequestContext, agentId: string, input: Record<string, unknown> = {}): Promise<WorkflowRun> {
+  async run(context: RequestContext, agentId: string, input: Record<string, unknown> = {}, stream?: WorkflowStreamListener): Promise<WorkflowRun> {
     const workflow = this.dependencies.store.getWorkflow(context, agentId);
     const ordered = validateAndSort(workflow.definition);
     const run = this.dependencies.store.createRun(context, agentId, workflow.version, input);
-    return this.execute(context, workflow.definition, ordered, run, input);
+    stream?.onStart?.(run);
+    return this.execute(context, workflow.definition, ordered, run, input, stream);
   }
 
   start(context: RequestContext, agentId: string, input: Record<string, unknown> = {}): WorkflowRun {
@@ -44,7 +50,7 @@ export class WorkflowEngine {
     return run;
   }
 
-  private async execute(context: RequestContext, definition: WorkflowDefinition, ordered: WorkflowNode[], run: WorkflowRun, input: Record<string, unknown>): Promise<WorkflowRun> {
+  private async execute(context: RequestContext, definition: WorkflowDefinition, ordered: WorkflowNode[], run: WorkflowRun, input: Record<string, unknown>, stream?: WorkflowStreamListener): Promise<WorkflowRun> {
     const started = Date.now();
     const scope: Scope = { input, variables: definition.variables };
     const activeEdges = new Set<string>();
@@ -53,6 +59,7 @@ export class WorkflowEngine {
     let runError: string | null = null;
 
     for (const node of ordered) {
+      if (stream?.signal?.aborted) throw abortError();
       const incoming = definition.edges.filter((edge) => edge.target === node.id && !isAgentToolEdge(edge, definition));
       const active = node.type === "start" || incoming.some((edge) => activeEdges.has(edge.id));
       if (!active || failed) {
@@ -77,7 +84,9 @@ export class WorkflowEngine {
         const output = await this.executeNode(context, node, object(resolvedInput), scope, (partial) => {
           if (nodeExecutionFinished) return;
           this.dependencies.store.finishNodeRun(context, run.id, runningNode.id, { status: "running", input: resolvedInput, output: partial, error: null, durationMs: Date.now() - nodeStarted, finishedAt: new Date().toISOString() });
-        });
+          const progress = object(partial);
+          if (typeof progress.delta === "string") stream?.onDelta?.({ runId: run.id, nodeId: node.id, delta: progress.delta, text: String(progress.text || "") });
+        }, stream?.signal);
         nodeExecutionFinished = true;
         scope[node.id] = { output };
         // Imported workflow formats commonly use `begin` (RAGFlow) or another
@@ -99,7 +108,7 @@ export class WorkflowEngine {
     return this.dependencies.store.finishRun(context, run.id, failed ? "failed" : "success", finalOutput, runError, Date.now() - started);
   }
 
-  private async executeNode(context: RequestContext, node: WorkflowNode, config: Record<string, unknown>, scope: Scope, onProgress?: (output: unknown) => void): Promise<unknown> {
+  private async executeNode(context: RequestContext, node: WorkflowNode, config: Record<string, unknown>, scope: Scope, onProgress?: (output: unknown) => void, signal?: AbortSignal): Promise<unknown> {
     switch (node.type) {
       case "start": return validateStartInput(config, object(scope.input));
       case "end": return config.output ?? lastOutput(scope);
@@ -110,10 +119,14 @@ export class WorkflowEngine {
         const messages = [] as { role: "system" | "user"; content: string }[];
         if (String(config.systemPrompt || "").trim()) messages.push({ role: "system", content: String(config.systemPrompt) });
         messages.push({ role: "user", content: required(config.userPrompt, "请输入 User Prompt") });
-        const response = await this.dependencies.models.chat(context, modelId, messages);
+        let text = "";
+        const response = await this.dependencies.models.chat(context, modelId, messages, { signal, onToken: onProgress ? (delta) => {
+          text += delta;
+          onProgress({ text, delta, streaming: true });
+        } : undefined });
         return { text: response.content };
       }
-      case "agent": return this.executeAgent(context, config, onProgress, object(scope.input).__conversationHistory);
+      case "agent": return this.executeAgent(context, config, onProgress, object(scope.input).__conversationHistory, signal);
       case "knowledge_retrieval": {
         if (!this.dependencies.knowledgeRetrieval) throw new Error("知识库检索服务未配置");
         const result = await this.dependencies.knowledgeRetrieval.retrieve(context, {
@@ -148,7 +161,7 @@ export class WorkflowEngine {
     }
   }
 
-  private async executeAgent(context: RequestContext, config: Record<string, unknown>, onProgress?: (output: unknown) => void, conversationHistory?: unknown) {
+  private async executeAgent(context: RequestContext, config: Record<string, unknown>, onProgress?: (output: unknown) => void, conversationHistory?: unknown, signal?: AbortSignal) {
     const trace: AgentTraceEntry[] = [];
     const modelId = required(config.modelId, "请选择 Agent LLM 模型");
     const maxIterations = boundedInteger(config.maxIterations, 5, 1, 20, "最大迭代次数");
@@ -184,13 +197,14 @@ export class WorkflowEngine {
           const response = await this.dependencies.models.chat(context, modelId, messages, {
             temperature: optionalNumber(config.temperature),
             timeout: Math.max(1, remaining),
-            onToken: config.streaming === true ? (token) => {
+            signal,
+            onToken: onProgress ? (token) => {
               if (timedOut) return;
               responseContent += token;
               const trimmed = responseContent.trimStart();
               if (trimmed && !trimmed.startsWith("{")) {
                 liveText += token;
-                onProgress?.({ text: liveText, streaming: true, trace: [...trace] });
+                onProgress({ text: liveText, delta: token, streaming: true, trace: [...trace] });
               }
             } : undefined,
           });
@@ -518,6 +532,7 @@ function parseAgentDecision(content: string): { toolName?: string; arguments?: u
   return { finalText: typeof finalText === "string" ? finalText.trim() : undefined };
 }
 function stringify(value: unknown) { return typeof value === "string" ? value : JSON.stringify(value); }
+function abortError() { const error = new Error("运行已中断"); error.name = "AbortError"; return error; }
 function safeError(error: unknown) { return (error instanceof Error ? error.message : "未知错误").slice(0, 1000); }
 function lastOutput(scope: Scope) { const entries = Object.entries(scope).filter(([key]) => !['input', 'variables'].includes(key)); return (entries.at(-1)?.[1] as { output?: unknown } | undefined)?.output ?? null; }
 function isPrivateHost(hostname: string) { const host = hostname.toLowerCase(); return host === "localhost" || host === "::1" || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host); }

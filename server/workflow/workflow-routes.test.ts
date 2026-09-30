@@ -53,3 +53,33 @@ test("RAGFlow import API creates a tenant-scoped editable workflow", async () =>
     assert.equal((await fetch(`${base}/api/agents/${imported.agent.id}`, { headers: { "x-user": "bob", "x-tenant": "tenant-b", "x-role": "member" } })).status, 403);
   } finally { server.close(); await once(server, "close"); }
 });
+
+test("workflow streaming API emits start, node delta, and done events", async () => {
+  const store = new WorkflowStore(":memory:");
+  const app = express(); app.use(express.json());
+  const result = { id: "run-1", status: "success", output: "你好", error: null, durationMs: 4, nodeRuns: [] };
+  const engine = { run: async (_context: RequestContext, _id: string, _input: unknown, listener: { onStart?: (run: unknown) => void; onDelta?: (event: unknown) => void }) => {
+    listener.onStart?.({ id: "run-1" });
+    listener.onDelta?.({ runId: "run-1", nodeId: "llm", delta: "你", text: "你" });
+    listener.onDelta?.({ runId: "run-1", nodeId: "llm", delta: "好", text: "你好" });
+    return result;
+  } } as unknown as WorkflowEngine;
+  installWorkflowRoutes(app, store, engine, () => contextForTest());
+  const server = app.listen(0, "127.0.0.1"); await once(server, "listening");
+  const address = server.address(); if (!address || typeof address === "string") throw new Error("测试服务未启动");
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/api/agents/agent-1/run/stream`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ input: { query: "你好" } }),
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type") || "", /text\/event-stream/);
+    const body = await response.text();
+    assert.match(body, /event: start\ndata: {"runId":"run-1"}/);
+    assert.match(body, /event: delta\ndata: {"runId":"run-1","nodeId":"llm","delta":"你","text":"你"}/);
+    assert.match(body, /event: done\ndata: {"runId":"run-1","result":/);
+  } finally { server.close(); await once(server, "close"); }
+});
+
+function contextForTest(): RequestContext {
+  return { tenantId: "tenant-a", accountSetId: "books", userId: "alice", role: "tenant_admin", sessionId: "s" };
+}

@@ -1,0 +1,99 @@
+{
+  "accounts": [
+    {
+      "id": "b223160f-c5ad-4bc6-b49d-0f9d6c5cb14f",
+      "username": "root",
+      "displayName": "root",
+      "passwordHash": "$2b$12$e70KmxDA5bgc1OOA1KCBlOnL5E1YgP.oSi5ltFD5b9VvCbxE0Pdva",
+      "tenantId": "demo-tenant",
+      "accountSetId": "default-account-set",
+      "role": "tenant_admin",
+      "status": "active",
+      "createdAt": "2026-09-26T03:27:09.674Z",
+      "updatedAt": "2026-09-28T07:53:45.461Z",
+      "activeTenantId": "demo-tenant"
+    },
+    {
+      "id": "7c21d562-89d8-41ab-8282-64cdeaadf1b3",
+      "username": "lan_test_1790726592915",
+      "displayName": "lan_test_1790726592915",
+      "passwordHash": "$2b$12$DrvG/JZurlElriKLi.SU8Oz5Aei/0/LxZeap0LHhhWnKZy3RF./pG",
+      "tenantId": "tenant-55557508-6c96-401a-8da1-1e57fff9af2b",
+      "accountSetId": "account-set-0a232a48-5a76-4cc1-844c-567cd331768d",
+      "role": "tenant_owner",
+      "activeTenantId": "tenant-55557508-6c96-401a-8da1-1e57fff9af2b",
+      "status": "deleted",
+      "createdAt": "2026-09-30T00:03:13.180Z",
+      "updatedAt": "2026-09-30T00:03:13.200Z",
+      "deletedAt": "2026-09-30T00:03:13.200Z"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "2ba6a63b-7249-4745-985c-d59183618cea",
+      "tokenHash": "4f3441b2dddb9a42150018c576d7e57889e6a314370a0efcb488ae4efa4e6726",
+      "userId": "b223160f-c5ad-4bc6-b49d-0f9d6c5cb14f",
+      "createdAt": "2026-09-26T03:28:17.721Z",
+      "expiresAt": "2026-10-03T03:28:17.721Z"
+    },
+    {
+      "id": "f404fa71-6702-44b0-bac8-363ec6b2d605",
+      "tokenHash": "fe6850cbea6d426890fd2ad8bad95a8e6b42dfcda18a24d8de91e4c4d7f7f8da",
+      "userId": "b223160f-c5ad-4bc6-b49d-0f9d6c5cb14f",
+      "createdAt": "2026-09-28T04:23:34.383Z",
+      "expiresAt": "2026-10-05T04:23:34.383Z"
+    },
+    {
+      "id": "64f67d33-7cd9-49c4-b1d9-1ae6aebdae1a",
+      "tokenHash": "5db9f788dbac4c276e25180388125a15afb45c95283b8932546c9f9e11c4c9bd",
+      "userId": "b223160f-c5ad-4bc6-b49d-0f9d6c5cb14f",
+      "createdAt": "2026-09-29T03:33:33.249Z",
+      "expiresAt": "2026-10-06T03:33:33.249Z"
+    }
+  ],
+  "tenants": [
+    {
+      "id": "demo-tenant",
+      "name": "默认团队",
+      "accountSetId": "default-account-set",
+      "createdBy": "b223160f-c5ad-4bc6-b49d-0f9d6c5cb14f",
+      "createdAt": "2026-09-26T03:27:09.674Z"
+    },
+    {
+      "id": "tenant-55557508-6c96-401a-8da1-1e57fff9af2b",
+      "name": "lan_test_1790726592915的团队",
+      "accountSetId": "account-set-0a232a48-5a76-4cc1-844c-567cd331768d",
+      "createdBy": "7c21d562-89d8-41ab-8282-64cdeaadf1b3",
+      "createdAt": "2026-09-30T00:03:13.180Z"
+    }
+  ],
+  "memberships": [
+    {
+      "userId": "b223160f-c5ad-4bc6-b49d-0f9d6c5cb14f",
+      "tenantId": "demo-tenant",
+      "accountSetId": "default-account-set",
+      "role": "tenant_admin",
+      "joinedAt": "2026-09-26T03:27:09.674Z"
+    },
+    {
+      "userId": "7c21d562-89d8-41ab-8282-64cdeaadf1b3",
+      "tenantId": "tenant-55557508-6c96-401a-8da1-1e57fff9af2b",
+      "accountSetId": "account-set-0a232a48-5a76-4cc1-844c-567cd331768d",
+      "role": "tenant_owner",
+      "joinedAt": "2026-09-30T00:03:13.180Z"
+    }
+  ],
+  "invitations": [],
+  "apiKeys": [
+    {
+      "id": "4db4b7f4-77b7-4a38-8f90-b7dc6386a991",
+      "name": "智能客服",
+      "keyHash": "f3abf8c22c6304d655b61e3a54f78e633125d88ca47fc9ea11b213b40f8856ed",
+      "userId": "b223160f-c5ad-4bc6-b49d-0f9d6c5cb14f",
+      "tenantId": "demo-tenant",
+      "accountSetId": "default-account-set",
+      "enabled": true,
+      "createdAt": "2026-09-29T09:14:19.969Z"
+    }
+  ]
+}

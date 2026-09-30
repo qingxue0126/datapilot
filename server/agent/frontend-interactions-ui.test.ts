@@ -18,9 +18,8 @@ test("nested card actions do not trigger the parent card action", () => {
   assert.match(recent, /className="recent-analysis-actions"[\s\S]*?event\.stopPropagation\(\)/);
 });
 
-test("visible help control provides an explicit unfinished-feature response", () => {
-  assert.match(page, /aria-label="帮助"[\s\S]*?setInteractionNotice\("帮助中心功能开发中"\)/);
-  assert.match(page, /className="interaction-toast"[\s\S]*?role="status"/);
+test("the removed global header does not leave a standalone help control", () => {
+  assert.doesNotMatch(page, /aria-label="帮助"/);
 });
 
 test("brand and overview entity modules reuse existing navigation logic", () => {
@@ -36,4 +35,11 @@ test("interactive surfaces expose hover, active and keyboard focus feedback", ()
   assert.match(styles, /\.primary-action:hover/);
   assert.match(styles, /button:not\(:disabled\):active/);
   assert.match(styles, /\[role="button"\]:focus-visible/);
+});
+
+test("smart Q&A defaults to SSE and exposes a stop action", () => {
+  assert.match(page, /streamApi\("\/api\/query\/stream"/);
+  assert.match(page, /\/run\/stream`/);
+  assert.match(page, /chatStreamRef\.current\?\.abort\(\)/);
+  assert.match(page, /停止生成/);
 });

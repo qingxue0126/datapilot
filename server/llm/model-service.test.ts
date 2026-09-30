@@ -26,6 +26,27 @@ test("model service retries primary then uses task fallback", async () => {
   assert.deepEqual(calls, ["primary", "primary", "fallback"]);
 });
 
+test("streaming model service never retries after emitting a token", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 20));
+  const primary = store.create(context, config("primary-stream"));
+  const fallback = store.create(context, config("fallback-stream"));
+  store.saveRoute(context, "answer", { primaryModelId: primary.id, fallbackModelId: fallback.id, maxRetries: 2 });
+  const calls: string[] = [];
+  const provider: ModelProvider = {
+    async chat(model, request) {
+      calls.push(model.modelId);
+      request.onToken?.("部分回答");
+      throw new Error("upstream disconnected");
+    },
+    async testConnection() { return { content: "OK", latencyMs: 1 }; },
+  };
+  const service = new ModelService(store, new ModelRouter(store), { get: () => provider } as unknown as ModelProviderRegistry);
+  const tokens: string[] = [];
+  await assert.rejects(service.text([{ role: "user", content: "test" }], { context, task: "answer", onToken: (token) => tokens.push(token) }), /upstream disconnected/);
+  assert.deepEqual(tokens, ["部分回答"]);
+  assert.deepEqual(calls, ["primary-stream"]);
+});
+
 test("connection testing stores only public status information", async () => {
   const store = new ModelStore(":memory:", Buffer.alloc(32, 5)); const model = store.create(context, config("test"));
   const provider: ModelProvider = { async chat() { throw new Error("unused"); }, async testConnection() { return { content: "OK", latencyMs: 12 }; } };

@@ -24,7 +24,7 @@ export interface ModelProvider {
 export class OpenAICompatibleProvider implements ModelProvider {
   async chat(model: RuntimeModelConfig, request: ChatRequest): Promise<ChatResponse> {
     return this.sendChat(model, request.messages, request.temperature, request.timeout, request.maxTokens,
-      Boolean(request.structured && model.supportsStructuredOutput), false, request.onToken);
+      Boolean(request.structured && model.supportsStructuredOutput), false, request.onToken, request.signal);
   }
 
   async multimodalChat(model: RuntimeModelConfig, request: MultimodalChatRequest): Promise<ChatResponse> {
@@ -78,9 +78,13 @@ export class OpenAICompatibleProvider implements ModelProvider {
     structured = false,
     disableThinking = false,
     onToken?: (token: string) => void,
+    signal?: AbortSignal,
   ): Promise<ChatResponse> {
     const startedAt = Date.now();
     const controller = new AbortController();
+    const abortFromCaller = () => controller.abort();
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener("abort", abortFromCaller, { once: true });
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -100,6 +104,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
         if (!content.trim()) throw new Error("模型未返回有效内容");
         return { content, latencyMs: Date.now() - startedAt };
       }
+      if (onToken && response.ok) throw new Error("模型未返回 SSE 流式响应");
       const raw = await response.text();
       const body = parseResponse(raw);
       if (!response.ok) throw new Error(`模型请求失败（${response.status}）：${safeError(body)}`);
@@ -109,12 +114,14 @@ export class OpenAICompatibleProvider implements ModelProvider {
       // a false negative when the HTTP request itself succeeded.
       const content = message?.content?.trim() || message?.reasoning_content?.trim();
       if (!content) throw new Error("模型未返回有效内容");
-      if (onToken) onToken(content);
       return { content, latencyMs: Date.now() - startedAt };
     } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") throw new Error(`模型请求超时（${timeout}ms）`);
+      if (error instanceof Error && error.name === "AbortError") {
+        if (signal?.aborted) throw error;
+        throw new Error(`模型请求超时（${timeout}ms）`);
+      }
       throw error;
-    } finally { clearTimeout(timer); }
+    } finally { clearTimeout(timer); signal?.removeEventListener("abort", abortFromCaller); }
   }
 
   async testConnection(model: RuntimeModelConfig) {
