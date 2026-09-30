@@ -7,20 +7,23 @@ import { apiUrl } from "./api-base";
 type AccountRole = "tenant_owner" | "tenant_admin" | "finance_analyst" | "finance_viewer";
 export type AuthUser = {
   id: string; username: string; email?: string; displayName: string; tenantId: string; accountSetId: string;
+  phone?: string; unit?: string; remark?: string; avatar?: string;
   role: AccountRole; isBootstrapAdmin: boolean; isRoot: boolean; canManageTenant: boolean; createdAt: string; updatedAt: string;
 };
 type Team = { id: string; name: string; accountSetId: string; role: AccountRole; active: boolean; memberCount: number };
-type AdminTeam = { id: string; name: string; accountSetId: string; createdBy: string; createdAt: string; memberCount: number };
-type AdminMember = { userId: string; tenantId: string; role: AccountRole; username: string; displayName: string; email?: string };
+type AdminTeam = { id: string; name: string; accountSetId: string; createdBy: string; createdAt: string; memberCount: number; administrators: string[] };
+type AdminMember = { userId: string; tenantId: string; role: AccountRole; username: string; displayName: string; email?: string; phone?: string; status: "active" | "deleted"; createdAt: string };
+type IncomingInvitation = { id: string; tenantId: string; tenantName: string; role: AccountRole; invitedBy: string; createdAt: string };
 type AccountCenter = {
   user: AuthUser;
   teams: Team[];
+  invitations: IncomingInvitation[];
   admin?: { scope: "platform" | "tenant"; teams: AdminTeam[]; members: AdminMember[]; invitations: { id: string; identifier: string; role: AccountRole; tenantId: string }[]; platform?: { tenantCount: number; userCount: number } };
 };
 type ApiKeyItem = { id: string; name: string; tenantId: string; enabled: boolean; createdAt: string; lastUsedAt?: string };
 type CenterKind = "personal" | "admin";
-type PersonalSection = "profile" | "account" | "password" | "teams" | "apiKeys";
-type AdminSection = "create" | "teams" | "members" | "invite" | "roles" | "tenants" | "users" | "platform";
+type PersonalSection = "profile" | "password" | "teams" | "invitations" | "apiKeys";
+type AdminSection = "organizations" | "users";
 
 export function AuthScreen({ mode, setMode, submitting, error, submit }: {
   mode: "login" | "register"; setMode: (mode: "login" | "register") => void; submitting: boolean; error: string; submit: (event: FormEvent<HTMLFormElement>) => void;
@@ -48,7 +51,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   const [dialog, setDialog] = useState<CenterKind | "delete" | null>(null);
   const [center, setCenter] = useState<AccountCenter | null>(null);
   const [personalSection, setPersonalSection] = useState<PersonalSection>("profile");
-  const [adminSection, setAdminSection] = useState<AdminSection>("create");
+  const [adminSection, setAdminSection] = useState<AdminSection>("organizations");
   const [confirmation, setConfirmation] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
@@ -90,7 +93,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   }
   async function updateProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    await action(async () => { const data = await request<{ user: AuthUser }>("/api/auth/profile", { method: "PATCH", body: JSON.stringify({ displayName: form.get("displayName") }) }); setCenter((value) => value ? { ...value, user: data.user } : value); await onContextChanged(data.user); }, "个人资料已保存");
+    await action(async () => { const data = await request<{ user: AuthUser }>("/api/auth/profile", { method: "PATCH", body: JSON.stringify(Object.fromEntries(form)) }); setCenter((value) => value ? { ...value, user: data.user } : value); await onContextChanged(data.user); }, "个人资料已保存");
   }
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
@@ -105,7 +108,10 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   }
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
-    await action(async () => { await request<{ accepted: boolean }>("/api/auth/admin/invitations", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) }); await loadCenter(); formElement.reset(); }, "邀请已创建；已注册账户会立即加入团队");
+    await action(async () => { await request<{ accepted: boolean }>("/api/auth/admin/invitations", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) }); await loadCenter(); formElement.reset(); }, "邀请已发送，等待用户确认");
+  }
+  async function respondInvitation(invitation: IncomingInvitation, accept: boolean) {
+    await action(async () => { const data = await request<AccountCenter>(`/api/auth/invitations/${encodeURIComponent(invitation.id)}/${accept ? "accept" : "reject"}`, { method: "POST" }); setCenter(data); if (accept) await onContextChanged(data.user); }, accept ? "已加入组织" : "已拒绝邀请");
   }
   async function changeRole(member: AdminMember, role: AccountRole) {
     await action(async () => { await request(`/api/auth/admin/members/${encodeURIComponent(member.userId)}`, { method: "PATCH", body: JSON.stringify({ tenantId: member.tenantId, role }) }); await loadCenter(); }, "成员角色已更新");
@@ -131,7 +137,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   return <div className="account-entry" ref={root}>
     {menuOpen && <div className="account-menu" role="menu">
       <button role="menuitem" onClick={() => void openCenter("personal")}>个人中心</button>
-      {user.canManageTenant && <button role="menuitem" onClick={() => void openCenter("admin")}>管理员中心</button>}
+      <button role="menuitem" onClick={() => void openCenter("admin")}>管理员中心</button>
       <button role="menuitem" disabled={working} onClick={() => void logout()}>退出登录</button>
       <button role="menuitem" className="danger" onClick={() => { setDialog("delete"); setMenuOpen(false); setConfirmation(""); setError(""); }}>注销账户</button>
     </div>}
@@ -145,22 +151,18 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
           : <div className="account-center-layout">
             <nav aria-label={dialog === "personal" ? "个人中心导航" : "管理员中心导航"}>
               {dialog === "personal" ? <>
-                <CenterNav label="个人资料" active={personalSection === "profile"} onClick={() => setPersonalSection("profile")} />
-                <CenterNav label="账号信息" active={personalSection === "account"} onClick={() => setPersonalSection("account")} />
+                <CenterNav label="个人信息" active={personalSection === "profile"} onClick={() => setPersonalSection("profile")} />
                 <CenterNav label="修改密码" active={personalSection === "password"} onClick={() => setPersonalSection("password")} />
-                <CenterNav label="我的团队" active={personalSection === "teams"} onClick={() => setPersonalSection("teams")} />
+                <CenterNav label="我的组织" active={personalSection === "teams"} onClick={() => setPersonalSection("teams")} />
+                <CenterNav label={`组织邀请${center?.invitations.length ? ` (${center.invitations.length})` : ""}`} active={personalSection === "invitations"} onClick={() => setPersonalSection("invitations")} />
                 <CenterNav label="API Key" active={personalSection === "apiKeys"} onClick={() => setPersonalSection("apiKeys")} />
-              </> : <>
-                <CenterNav label="创建团队" active={adminSection === "create"} onClick={() => setAdminSection("create")} />
-                <CenterNav label="团队管理" active={adminSection === "teams"} onClick={() => setAdminSection("teams")} />
-                <CenterNav label="成员管理" active={adminSection === "members"} onClick={() => setAdminSection("members")} />
-                <CenterNav label="邀请成员" active={adminSection === "invite"} onClick={() => setAdminSection("invite")} />
-                <CenterNav label="角色与权限" active={adminSection === "roles"} onClick={() => setAdminSection("roles")} />
-                {user.isRoot && <><span className="center-nav-divider">平台管理</span><CenterNav label="所有租户" active={adminSection === "tenants"} onClick={() => setAdminSection("tenants")} /><CenterNav label="所有用户" active={adminSection === "users"} onClick={() => setAdminSection("users")} /><CenterNav label="平台级管理" active={adminSection === "platform"} onClick={() => setAdminSection("platform")} /></>}
-              </>}
+              </> : center?.admin ? <>
+                <CenterNav label="组织" active={adminSection === "organizations"} onClick={() => setAdminSection("organizations")} />
+                <CenterNav label="用户" active={adminSection === "users"} onClick={() => setAdminSection("users")} />
+              </> : <CenterNav label={`组织邀请${center?.invitations.length ? ` (${center.invitations.length})` : ""}`} active onClick={() => undefined} />}
             </nav>
             <div className="account-center-content">
-              {working && !center ? <p className="center-empty">正在加载…</p> : dialog === "personal" ? <PersonalCenter section={personalSection} center={center} activeTeam={activeTeam} updateProfile={updateProfile} changePassword={changePassword} switchTeam={switchTeam} apiKeys={apiKeys} createdApiKey={createdApiKey} createApiKey={createApiKey} toggleApiKey={toggleApiKey} revokeApiKey={revokeApiKey} working={working} /> : <AdminCenter section={adminSection} center={center} activeTeam={activeTeam} createTeam={createTeam} invite={invite} changeRole={changeRole} working={working} />}
+              {working && !center ? <p className="center-empty">正在加载…</p> : dialog === "personal" ? <PersonalCenter section={personalSection} center={center} activeTeam={activeTeam} updateProfile={updateProfile} changePassword={changePassword} switchTeam={switchTeam} respondInvitation={respondInvitation} apiKeys={apiKeys} createdApiKey={createdApiKey} createApiKey={createApiKey} toggleApiKey={toggleApiKey} revokeApiKey={revokeApiKey} working={working} /> : <AdminCenter section={adminSection} center={center} activeTeam={activeTeam} createTeam={createTeam} invite={invite} changeRole={changeRole} respondInvitation={respondInvitation} working={working} />}
               {notice && <div className="center-notice success" role="status">{notice}</div>}{error && <div className="center-notice error" role="alert">{error}</div>}
             </div>
           </div>}
@@ -171,32 +173,46 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
 
 function CenterNav({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) { return <button className={active ? "active" : ""} onClick={onClick}>{label}</button>; }
 
-function PersonalCenter({ section, center, activeTeam, updateProfile, changePassword, switchTeam, apiKeys, createdApiKey, createApiKey, toggleApiKey, revokeApiKey, working }: {
-  section: PersonalSection; center: AccountCenter | null; activeTeam?: Team; updateProfile: (event: FormEvent<HTMLFormElement>) => Promise<void>; changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>; switchTeam: (id: string) => Promise<void>; apiKeys: ApiKeyItem[]; createdApiKey: string; createApiKey: (event: FormEvent<HTMLFormElement>) => Promise<void>; toggleApiKey: (item: ApiKeyItem) => Promise<void>; revokeApiKey: (item: ApiKeyItem) => Promise<void>; working: boolean;
+function PersonalCenter({ section, center, activeTeam, updateProfile, changePassword, switchTeam, respondInvitation, apiKeys, createdApiKey, createApiKey, toggleApiKey, revokeApiKey, working }: {
+  section: PersonalSection; center: AccountCenter | null; activeTeam?: Team; updateProfile: (event: FormEvent<HTMLFormElement>) => Promise<void>; changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>; switchTeam: (id: string) => Promise<void>; respondInvitation: (invitation: IncomingInvitation, accept: boolean) => Promise<void>; apiKeys: ApiKeyItem[]; createdApiKey: string; createApiKey: (event: FormEvent<HTMLFormElement>) => Promise<void>; toggleApiKey: (item: ApiKeyItem) => Promise<void>; revokeApiKey: (item: ApiKeyItem) => Promise<void>; working: boolean;
 }) {
   if (!center) return null;
-  if (section === "profile") return <CenterSection title="个人资料" description="设置在 DataPilot 中显示的个人名称。"><form className="center-form" onSubmit={(event) => void updateProfile(event)}><label>显示名称<input name="displayName" defaultValue={center.user.displayName} minLength={2} maxLength={64} required /></label><button disabled={working}>保存资料</button></form></CenterSection>;
-  if (section === "account") return <CenterSection title="账号信息" description="账号标识与当前权限上下文由服务端维护。"><dl className="profile-details"><div><dt>用户名</dt><dd>{center.user.username}</dd></div><div><dt>邮箱</dt><dd>{center.user.email || "未设置"}</dd></div><div><dt>角色</dt><dd>{center.user.isRoot ? "平台管理员" : roleLabel(center.user.role)}</dd></div><div><dt>当前团队</dt><dd>{activeTeam?.name || center.user.tenantId}</dd></div><div><dt>账套</dt><dd>{center.user.accountSetId}</dd></div></dl></CenterSection>;
+  if (section === "profile") return <CenterSection title="个人信息" description="维护头像和联系信息。用户名不可修改。"><form className="personal-profile-form" onSubmit={(event) => void updateProfile(event)}><AvatarField user={center.user} /><div className="personal-fields"><label>用户名<input value={center.user.username} disabled /></label><label>显示名称<input name="displayName" defaultValue={center.user.displayName} minLength={2} maxLength={64} required /></label><label>密码<div className="password-summary"><input value="••••••••" disabled /><span>请在“修改密码”中更新</span></div></label><label>单位<input name="unit" defaultValue={center.user.unit || ""} maxLength={100} placeholder="请输入单位" /></label><label>电话<input name="phone" defaultValue={center.user.phone || ""} maxLength={25} placeholder="请输入电话" /></label><label>邮箱<input name="email" type="email" defaultValue={center.user.email || ""} maxLength={254} placeholder="请输入邮箱" /></label><label>备注<textarea name="remark" defaultValue={center.user.remark || ""} maxLength={300} placeholder="请输入备注" /></label><button disabled={working}>保存资料</button></div></form></CenterSection>;
   if (section === "password") return <CenterSection title="修改密码" description="更新后将退出除当前浏览器之外的其他会话。"><form className="center-form" onSubmit={(event) => void changePassword(event)}><label>当前密码<input name="currentPassword" type="password" autoComplete="current-password" required /></label><label>新密码<input name="newPassword" type="password" autoComplete="new-password" minLength={8} required /></label><label>确认新密码<input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} required /></label><button disabled={working}>修改密码</button></form></CenterSection>;
   if (section === "apiKeys") return <CenterSection title="API Key" description="用于 RAGFlow 或外部 Agent 调用 /api/v1/*；Key 绑定当前团队，完整值只显示一次。">
     <form className="center-form compact" onSubmit={(event) => void createApiKey(event)}><label>名称<input name="name" minLength={2} maxLength={80} placeholder="例如：RAGFlow 生产环境" required /></label><button disabled={working}>创建 API Key</button></form>
     {createdApiKey && <div className="api-key-created"><strong>请立即复制，关闭后无法再次查看</strong><code>{createdApiKey}</code><button type="button" onClick={() => void navigator.clipboard.writeText(createdApiKey)}>复制</button></div>}
     <div className="api-key-list">{apiKeys.length ? apiKeys.map((item) => <article key={item.id}><div><strong>{item.name}</strong><small>{item.tenantId} · 创建于 {new Date(item.createdAt).toLocaleString()} · 最后使用 {item.lastUsedAt ? new Date(item.lastUsedAt).toLocaleString() : "从未"}</small></div><span className={item.enabled ? "enabled" : "disabled"}>{item.enabled ? "已启用" : "已禁用"}</span><button type="button" disabled={working} onClick={() => void toggleApiKey(item)}>{item.enabled ? "禁用" : "启用"}</button><button type="button" className="danger" disabled={working} onClick={() => void revokeApiKey(item)}>撤销</button></article>) : <p className="center-empty">当前团队还没有 API Key。</p>}</div>
   </CenterSection>;
+  if (section === "invitations") return <CenterSection title="组织邀请" description="管理员发送的邀请会保留在这里，只有接受后才会加入组织。"><div className="invitation-list">{center.invitations.length ? center.invitations.map((invitation) => <article key={invitation.id}><div><strong>{invitation.tenantName}</strong><small>{invitation.invitedBy} 邀请你以“{roleLabel(invitation.role)}”身份加入 · {new Date(invitation.createdAt).toLocaleString()}</small></div><div><button className="secondary" disabled={working} onClick={() => void respondInvitation(invitation, false)}>拒绝</button><button disabled={working} onClick={() => void respondInvitation(invitation, true)}>接受邀请</button></div></article>) : <p className="center-empty">暂无待处理邀请。</p>}</div></CenterSection>;
   return <CenterSection title="我的团队" description="只能切换到你已经加入的团队，切换后业务数据会按新上下文重新加载。"><div className="team-list">{center.teams.map((team) => <article key={team.id} className={team.active ? "active" : ""}><div><strong>{team.name}</strong><small>{roleLabel(team.role)} · {team.memberCount} 位成员</small></div>{team.active ? <span>当前团队</span> : <button disabled={working} onClick={() => void switchTeam(team.id)}>切换</button>}</article>)}</div></CenterSection>;
 }
 
-function AdminCenter({ section, center, activeTeam, createTeam, invite, changeRole, working }: {
-  section: AdminSection; center: AccountCenter | null; activeTeam?: Team; createTeam: (event: FormEvent<HTMLFormElement>) => Promise<void>; invite: (event: FormEvent<HTMLFormElement>) => Promise<void>; changeRole: (member: AdminMember, role: AccountRole) => Promise<void>; working: boolean;
+function AvatarField({ user }: { user: AuthUser }) {
+  const [avatar, setAvatar] = useState(user.avatar || "");
+  function selectAvatar(file?: File) {
+    if (!file) return;
+    if (file.size > 1_000_000) return;
+    const reader = new FileReader();
+    reader.onload = () => setAvatar(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  }
+  return <label className="avatar-upload"><span className="avatar-preview" style={avatar ? { backgroundImage: `url(${avatar})` } : undefined}>{avatar ? "" : user.displayName.slice(0, 1).toUpperCase()}</span><span>点击上传图片</span><input type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={(event) => selectAvatar(event.target.files?.[0])} /><input type="hidden" name="avatar" value={avatar} /></label>;
+}
+
+function AdminCenter({ section, center, activeTeam, createTeam, invite, changeRole, respondInvitation, working }: {
+  section: AdminSection; center: AccountCenter | null; activeTeam?: Team; createTeam: (event: FormEvent<HTMLFormElement>) => Promise<void>; invite: (event: FormEvent<HTMLFormElement>) => Promise<void>; changeRole: (member: AdminMember, role: AccountRole) => Promise<void>; respondInvitation: (invitation: IncomingInvitation, accept: boolean) => Promise<void>; working: boolean;
 }) {
-  if (!center?.admin) return <p className="center-empty">没有管理员权限。</p>;
+  const [query, setQuery] = useState("");
+  if (!center) return null;
+  if (!center.admin) return <CenterSection title="组织邀请" description="你没有组织管理权限；管理员发给你的邀请会显示在这里。"><div className="invitation-list">{center.invitations.length ? center.invitations.map((invitation) => <article key={invitation.id}><div><strong>{invitation.tenantName}</strong><small>{invitation.invitedBy} 邀请你以“{roleLabel(invitation.role)}”身份加入 · {new Date(invitation.createdAt).toLocaleString()}</small></div><div><button className="secondary" disabled={working} onClick={() => void respondInvitation(invitation, false)}>拒绝</button><button disabled={working} onClick={() => void respondInvitation(invitation, true)}>接受邀请</button></div></article>) : <p className="center-empty">暂无待处理邀请。</p>}</div></CenterSection>;
   const admin = center.admin;
-  if (section === "create") return <CenterSection title="创建团队" description="新团队将使用独立 tenant 与账套上下文，你将成为 Owner。"><form className="center-form compact" onSubmit={(event) => void createTeam(event)}><label>团队名称<input name="name" minLength={2} maxLength={80} placeholder="例如：华东财务团队" required /></label><button disabled={working}>创建团队</button></form></CenterSection>;
-  if (section === "teams" || section === "tenants") return <CenterSection title={section === "tenants" ? "所有租户" : "团队管理"} description={admin.scope === "platform" ? "平台管理员可查看全部租户。" : "Owner 与管理员仅能管理当前团队。"}><div className="admin-list">{admin.teams.map((team) => <article key={team.id}><div><strong>{team.name}</strong><small>{team.id}</small></div><span>{team.memberCount} 位成员</span></article>)}</div></CenterSection>;
-  if (section === "members" || section === "users") return <CenterSection title={section === "users" ? "所有用户" : "成员管理"} description={section === "users" ? "查看平台各租户中的成员关系。" : `当前团队：${activeTeam?.name || "-"}`}><div className="admin-list member-list">{admin.members.map((member) => <article key={`${member.tenantId}-${member.userId}`}><div><strong>{member.displayName}</strong><small>{member.email || member.username}{admin.scope === "platform" ? ` · ${member.tenantId}` : ""}</small></div>{member.role === "tenant_owner" ? <span>Owner</span> : <select aria-label={`设置 ${member.displayName} 的角色`} value={member.role} disabled={working} onChange={(event) => void changeRole(member, event.target.value as AccountRole)}><option value="tenant_admin">管理员</option><option value="finance_analyst">成员（分析）</option><option value="finance_viewer">成员（只读）</option></select>}</article>)}</div></CenterSection>;
-  if (section === "invite") return <CenterSection title="邀请成员" description="已注册账户会立即加入；未注册标识将在注册后自动接受邀请。"><form className="center-form compact" onSubmit={(event) => void invite(event)}><label>用户名或邮箱<input name="identifier" required /></label>{admin.scope === "platform" && <label>目标租户<select name="tenantId" defaultValue={activeTeam?.id}>{admin.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>}<label>角色<select name="role" defaultValue="finance_viewer"><option value="finance_viewer">成员（只读）</option><option value="finance_analyst">成员（分析）</option><option value="tenant_admin">团队管理员</option></select></label><button disabled={working}>发送邀请</button></form></CenterSection>;
-  if (section === "roles") return <CenterSection title="角色与权限" description="权限在服务端按当前 tenant 强制执行。"><div className="role-cards"><article><strong>Owner</strong><p>管理自己的团队、成员、邀请及角色。</p></article><article><strong>团队管理员</strong><p>管理当前团队，不可跨租户访问。</p></article><article><strong>普通成员</strong><p>仅使用被授予的分析与查看能力。</p></article></div></CenterSection>;
-  return <CenterSection title="平台级管理" description="仅 root 平台管理员可见。"><div className="platform-stats"><article><strong>{admin.platform?.tenantCount || 0}</strong><span>租户总数</span></article><article><strong>{admin.platform?.userCount || 0}</strong><span>有效用户</span></article></div><p className="platform-note">平台操作仍受服务端 root 身份校验，不依赖前端入口可见性。</p></CenterSection>;
+  if (section === "organizations") {
+    const teams = admin.teams.filter((team) => team.name.toLowerCase().includes(query.toLowerCase()));
+    return <CenterSection title="组织管理" description="管理组织信息和成员归属。"><div className="admin-toolbar"><input aria-label="搜索组织" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索组织" /><form onSubmit={(event) => void createTeam(event)}><input name="name" minLength={2} maxLength={80} placeholder="组织名称" required /><button disabled={working}>＋ 新增组织</button></form></div><div className="management-table organization-table"><div className="table-row table-head"><span>组织名称</span><span>组织管理员</span><span>成员数</span><span>创建时间</span><span>操作</span></div>{teams.map((team) => <div className="table-row" key={team.id}><strong>{team.name}</strong><span>{team.administrators.join("、") || "--"}</span><span>{team.memberCount}</span><span>{new Date(team.createdAt).toLocaleString()}</span><span className="table-actions"><button type="button" disabled title="后续支持重命名">编辑</button></span></div>)}</div></CenterSection>;
+  }
+  const members = admin.members.filter((member) => `${member.displayName} ${member.username} ${member.email || ""}`.toLowerCase().includes(query.toLowerCase()));
+  return <CenterSection title="用户管理" description={`管理组织用户、角色与邀请。当前组织：${activeTeam?.name || "-"}`}><div className="admin-toolbar user-toolbar"><input aria-label="用户名或邮箱搜索" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="用户名/邮箱搜索" /><form className="invite-inline-form" onSubmit={(event) => void invite(event)}><input name="identifier" placeholder="用户名或邮箱" required />{admin.scope === "platform" && <select name="tenantId" defaultValue={activeTeam?.id}>{admin.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select>}<select name="role" defaultValue="finance_viewer"><option value="finance_viewer">普通成员</option><option value="finance_analyst">分析成员</option><option value="tenant_admin">组织管理员</option></select><button disabled={working}>邀请用户</button></form></div>{admin.invitations.length > 0 && <div className="pending-invitations"><strong>待确认邀请</strong>{admin.invitations.map((item) => <span key={item.id}>{item.identifier} · {roleLabel(item.role)}</span>)}</div>}<div className="management-table user-table"><div className="table-row table-head"><span>用户名</span><span>角色</span><span>手机号</span><span>状态</span><span>创建时间</span><span>操作</span></div>{members.map((member) => <div className="table-row" key={`${member.tenantId}-${member.userId}`}><span className="user-cell"><span className="mini-avatar">{member.displayName.slice(0, 1).toUpperCase()}</span><span><strong>{member.displayName}</strong><small>{member.email || member.username}</small></span></span><span>{member.role === "tenant_owner" ? "Owner" : <select aria-label={`设置 ${member.displayName} 的角色`} value={member.role} disabled={working} onChange={(event) => void changeRole(member, event.target.value as AccountRole)}><option value="tenant_admin">组织管理员</option><option value="finance_analyst">分析成员</option><option value="finance_viewer">普通成员</option></select>}</span><span>{member.phone || "--"}</span><span className={`status-pill ${member.status}`}>{member.status === "active" ? "启用" : "停用"}</span><span>{new Date(member.createdAt).toLocaleString()}</span><span className="table-actions"><button type="button" disabled={member.role === "tenant_owner"}>编辑</button></span></div>)}</div></CenterSection>;
 }
 
 function CenterSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <section className="center-section"><header><h3>{title}</h3><p>{description}</p></header>{children}</section>; }

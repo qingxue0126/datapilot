@@ -122,7 +122,9 @@ test("member, owner, and root receive the expected account-center permissions", 
     assert.equal(item.store.accountCenter(owner.token).user.role, "tenant_owner");
     assert.equal(item.store.accountCenter(owner.token).admin?.scope, "tenant");
 
-    item.store.inviteMember(root.token, { identifier: "ordinary-member", role: "finance_viewer" });
+    const invitation = item.store.inviteMember(root.token, { identifier: "ordinary-member", role: "finance_viewer" });
+    assert.equal(item.store.accountCenter(member.token).invitations.length, 1);
+    item.store.respondToInvitation(member.token, invitation.invitation.id, true);
     item.store.switchTeam(member.token, root.user.tenantId);
     const memberCenter = item.store.accountCenter(member.token);
     assert.equal(memberCenter.user.role, "finance_viewer");
@@ -140,9 +142,29 @@ test("team switching is limited to memberships and owner management stays tenant
     assert.throws(() => item.store.switchTeam(owner.token, root.user.tenantId), (error: AuthError) => error.status === 403);
     assert.throws(() => item.store.inviteMember(owner.token, { identifier: "someone", tenantId: root.user.tenantId }), (error: AuthError) => error.status === 403);
 
-    item.store.inviteMember(root.token, { identifier: "owner-two", role: "finance_analyst" });
+    const invitation = item.store.inviteMember(root.token, { identifier: "owner-two", role: "finance_analyst" });
+    item.store.respondToInvitation(owner.token, invitation.invitation.id, true);
     const switched = item.store.switchTeam(owner.token, root.user.tenantId);
     assert.equal(switched.user.tenantId, root.user.tenantId);
     assert.equal(item.store.authenticate(owner.token).context.tenantId, root.user.tenantId);
+  } finally { item.cleanup(); }
+});
+
+test("organization invitations stay pending until the invited account accepts or rejects them", async () => {
+  const item = fixture();
+  try {
+    const manager = await item.store.register("manager", "Secure123", "Secure123");
+    const invited = await item.store.register("invited", "Secure123", "Secure123");
+    const accepted = item.store.inviteMember(manager.token, { identifier: "invited", role: "finance_viewer" });
+    assert.equal(accepted.accepted, false);
+    assert.equal(item.store.accountCenter(invited.token).invitations[0].tenantName, "默认团队");
+    assert.throws(() => item.store.switchTeam(invited.token, manager.user.tenantId), (error: AuthError) => error.status === 403);
+    item.store.respondToInvitation(invited.token, accepted.invitation.id, true);
+    assert.equal(item.store.accountCenter(invited.token).invitations.length, 0);
+    assert.equal(item.store.switchTeam(invited.token, manager.user.tenantId).user.role, "finance_viewer");
+
+    const rejected = item.store.inviteMember(manager.token, { identifier: "invited", role: "finance_analyst" });
+    item.store.respondToInvitation(invited.token, rejected.invitation.id, false);
+    assert.equal(item.store.accountCenter(invited.token).invitations.length, 0);
   } finally { item.cleanup(); }
 });

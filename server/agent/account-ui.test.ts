@@ -12,24 +12,22 @@ test("anonymous users receive login and registration controls", () => {
   assert.match(accountUi, /创建账户/);
 });
 
-test("sidebar user entry exposes personal center, guarded admin center, logout, and account deletion", () => {
+test("sidebar user entry exposes personal center, invitation-aware admin center, logout, and account deletion", () => {
   assert.match(page, /<UserAccountMenu/);
   assert.match(accountUi, /个人中心/);
-  assert.match(accountUi, /user\.canManageTenant && <button role="menuitem"[\s\S]*?管理员中心/);
+  assert.match(accountUi, /<button role="menuitem"[\s\S]*?管理员中心/);
   assert.match(accountUi, /退出登录/);
   assert.match(accountUi, /注销账户/);
 });
 
 test("personal and admin centers expose role-specific sections", () => {
-  assert.match(accountUi, /个人资料/);
-  assert.match(accountUi, /账号信息/);
+  assert.match(accountUi, /个人信息/);
   assert.match(accountUi, /修改密码/);
-  assert.match(accountUi, /我的团队/);
-  assert.match(accountUi, /创建团队/);
-  assert.match(accountUi, /成员管理/);
-  assert.match(accountUi, /邀请成员/);
-  assert.match(accountUi, /角色与权限/);
-  assert.match(accountUi, /user\.isRoot && <><span[\s\S]*?所有租户[\s\S]*?所有用户[\s\S]*?平台级管理/);
+  assert.match(accountUi, /我的组织/);
+  assert.match(accountUi, /组织邀请/);
+  assert.match(accountUi, /组织管理/);
+  assert.match(accountUi, /用户管理/);
+  assert.match(accountUi, /邀请用户/);
   assert.match(accountUi, /API Key/);
   assert.match(accountUi, /\/api\/auth\/api-keys/);
   assert.match(accountUi, /完整值只显示一次/);

@@ -6,13 +6,14 @@ import type { RequestContext, Role } from "../core/types.js";
 
 export type Account = {
   id: string; username: string; email?: string; displayName: string; passwordHash: string;
+  phone?: string; unit?: string; remark?: string; avatar?: string;
   /** Retained for backward-compatible account files; memberships are authoritative. */
   tenantId: string; accountSetId: string; role: Role; activeTenantId?: string;
   status: "active" | "deleted"; createdAt: string; updatedAt: string; deletedAt?: string;
 };
 export type Tenant = { id: string; name: string; accountSetId: string; createdBy: string; createdAt: string };
 export type TenantMembership = { userId: string; tenantId: string; accountSetId: string; role: Role; joinedAt: string };
-type TeamInvitation = { id: string; tenantId: string; identifier: string; role: Role; invitedBy: string; status: "pending" | "accepted"; createdAt: string };
+type TeamInvitation = { id: string; tenantId: string; identifier: string; role: Role; invitedBy: string; status: "pending" | "accepted" | "rejected"; createdAt: string; resolvedAt?: string };
 type AuthSession = { id: string; tokenHash: string; userId: string; expiresAt: string; createdAt: string };
 type StoredApiKey = { id: string; name: string; keyHash: string; userId: string; tenantId: string; accountSetId: string; enabled: boolean; createdAt: string; lastUsedAt?: string };
 type StoredAuth = { accounts: Account[]; sessions: AuthSession[]; tenants: Tenant[]; memberships: TenantMembership[]; invitations: TeamInvitation[]; apiKeys: StoredApiKey[] };
@@ -20,6 +21,7 @@ export type PublicApiKey = Pick<StoredApiKey, "id" | "name" | "tenantId" | "enab
 
 export type PublicAccount = {
   id: string; username: string; email?: string; displayName: string; tenantId: string; accountSetId: string; role: Role;
+  phone?: string; unit?: string; remark?: string; avatar?: string;
   isBootstrapAdmin: boolean; isRoot: boolean; canManageTenant: boolean; createdAt: string; updatedAt: string;
 };
 export type TeamSummary = { id: string; name: string; accountSetId: string; role: Role; active: boolean; memberCount: number };
@@ -58,7 +60,6 @@ export class AccountStore {
     this.state.accounts.push(account);
     this.state.tenants.push({ id: tenantId, name: bootstrapAccount ? "默认团队" : `${account.displayName}的团队`, accountSetId, createdBy: userId, createdAt: timestamp });
     this.state.memberships.push({ userId, tenantId, accountSetId, role, joinedAt: timestamp });
-    this.acceptPendingInvitations(account);
     const token = this.issueSession(account.id);
     this.persist();
     return { user: this.toPublicAccount(account), token };
@@ -68,7 +69,6 @@ export class AccountStore {
     const identifier = normalizeIdentifier(identifierInput);
     const account = this.state.accounts.find((item) => item.status === "active" && matchesIdentifier(item, identifier));
     if (!account || !(await bcrypt.compare(password, account.passwordHash))) throw new AuthError("用户名、邮箱或密码错误", 401);
-    this.acceptPendingInvitations(account);
     const token = this.issueSession(account.id);
     this.persist();
     return { user: this.toPublicAccount(account), token };
@@ -127,14 +127,29 @@ export class AccountStore {
   accountCenter(token?: string) {
     const account = this.authenticatedAccount(token);
     const user = this.toPublicAccount(account);
-    return { user, teams: this.teamsFor(account), admin: user.canManageTenant ? this.adminSnapshot(account) : undefined };
+    return { user, teams: this.teamsFor(account), invitations: this.incomingInvitations(account), admin: user.canManageTenant ? this.adminSnapshot(account) : undefined };
   }
 
-  updateProfile(token: string | undefined, displayNameInput: unknown) {
+  updateProfile(token: string | undefined, input: { displayName?: unknown; email?: unknown; phone?: unknown; unit?: unknown; remark?: unknown; avatar?: unknown }) {
     const account = this.authenticatedAccount(token);
-    const displayName = String(displayNameInput || "").trim();
+    const displayName = String(input.displayName || "").trim();
     if (displayName.length < 2 || displayName.length > 64) throw new AuthError("显示名称长度需为 2–64 个字符", 400);
+    const email = String(input.email || "").trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new AuthError("请输入有效邮箱", 400);
+    if (email && this.state.accounts.some((item) => item.id !== account.id && item.status === "active" && item.email?.toLowerCase() === email)) throw new AuthError("邮箱已被其他账户使用", 409);
+    const phone = String(input.phone || "").trim();
+    if (phone && !/^[+\d][\d\s-]{5,24}$/.test(phone)) throw new AuthError("请输入有效手机号", 400);
+    const unit = String(input.unit || "").trim();
+    const remark = String(input.remark || "").trim();
+    if (unit.length > 100 || remark.length > 300) throw new AuthError("单位或备注内容过长", 400);
+    const avatar = String(input.avatar || "").trim();
+    if (avatar && (!/^data:image\/(?:png|jpeg|webp);base64,/.test(avatar) || avatar.length > 1_500_000)) throw new AuthError("头像格式无效或超过 1MB", 400);
     account.displayName = displayName;
+    account.email = email || undefined;
+    account.phone = phone || undefined;
+    account.unit = unit || undefined;
+    account.remark = remark || undefined;
+    account.avatar = avatar || account.avatar;
     account.updatedAt = this.now().toISOString();
     this.persist();
     return this.toPublicAccount(account);
@@ -186,10 +201,20 @@ export class AccountStore {
     if (duplicate) throw new AuthError("该成员已有待处理邀请", 409);
     const invitation: TeamInvitation = { id: randomUUID(), tenantId, identifier, role, invitedBy: manager.id, status: "pending", createdAt: this.now().toISOString() };
     this.state.invitations.push(invitation);
-    const account = this.state.accounts.find((item) => item.status === "active" && matchesIdentifier(item, identifier));
-    if (account) this.acceptInvitation(invitation, account);
     this.persist();
-    return { invitation, accepted: invitation.status === "accepted" };
+    return { invitation, accepted: false };
+  }
+
+  respondToInvitation(token: string | undefined, invitationIdInput: unknown, accept: boolean) {
+    const account = this.authenticatedAccount(token);
+    const invitationId = String(invitationIdInput || "").trim();
+    const invitation = this.state.invitations.find((item) => item.id === invitationId && item.status === "pending" && matchesIdentifier(account, item.identifier));
+    if (!invitation) throw new AuthError("邀请不存在、已处理或不属于当前账户", 404);
+    if (accept) this.acceptInvitation(invitation, account);
+    else invitation.status = "rejected";
+    invitation.resolvedAt = this.now().toISOString();
+    this.persist();
+    return this.accountCenter(token);
   }
 
   updateMemberRole(token: string | undefined, userIdInput: unknown, input: { role?: unknown; tenantId?: unknown }) {
@@ -270,15 +295,22 @@ export class AccountStore {
       return { id: membership.tenantId, name: tenant?.name || membership.tenantId, accountSetId: membership.accountSetId, role: membership.role, active: membership.tenantId === activeTenantId, memberCount: this.state.memberships.filter((item) => item.tenantId === membership.tenantId).length };
     });
   }
+  private incomingInvitations(account: Account) {
+    return this.state.invitations.filter((item) => item.status === "pending" && matchesIdentifier(account, item.identifier)).map((item) => {
+      const tenant = this.state.tenants.find((entry) => entry.id === item.tenantId);
+      const inviter = this.state.accounts.find((entry) => entry.id === item.invitedBy);
+      return { id: item.id, tenantId: item.tenantId, tenantName: tenant?.name || item.tenantId, role: item.role, invitedBy: inviter?.displayName || inviter?.username || item.invitedBy, createdAt: item.createdAt };
+    });
+  }
   private adminSnapshot(account: Account) {
     const activeTenantId = this.activeMembership(account).tenantId;
     const tenantIds = this.isRoot(account) ? this.state.tenants.map((tenant) => tenant.id) : [activeTenantId];
     return {
       scope: this.isRoot(account) ? "platform" as const : "tenant" as const,
-      teams: this.state.tenants.filter((tenant) => tenantIds.includes(tenant.id)).map((tenant) => ({ ...tenant, memberCount: this.state.memberships.filter((item) => item.tenantId === tenant.id).length })),
+      teams: this.state.tenants.filter((tenant) => tenantIds.includes(tenant.id)).map((tenant) => ({ ...tenant, memberCount: this.state.memberships.filter((item) => item.tenantId === tenant.id).length, administrators: this.state.memberships.filter((item) => item.tenantId === tenant.id && ADMIN_ROLES.includes(item.role)).map((item) => this.state.accounts.find((account) => account.id === item.userId)?.displayName).filter(Boolean) })),
       members: this.state.memberships.filter((item) => tenantIds.includes(item.tenantId)).map((membership) => {
         const member = this.state.accounts.find((item) => item.id === membership.userId);
-        return { ...membership, username: member?.username || "已删除账户", displayName: member?.displayName || "已删除账户", email: member?.email };
+        return { ...membership, username: member?.username || "已删除账户", displayName: member?.displayName || "已删除账户", email: member?.email, phone: member?.phone, status: member?.status || "deleted", createdAt: member?.createdAt || membership.joinedAt };
       }),
       invitations: this.state.invitations.filter((item) => tenantIds.includes(item.tenantId) && item.status === "pending"),
       platform: this.isRoot(account) ? { tenantCount: this.state.tenants.length, userCount: this.state.accounts.filter((item) => item.status === "active").length } : undefined,
@@ -287,15 +319,12 @@ export class AccountStore {
   private toPublicAccount(account: Account): PublicAccount {
     const membership = this.activeMembership(account);
     const isRoot = this.isRoot(account);
-    return { id: account.id, username: account.username, email: account.email, displayName: account.displayName, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: membership.role, isBootstrapAdmin: isRoot, isRoot, canManageTenant: isRoot || ADMIN_ROLES.includes(membership.role), createdAt: account.createdAt, updatedAt: account.updatedAt };
+    return { id: account.id, username: account.username, email: account.email, displayName: account.displayName, phone: account.phone, unit: account.unit, remark: account.remark, avatar: account.avatar, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: membership.role, isBootstrapAdmin: isRoot, isRoot, canManageTenant: isRoot || ADMIN_ROLES.includes(membership.role), createdAt: account.createdAt, updatedAt: account.updatedAt };
   }
   private isRoot(account: Account) {
     const first = [...this.state.accounts].sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0];
     const membership = this.state.memberships.find((item) => item.userId === account.id && item.tenantId === (process.env.DEFAULT_TENANT_ID || "demo-tenant"));
     return first?.id === account.id && membership?.role === "tenant_admin" && membership.accountSetId === (process.env.DEFAULT_ACCOUNT_SET_ID || "default-account-set");
-  }
-  private acceptPendingInvitations(account: Account) {
-    for (const invitation of this.state.invitations.filter((item) => item.status === "pending" && matchesIdentifier(account, item.identifier))) this.acceptInvitation(invitation, account);
   }
   private acceptInvitation(invitation: TeamInvitation, account: Account) {
     const tenant = this.state.tenants.find((item) => item.id === invitation.tenantId);

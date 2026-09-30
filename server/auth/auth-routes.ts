@@ -37,7 +37,7 @@ export function installAuthRoutes(app: Express, accounts: AccountStore) {
   });
 
   app.patch("/api/auth/profile", (request, response) => {
-    try { response.json({ user: accounts.updateProfile(sessionToken(request), request.body?.displayName) }); }
+    try { response.json({ user: accounts.updateProfile(sessionToken(request), request.body || {}) }); }
     catch (error) { authFailure(response, error); }
   });
 
@@ -82,6 +82,16 @@ export function installAuthRoutes(app: Express, accounts: AccountStore) {
 
   app.post("/api/auth/admin/invitations", (request, response) => {
     try { response.status(201).json(accounts.inviteMember(sessionToken(request), request.body || {})); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.post("/api/auth/invitations/:id/accept", (request, response) => {
+    try { response.json(accounts.respondToInvitation(sessionToken(request), request.params.id, true)); }
+    catch (error) { authFailure(response, error); }
+  });
+
+  app.post("/api/auth/invitations/:id/reject", (request, response) => {
+    try { response.json(accounts.respondToInvitation(sessionToken(request), request.params.id, false)); }
     catch (error) { authFailure(response, error); }
   });
 
