@@ -2,6 +2,7 @@
 
 import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Background,
   ConnectionMode,
@@ -26,25 +27,14 @@ import {
 import type { ModelOption } from "./model-management";
 import { customerFacingRunError, extractConversationInput, hasRunInputValue, missingConversationPrompt } from "./conversation-input";
 import { AgentWorkflowIcon } from "./icons";
+import { buildWorkflowVariableGroups, insertVariableAt, variableExpression, type WorkflowVariableGroup } from "./workflow-variables";
+import { apiUrl, resolveApiBase } from "./api-base";
 
-const LOCAL_API_BASE = "http://localhost:3001";
-
-// A stale local environment can point an API request back to Vite (port 3000),
-// which returns the app HTML rather than JSON. Keep the workflow editor bound
-// to the Express API when it runs locally.
-function resolveApiBase() {
-  const configured = process.env.NEXT_PUBLIC_API_BASE_URL;
-  if (typeof window !== "undefined" && /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname)) {
-    if (!configured || /localhost:3000|127\.0\.0\.1:3000/.test(configured)) return LOCAL_API_BASE;
-  }
-  return configured || LOCAL_API_BASE;
-}
-
-const api = (path: string, init: RequestInit = {}) => fetch(`${resolveApiBase()}${path}`, { ...init, credentials: "include" });
+const api = (path: string, init: RequestInit = {}) => fetch(apiUrl(path), { ...init, credentials: "include" });
 
 async function readJson(response: Response) {
   if (!response.headers.get("content-type")?.includes("application/json")) {
-    throw new Error("智能体服务未返回 JSON；请确认本地 API 已运行在 http://localhost:3001。");
+    throw new Error(`智能体服务未返回 JSON；请确认 API 已运行在 ${resolveApiBase()}。`);
   }
   return response.json();
 }
@@ -389,7 +379,7 @@ export function AgentStudio({ models }: { models: ModelOption[] }) {
         </ReactFlow>
       </section>
       <aside className="agent-config-panel">
-        {selected ? <NodeConfiguration agentId={active.id} node={selected} models={models} sources={sources} knowledgeBases={knowledgeBases} updateLabel={(value) => updateNode({ label: value })} updateConfig={updateConfig} close={() => setSelectedId("")} run={selectedRun} /> : <><h3>工作流配置</h3><p>双击画布节点查看配置、输入输出与错误。</p><label>全局变量（JSON）<textarea value={pretty(variables)} onChange={(event) => { const parsed = tryJson(event.target.value); if (parsed) setVariables(parsed); }} rows={8} /></label>{run && <RunSummary run={run} />}</>}
+        {selected ? <NodeConfiguration agentId={active.id} node={selected} nodes={nodes} edges={edges} models={models} sources={sources} knowledgeBases={knowledgeBases} updateLabel={(value) => updateNode({ label: value })} updateConfig={updateConfig} close={() => setSelectedId("")} run={selectedRun} /> : <><h3>工作流配置</h3><p>双击画布节点查看配置、输入输出与错误。</p><label>全局变量（JSON）<textarea value={pretty(variables)} onChange={(event) => { const parsed = tryJson(event.target.value); if (parsed) setVariables(parsed); }} rows={8} /></label>{run && <RunSummary run={run} />}</>}
       </aside>
     </div>
     {runnerOpen && <WorkflowRunner nodes={nodes} run={run} running={running} close={() => setRunnerOpen(false)} execute={runWorkflow} />}
@@ -439,26 +429,28 @@ function WorkflowNodeCard({ id, data, selected }: NodeProps<FlowNode>) {
   </div>;
 }
 
-function NodeConfiguration({ agentId, node, models, sources, knowledgeBases, updateLabel, updateConfig, close, run }: { agentId: string; node: FlowNode; models: ModelOption[]; sources: DataSourceOption[]; knowledgeBases: KnowledgeBaseOption[]; updateLabel: (value: string) => void; updateConfig: (key: string, value: unknown) => void; close: () => void; run?: NodeRun }) {
+function NodeConfiguration({ agentId, node, nodes, edges, models, sources, knowledgeBases, updateLabel, updateConfig, close, run }: { agentId: string; node: FlowNode; nodes: FlowNode[]; edges: Edge[]; models: ModelOption[]; sources: DataSourceOption[]; knowledgeBases: KnowledgeBaseOption[]; updateLabel: (value: string) => void; updateConfig: (key: string, value: unknown) => void; close: () => void; run?: NodeRun }) {
   const config = node.data.config;
+  const variableGroups = buildWorkflowVariableGroups(nodes, edges, node.id);
   return <><div className="agent-config-title"><div><small>{node.data.nodeType}</small><h3>{node.data.label}</h3></div><button type="button" className="agent-config-close" aria-label="关闭设置" title="关闭设置" onClick={close}>×</button></div><label>节点名称<input value={node.data.label} onChange={(event) => updateLabel(event.target.value)} /></label>
     {node.data.nodeType === "start" && <StartConfiguration agentId={agentId} config={config} updateConfig={updateConfig} />}
-    {node.data.nodeType === "llm" && <><label>模型<select value={String(config.modelId || "")} onChange={(event) => updateConfig("modelId", event.target.value)}><option value="">选择模型</option>{models.filter((item) => item.enabled && ['llm', 'multimodal_llm'].includes(item.modelType)).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>System Prompt<textarea rows={5} value={String(config.systemPrompt || "")} onChange={(event) => updateConfig("systemPrompt", event.target.value)} /></label><label>User Prompt<textarea rows={7} value={String(config.userPrompt || "")} onChange={(event) => updateConfig("userPrompt", event.target.value)} /></label></>}
-    {node.data.nodeType === "agent" && <AgentConfiguration config={config} models={models} knowledgeBases={knowledgeBases} updateConfig={updateConfig} />}
-    {node.data.nodeType === "knowledge_retrieval" && <KnowledgeRetrievalConfiguration nodeId={node.id} config={config} models={models} updateConfig={updateConfig} />}
-    {node.data.nodeType === "sql" && <><label>数据源<select value={String(config.datasourceId || "")} onChange={(event) => updateConfig("datasourceId", event.target.value)}><option value="">选择数据源</option>{sources.map((item) => <option value={item.connectionId} key={item.connectionId}>{item.name}</option>)}</select></label><label>SQL 模板<textarea rows={8} value={String(config.sql || "")} onChange={(event) => updateConfig("sql", event.target.value)} placeholder="SELECT ... WHERE id = {{start.output.id}}" /></label></>}
-    {node.data.nodeType === "http" && <><label>方法<select value={String(config.method || "GET")} onChange={(event) => updateConfig("method", event.target.value)}>{['GET','POST','PUT','DELETE'].map((item) => <option key={item}>{item}</option>)}</select></label><label>URL<input value={String(config.url || "")} onChange={(event) => updateConfig("url", event.target.value)} /></label><JsonField key={`${node.id}-headers`} label="Headers" value={config.headers} update={(value) => updateConfig("headers", value)} /><JsonField key={`${node.id}-query`} label="Query" value={config.query} update={(value) => updateConfig("query", value)} /><JsonField key={`${node.id}-body`} label="Body" value={config.body} update={(value) => updateConfig("body", value)} /></>}
-    {node.data.nodeType === "code" && <><label>输入（JSON）<textarea rows={5} value={pretty(config.input || {})} onChange={(event) => { const value = tryJson(event.target.value); if (value) updateConfig("input", value); }} /></label><label>JavaScript<textarea className="code-input" rows={10} value={String(config.code || "")} onChange={(event) => updateConfig("code", event.target.value)} /></label><p className="field-help">使用 input 读取输入，必须 return JSON；不可访问文件、命令或模块。</p></>}
-    {node.data.nodeType === "condition" && <ConditionConfiguration config={config} updateConfig={updateConfig} />}
-    {node.data.nodeType === "assign" && <JsonField key={`${node.id}-assignments`} label="赋值对象" value={config.assignments} update={(value) => updateConfig("assignments", value)} />}
-    {node.data.nodeType === "end" && <label>返回值<input value={String(config.output || "")} onChange={(event) => updateConfig("output", event.target.value)} placeholder="{{nodeId.output}}" /></label>}
+    {node.data.nodeType === "llm" && <><label>模型<select value={String(config.modelId || "")} onChange={(event) => updateConfig("modelId", event.target.value)}><option value="">选择模型</option>{models.filter((item) => item.enabled && ['llm', 'multimodal_llm'].includes(item.modelType)).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><VariableTextField label="System Prompt" rows={5} value={String(config.systemPrompt || "")} update={(value) => updateConfig("systemPrompt", value)} groups={variableGroups} /><VariableTextField label="User Prompt" rows={7} value={String(config.userPrompt || "")} update={(value) => updateConfig("userPrompt", value)} groups={variableGroups} /></>}
+    {node.data.nodeType === "agent" && <AgentConfiguration config={config} models={models} knowledgeBases={knowledgeBases} updateConfig={updateConfig} variableGroups={variableGroups} />}
+    {node.data.nodeType === "knowledge_retrieval" && <KnowledgeRetrievalConfiguration nodeId={node.id} config={config} models={models} updateConfig={updateConfig} variableGroups={variableGroups} />}
+    {node.data.nodeType === "sql" && <><label>数据源<select value={String(config.datasourceId || "")} onChange={(event) => updateConfig("datasourceId", event.target.value)}><option value="">选择数据源</option>{sources.map((item) => <option value={item.connectionId} key={item.connectionId}>{item.name}</option>)}</select></label><VariableTextField label="SQL 模板" rows={8} value={String(config.sql || "")} update={(value) => updateConfig("sql", value)} groups={variableGroups} placeholder="SELECT ... WHERE id = {{start.output.id}}" /></>}
+    {node.data.nodeType === "http" && <><label>方法<select value={String(config.method || "GET")} onChange={(event) => updateConfig("method", event.target.value)}>{['GET','POST','PUT','DELETE'].map((item) => <option key={item}>{item}</option>)}</select></label><VariableTextField label="URL" value={String(config.url || "")} update={(value) => updateConfig("url", value)} groups={variableGroups} /><JsonField key={`${node.id}-headers`} label="Headers" value={config.headers} update={(value) => updateConfig("headers", value)} groups={variableGroups} /><JsonField key={`${node.id}-query`} label="Query" value={config.query} update={(value) => updateConfig("query", value)} groups={variableGroups} /><JsonField key={`${node.id}-body`} label="Body" value={config.body} update={(value) => updateConfig("body", value)} groups={variableGroups} /></>}
+    {node.data.nodeType === "code" && <CodeInputConfiguration value={config.input} update={(value) => updateConfig("input", value)} groups={variableGroups} />}
+    {node.data.nodeType === "code" && <><label>JavaScript<textarea className="code-input" rows={10} value={String(config.code || "")} onChange={(event) => updateConfig("code", event.target.value)} /></label><p className="field-help">使用 input.参数名 读取表单输入，必须 return JSON；不可访问文件、命令或模块。</p></>}
+    {node.data.nodeType === "condition" && <ConditionConfiguration config={config} updateConfig={updateConfig} variableGroups={variableGroups} />}
+    {node.data.nodeType === "assign" && <JsonField key={`${node.id}-assignments`} label="赋值对象（高级模式）" value={config.assignments} update={(value) => updateConfig("assignments", value)} groups={variableGroups} />}
+    {node.data.nodeType === "end" && <VariableTextField label="返回值" value={String(config.output || "")} update={(value) => updateConfig("output", value)} groups={variableGroups} placeholder="{{nodeId.output}}" />}
     {run && <section className={`node-run-detail ${run.status}`}><h4>执行结果</h4><div><span>状态</span><strong>{run.status}</strong><span>Duration</span><strong>{run.durationMs} ms</strong></div><details open><summary>Input</summary><pre>{pretty(run.input)}</pre></details><details open><summary>Output</summary><pre>{pretty(run.output)}</pre></details>{run.error && <details open><summary>Error</summary><pre>{run.error}</pre></details>}</section>}
   </>;
 }
 
 const conditionOperators = ["==", "!=", ">", ">=", "<", "<=", "contains", "not_contains", "is_empty", "is_not_empty"];
 
-function ConditionConfiguration({ config, updateConfig }: { config: Record<string, unknown>; updateConfig: (key: string, value: unknown) => void }) {
+function ConditionConfiguration({ config, updateConfig, variableGroups }: { config: Record<string, unknown>; updateConfig: (key: string, value: unknown) => void; variableGroups: WorkflowVariableGroup[] }) {
   const branches = editableConditionBranches(config);
   const save = (next: ConditionBranch[]) => updateConfig("branches", next);
   const updateBranch = (index: number, next: ConditionBranch) => save(branches.map((branch, itemIndex) => itemIndex === index ? next : branch));
@@ -466,7 +458,7 @@ function ConditionConfiguration({ config, updateConfig }: { config: Record<strin
     <p className="field-help">按 IF / ELSEIF 顺序匹配，命中第一个分支后停止；ELSE 处理未命中的情况。条件组可嵌套。</p>
     {branches.map((branch, index) => <section className="condition-branch-card" key={branch.id}>
       <header><div><strong>{index === 0 ? "IF" : "ELSEIF"}</strong><input aria-label="分支名称" value={branch.label} onChange={(event) => updateBranch(index, { ...branch, label: event.target.value })} /></div>{index > 0 && <button type="button" onClick={() => save(branches.filter((_item, itemIndex) => itemIndex !== index))}>移除</button>}</header>
-      <ConditionGroupEditor group={branch.condition} depth={0} onChange={(condition) => updateBranch(index, { ...branch, condition })} />
+      <ConditionGroupEditor group={branch.condition} depth={0} onChange={(condition) => updateBranch(index, { ...branch, condition })} variableGroups={variableGroups} />
     </section>)}
     <button className="condition-add-branch" type="button" onClick={() => save([...branches, newConditionBranch(branches.length)])}>＋ 添加 ELSEIF</button>
     <section className="condition-else-card"><strong>ELSE</strong><span>其他所有情况</span></section>
@@ -474,14 +466,14 @@ function ConditionConfiguration({ config, updateConfig }: { config: Record<strin
   </div>;
 }
 
-function ConditionGroupEditor({ group, depth, onChange, removable, remove }: { group: ConditionGroup; depth: number; onChange: (group: ConditionGroup) => void; removable?: boolean; remove?: () => void }) {
+function ConditionGroupEditor({ group, depth, onChange, variableGroups, removable, remove }: { group: ConditionGroup; depth: number; onChange: (group: ConditionGroup) => void; variableGroups: WorkflowVariableGroup[]; removable?: boolean; remove?: () => void }) {
   const updateItem = (index: number, item: ConditionRule | ConditionGroup) => onChange({ ...group, items: group.items.map((current, itemIndex) => itemIndex === index ? item : current) });
   const removeItem = (index: number) => onChange({ ...group, items: group.items.filter((_item, itemIndex) => itemIndex !== index) });
   return <div className={`condition-group depth-${Math.min(depth, 3)}`}>
     <header><select aria-label="条件关系" value={group.combinator} onChange={(event) => onChange({ ...group, combinator: event.target.value === "or" ? "or" : "and" })}><option value="and">满足全部 AND</option><option value="or">满足任一 OR</option></select>{removable && <button type="button" onClick={remove}>删除组</button>}</header>
     <div className="condition-group-items">{group.items.map((item, index) => isConditionGroup(item)
-      ? <ConditionGroupEditor key={item.id} group={item} depth={depth + 1} onChange={(next) => updateItem(index, next)} removable remove={() => removeItem(index)} />
-      : <div className="condition-rule" key={item.id}><input aria-label="左值" value={String(item.left ?? "")} onChange={(event) => updateItem(index, { ...item, left: event.target.value })} placeholder="{{nodeId.output.value}}" /><select aria-label="运算符" value={item.operator} onChange={(event) => updateItem(index, { ...item, operator: event.target.value })}>{conditionOperators.map((operator) => <option value={operator} key={operator}>{conditionOperatorLabel(operator)}</option>)}</select>{!["is_empty", "is_not_empty"].includes(item.operator) && <input aria-label="右值" value={String(item.right ?? "")} onChange={(event) => updateItem(index, { ...item, right: event.target.value })} placeholder="比较值" />}<button type="button" aria-label="删除条件" onClick={() => removeItem(index)}>×</button></div>)}</div>
+      ? <ConditionGroupEditor key={item.id} group={item} depth={depth + 1} onChange={(next) => updateItem(index, next)} variableGroups={variableGroups} removable remove={() => removeItem(index)} />
+      : <div className="condition-rule" key={item.id}><VariableTextControl ariaLabel="左值" value={String(item.left ?? "")} update={(value) => updateItem(index, { ...item, left: value })} groups={variableGroups} placeholder="选择变量" /><select aria-label="运算符" value={item.operator} onChange={(event) => updateItem(index, { ...item, operator: event.target.value })}>{conditionOperators.map((operator) => <option value={operator} key={operator}>{conditionOperatorLabel(operator)}</option>)}</select>{!["is_empty", "is_not_empty"].includes(item.operator) && <VariableTextControl ariaLabel="右值" value={String(item.right ?? "")} update={(value) => updateItem(index, { ...item, right: value })} groups={variableGroups} placeholder="比较值或变量" />}<button type="button" aria-label="删除条件" onClick={() => removeItem(index)}>×</button></div>)}</div>
     <footer><button type="button" onClick={() => onChange({ ...group, items: [...group.items, newConditionRule()] })}>＋ 条件</button>{depth < 4 && <button type="button" onClick={() => onChange({ ...group, items: [...group.items, newConditionGroup()] })}>＋ 嵌套组</button>}</footer>
   </div>;
 }
@@ -518,16 +510,16 @@ function conditionOperatorLabel(operator: string) { return ({ contains: "包含"
 
 type AgentToolConfig = { id: string; type: "knowledge_retrieval"; name: string; description: string; knowledgeBaseId: string; filters: Record<string, unknown>; dynamicFilters: boolean; retrievalMode: "vector" | "hybrid"; topK: number; scoreThreshold: number; rerank: boolean; rerankModel: string; rerankTopK: number; vectorWeight: number; candidateCount: number };
 
-function AgentConfiguration({ config, models, knowledgeBases, updateConfig }: { config: Record<string, unknown>; models: ModelOption[]; knowledgeBases: KnowledgeBaseOption[]; updateConfig: (key: string, value: unknown) => void }) {
+function AgentConfiguration({ config, models, knowledgeBases, updateConfig, variableGroups }: { config: Record<string, unknown>; models: ModelOption[]; knowledgeBases: KnowledgeBaseOption[]; updateConfig: (key: string, value: unknown) => void; variableGroups: WorkflowVariableGroup[] }) {
   const llms = models.filter((item) => item.enabled && ["llm", "multimodal_llm"].includes(item.modelType));
   const selectedModel = llms.find((item) => item.id === String(config.modelId || ""));
   const tools = normalizeAgentToolConfigs(config.tools);
   const updateTool = (index: number, patch: Partial<AgentToolConfig>) => updateConfig("tools", tools.map((tool, itemIndex) => itemIndex === index ? { ...tool, ...patch } : tool));
   const addTool = () => updateConfig("tools", [...tools, { id: crypto.randomUUID(), type: "knowledge_retrieval", name: `knowledge_search_${tools.length + 1}`, description: "检索与当前问题相关的知识", knowledgeBaseId: knowledgeBases[0]?.id || "", filters: {}, dynamicFilters: true, retrievalMode: "vector", topK: 5, scoreThreshold: 0.2, rerank: false, rerankModel: "", rerankTopK: 5, vectorWeight: 0.7, candidateCount: 15 } satisfies AgentToolConfig]);
   return <div className="agent-node-settings">
-    <section className="agent-settings-section"><h4>输入</h4><label>用户输入（支持变量引用）<textarea rows={3} value={String(config.input ?? "{{start.output.query}}")} onChange={(event) => updateConfig("input", event.target.value)} placeholder="{{start.output.query}}" /></label><p className="field-help">默认读取消息输入节点的对话输入，可引用任意上游变量。</p></section>
+    <section className="agent-settings-section"><h4>输入</h4><VariableTextField label="用户输入（支持变量引用）" rows={3} value={String(config.input ?? "{{start.output.query}}")} update={(value) => updateConfig("input", value)} groups={variableGroups} placeholder="选择消息输入的 query" /><p className="field-help">默认读取消息输入节点的对话输入，可引用任意上游变量。</p></section>
     <section className="agent-settings-section"><h4>模型</h4><label>LLM<select value={String(config.modelId || "")} onChange={(event) => updateConfig("modelId", event.target.value)}><option value="">选择已配置的 LLM</option>{llms.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label></section>
-    <section className="agent-settings-section"><h4>提示词</h4><label>系统提示词<textarea rows={6} value={String(config.systemPrompt ?? "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。")} onChange={(event) => updateConfig("systemPrompt", event.target.value)} placeholder="定义 Agent 角色、规则与行为边界" /></label><label>用户提示词<textarea rows={5} value={String(config.userPrompt ?? "{{agent.input}}")} onChange={(event) => updateConfig("userPrompt", event.target.value)} placeholder="{{agent.input}}" /></label><p className="field-help">用户提示词不是开场白；开场白由消息输入节点的对话模式配置。</p></section>
+    <section className="agent-settings-section"><h4>提示词</h4><VariableTextField label="系统提示词" rows={6} value={String(config.systemPrompt ?? "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。")} update={(value) => updateConfig("systemPrompt", value)} groups={variableGroups} placeholder="定义 Agent 角色、规则与行为边界" /><VariableTextField label="用户提示词" rows={5} value={String(config.userPrompt ?? "{{agent.input}}")} update={(value) => updateConfig("userPrompt", value)} groups={variableGroups} placeholder="选择上游变量" /><p className="field-help">用户提示词不是开场白；开场白由消息输入节点的对话模式配置。</p></section>
     <section className="agent-settings-section"><header><h4>Tools</h4><button type="button" onClick={addTool}>＋ 添加工具</button></header><p className="field-help">Agent 会根据对话自主决定是否调用工具及其 query、metadata filters 参数。</p>
       {tools.length === 0 ? <div className="start-input-empty">暂无工具。可添加知识库检索工具。</div> : <div className="agent-tool-list">{tools.map((tool, index) => <article className="agent-tool-card" key={tool.id}>
         <header><strong>{tool.name || `工具 ${index + 1}`}</strong><button type="button" onClick={() => updateConfig("tools", tools.filter((_item, itemIndex) => itemIndex !== index))}>删除</button></header>
@@ -537,7 +529,7 @@ function AgentConfiguration({ config, models, knowledgeBases, updateConfig }: { 
         <label>检索方式<select value={tool.retrievalMode} onChange={(event) => updateTool(index, { retrievalMode: event.target.value as AgentToolConfig["retrievalMode"] })}><option value="vector">向量检索</option><option value="hybrid">混合检索</option></select></label>
         {tool.retrievalMode === "hybrid" && <label>向量权重<input type="number" min="0" max="1" step="0.05" value={tool.vectorWeight} onChange={(event) => updateTool(index, { vectorWeight: Number(event.target.value) })} /></label>}
         <div className="start-input-row"><label>Top K<input type="number" min="1" max="50" value={tool.topK} onChange={(event) => updateTool(index, { topK: Number(event.target.value) })} /></label><label>Score Threshold<input type="number" min="-1" max="1" step="0.01" value={tool.scoreThreshold} onChange={(event) => updateTool(index, { scoreThreshold: Number(event.target.value) })} /></label></div>
-        <JsonField key={`${tool.id}-agent-filters`} label="固定 Metadata Filters" value={tool.filters} update={(value) => updateTool(index, { filters: value })} />
+        <JsonField key={`${tool.id}-agent-filters`} label="固定 Metadata Filters" value={tool.filters} update={(value) => updateTool(index, { filters: value })} groups={variableGroups} />
         <label className="agent-switch-row"><span>允许 Agent 动态生成 Metadata Filters</span><input type="checkbox" checked={tool.dynamicFilters} onChange={(event) => updateTool(index, { dynamicFilters: event.target.checked })} /></label>
         <label className="agent-switch-row"><span>重排</span><input type="checkbox" checked={tool.rerank} onChange={(event) => updateTool(index, { rerank: event.target.checked })} /></label>
         {tool.rerank && <><label>重排模型<select value={tool.rerankModel} onChange={(event) => updateTool(index, { rerankModel: event.target.value })}><option value="">本地关键词重排</option>{models.filter((item) => item.enabled && ["rerank", "multimodal_rerank"].includes(item.modelType)).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>重排 Top K<input type="number" min="1" max="50" value={tool.rerankTopK} onChange={(event) => updateTool(index, { rerankTopK: Number(event.target.value) })} /></label></>}
@@ -562,7 +554,7 @@ function normalizeAgentToolConfigs(value: unknown): AgentToolConfig[] {
   });
 }
 
-function KnowledgeRetrievalConfiguration({ nodeId, config, models, updateConfig }: { nodeId: string; config: Record<string, unknown>; models: ModelOption[]; updateConfig: (key: string, value: unknown) => void }) {
+function KnowledgeRetrievalConfiguration({ nodeId, config, models, updateConfig, variableGroups }: { nodeId: string; config: Record<string, unknown>; models: ModelOption[]; updateConfig: (key: string, value: unknown) => void; variableGroups: WorkflowVariableGroup[] }) {
   const hybrid = config.retrievalMode === "hybrid";
   const rerank = config.rerank === true;
   return <section className="knowledge-retrieval-configuration">
@@ -573,11 +565,11 @@ function KnowledgeRetrievalConfiguration({ nodeId, config, models, updateConfig 
       <p className="field-help">将该节点右侧连接到 Agent 的“工具列表”接口后，Agent 会按需调用，不会把它当作普通前置检索节点执行。</p>
     </details>
     <label>知识库 ID<input value={String(config.knowledgeBaseId || "")} onChange={(event) => updateConfig("knowledgeBaseId", event.target.value)} /></label>
-    <label>Query<textarea rows={4} value={String(config.query || "")} onChange={(event) => updateConfig("query", event.target.value)} placeholder="{{nodeId.output.text}}" /></label>
+    <VariableTextField label="Query" rows={4} value={String(config.query || "")} update={(value) => updateConfig("query", value)} groups={variableGroups} placeholder="选择上游问题变量" />
     <label>检索方式<select value={String(config.retrievalMode || "vector")} onChange={(event) => updateConfig("retrievalMode", event.target.value)}><option value="vector">向量检索</option><option value="hybrid">混合检索</option></select></label>
     {hybrid && <label>向量权重<input type="number" min="0" max="1" step="0.05" value={Number(config.vectorWeight ?? 0.7)} onChange={(event) => updateConfig("vectorWeight", Number(event.target.value))} /></label>}
     <div className="start-input-row"><label>Top K<input type="number" min="1" max="50" value={Number(config.topK ?? 5)} onChange={(event) => updateConfig("topK", Number(event.target.value))} /></label><label>Score Threshold<input type="number" min="-1" max="1" step="0.01" value={Number(config.scoreThreshold ?? 0.2)} onChange={(event) => updateConfig("scoreThreshold", Number(event.target.value))} /></label></div>
-    <JsonField key={`${nodeId}-filters`} label="Metadata Filters" value={config.filters} update={(value) => updateConfig("filters", value)} />
+    <JsonField key={`${nodeId}-filters`} label="Metadata Filters" value={config.filters} update={(value) => updateConfig("filters", value)} groups={variableGroups} />
     <label className="agent-switch-row"><span>重排</span><input type="checkbox" checked={rerank} onChange={(event) => updateConfig("rerank", event.target.checked)} /></label>
     {rerank && <><label>重排模型<select value={String(config.rerankModel || "")} onChange={(event) => updateConfig("rerankModel", event.target.value)}><option value="">本地关键词重排</option>{models.filter((item) => item.enabled && ['rerank', 'multimodal_rerank'].includes(item.modelType)).map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label>重排 Top K<input type="number" min="1" max="50" value={Number(config.rerankTopK ?? config.topK ?? 5)} onChange={(event) => updateConfig("rerankTopK", Number(event.target.value))} /></label></>}
     <p className="field-help">输出 items、topScore、hitCount；items 保留完整文本、分数、元数据和来源信息。</p>
@@ -724,11 +716,122 @@ function RunHistoryPanel({ runs, selected, close, select }: { runs: WorkflowRun[
   return <aside className="agent-manage-panel agent-history-panel"><header><div><strong>运行日志</strong><small>查看历史测试链路和节点输入输出</small></div><button onClick={close}>×</button></header><div className="agent-history-layout"><nav>{runs.length ? runs.map((item) => <button className={selected?.id === item.id ? "selected" : ""} key={item.id} onClick={() => void select(item.id)}><span className={`run-dot ${item.status}`} /><strong>{formatFullDate(item.startedAt || "")}</strong><small>{item.status} · {item.durationMs} ms · v{item.workflowVersion ?? 0}</small></button>) : <div className="runner-empty">尚无运行日志</div>}</nav><section>{selected ? <><div className="agent-log-summary"><strong>{selected.status}</strong><span>{selected.durationMs} ms</span></div><details open><summary>工作流输入 / 输出</summary><pre>{pretty({ input: selected.input, output: selected.output, error: selected.error })}</pre></details>{selected.nodeRuns.map((nodeRun, index) => <details key={`${nodeRun.nodeId}-${index}`} open={nodeRun.status === "failed"}><summary><span className={`run-dot ${nodeRun.status}`} />{nodeRun.nodeId}<small>{nodeRun.durationMs} ms</small></summary><pre>{pretty({ status: nodeRun.status, input: nodeRun.input, output: nodeRun.output, error: nodeRun.error })}</pre></details>)}</> : <div className="runner-empty">选择一条记录查看完整执行链路</div>}</section></div></aside>;
 }
 
-function JsonField({ label, value, update }: { label: string; value: unknown; update: (value: Record<string, unknown>) => void }) { const [text, setText] = useState(pretty(value || {})); return <label>{label}<textarea rows={5} value={text} onChange={(event) => { setText(event.target.value); const parsed = tryJson(event.target.value); if (parsed) update(parsed); }} /></label>; }
+function VariablePicker({ groups, select }: { groups: WorkflowVariableGroup[]; select: (expression: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ top: 0, left: 0, maxHeight: 330 });
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const closeOnExternalScroll = (event: Event) => {
+      if (event.target instanceof Element && event.target.closest(".variable-picker-menu")) return;
+      close();
+    };
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", closeOnExternalScroll, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", closeOnExternalScroll, true);
+    };
+  }, [open]);
+  const toggle = () => {
+    if (open) { setOpen(false); return; }
+    const rect = trigger.current?.getBoundingClientRect();
+    if (rect) {
+      const width = Math.min(300, window.innerWidth - 16);
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      const maxHeight = Math.max(160, Math.min(360, spaceBelow >= 200 ? spaceBelow : rect.top - 8));
+      const top = spaceBelow >= 200 ? rect.bottom + 6 : Math.max(8, rect.top - maxHeight - 6);
+      const left = Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8));
+      setPosition({ top, left, maxHeight });
+    }
+    setOpen(true);
+  };
+  const menu = open && typeof document !== "undefined" ? createPortal(<span className="variable-picker-menu variable-picker-portal" style={position}>
+    <strong>选择上游变量</strong>
+    {groups.length ? groups.map((group) => <span className="variable-picker-group" key={group.nodeId}>
+      <b><span>{group.nodeLabel}</span><small>{group.nodeId}</small></b>
+      {group.fields.map((field) => <button type="button" key={field.path || "$output"} onClick={() => { select(variableExpression(group.nodeId, field.path)); setOpen(false); }}><span>{field.label}</span><em>{field.type}</em></button>)}
+    </span>) : <span className="variable-picker-empty">当前节点没有可访问的上游变量</span>}
+  </span>, document.body) : null;
+  return <span className="variable-picker">
+    <button ref={trigger} type="button" className="variable-picker-trigger" aria-label="选择变量" title="选择变量" aria-expanded={open} onClick={toggle}>(x)</button>
+    {menu}
+  </span>;
+}
+
+function VariableTextControl({ value, update, groups, placeholder, rows, ariaLabel }: { value: string; update: (value: string) => void; groups: WorkflowVariableGroup[]; placeholder?: string; rows?: number; ariaLabel?: string }) {
+  const [selection, setSelection] = useState({ start: value.length, end: value.length });
+  const insert = (expression: string) => {
+    const next = insertVariableAt(value, expression, selection.start, selection.end);
+    update(next);
+    const cursor = selection.start + expression.length;
+    setSelection({ start: cursor, end: cursor });
+  };
+  const selectionChanged = (event: React.SyntheticEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const target = event.currentTarget;
+    setSelection({ start: target.selectionStart ?? value.length, end: target.selectionEnd ?? value.length });
+  };
+  return <span className="variable-text-control">
+    {rows ? <textarea aria-label={ariaLabel} rows={rows} value={value} placeholder={placeholder} onChange={(event) => update(event.target.value)} onSelect={selectionChanged} /> : <input aria-label={ariaLabel} value={value} placeholder={placeholder} onChange={(event) => update(event.target.value)} onSelect={selectionChanged} />}
+    <VariablePicker groups={groups} select={insert} />
+  </span>;
+}
+
+function VariableTextField({ label, value, update, groups, placeholder, rows }: { label: string; value: string; update: (value: string) => void; groups: WorkflowVariableGroup[]; placeholder?: string; rows?: number }) {
+  return <label className="variable-text-field"><span>{label}</span><VariableTextControl value={value} update={update} groups={groups} placeholder={placeholder} rows={rows} ariaLabel={label} /></label>;
+}
+
+function CodeInputConfiguration({ value, update, groups }: { value: unknown; update: (value: unknown) => void; groups: WorkflowVariableGroup[] }) {
+  const record = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  const [advanced, setAdvanced] = useState(!record);
+  const entries = Object.entries(record || {});
+  const saveEntries = (next: [string, unknown][]) => update(Object.fromEntries(next.filter(([key]) => key.trim()).map(([key, item]) => [key.trim(), item])));
+  const add = () => {
+    let index = entries.length + 1;
+    while (record?.[`param_${index}`] !== undefined) index += 1;
+    saveEntries([...entries, [`param_${index}`, ""]]);
+  };
+  return <section className="code-input-configuration">
+    <header><div><strong>输入参数</strong><small>代码中通过 input.参数名 使用</small></div><button type="button" onClick={() => setAdvanced((current) => !current)}>{advanced ? "表单模式" : "高级模式"}</button></header>
+    {advanced ? <AdvancedValueField value={value} update={update} groups={groups} /> : <>
+      <div className="code-parameter-list">{entries.map(([name, item], index) => <div className="code-parameter-row" key={`${name}-${index}`}>
+        <input aria-label="参数名" value={name} placeholder="参数名" onChange={(event) => saveEntries(entries.map((entry, itemIndex) => itemIndex === index ? [event.target.value, entry[1]] : entry))} />
+        <VariableTextControl ariaLabel={`${name} 的值`} value={typeof item === "string" ? item : pretty(item)} update={(next) => saveEntries(entries.map((entry, itemIndex) => itemIndex === index ? [entry[0], next] : entry))} groups={groups} placeholder="选择变量或输入值" />
+        <button type="button" aria-label="删除参数" onClick={() => saveEntries(entries.filter((_entry, itemIndex) => itemIndex !== index))}>×</button>
+      </div>)}</div>
+      <button type="button" className="code-parameter-add" onClick={add}>＋ 添加参数</button>
+    </>}
+  </section>;
+}
+
+function AdvancedValueField({ value, update, groups }: { value: unknown; update: (value: unknown) => void; groups: WorkflowVariableGroup[] }) {
+  const [text, setText] = useState(typeof value === "string" ? value : pretty(value ?? {}));
+  const [selection, setSelection] = useState({ start: text.length, end: text.length });
+  useEffect(() => setText(typeof value === "string" ? value : pretty(value ?? {})), [value]);
+  const change = (next: string) => {
+    setText(next);
+    const parsed = tryJson(next);
+    update(parsed ?? next);
+  };
+  return <label className="json-field">高级输入（JSON / 表达式）<span className="variable-text-control"><textarea rows={5} value={text} onChange={(event) => change(event.target.value)} onSelect={(event) => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} /><VariablePicker groups={groups} select={(expression) => change(insertVariableAt(text, expression, selection.start, selection.end))} /></span></label>;
+}
+
+function JsonField({ label, value, update, groups = [] }: { label: string; value: unknown; update: (value: Record<string, unknown>) => void; groups?: WorkflowVariableGroup[] }) {
+  const [text, setText] = useState(pretty(value || {}));
+  const [selection, setSelection] = useState({ start: text.length, end: text.length });
+  useEffect(() => setText(pretty(value || {})), [value]);
+  const change = (next: string) => {
+    setText(next);
+    const parsed = tryJson(next);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) update(parsed);
+  };
+  return <label className="json-field">{label}<span className="variable-text-control"><textarea rows={5} value={text} onChange={(event) => change(event.target.value)} onSelect={(event) => setSelection({ start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd })} /><VariablePicker groups={groups} select={(expression) => change(insertVariableAt(text, JSON.stringify(expression), selection.start, selection.end))} /></span></label>;
+}
 function RunSummary({ run }: { run: WorkflowRun }) { return <section className={`agent-run-summary ${run.status}`}><h4>最近运行</h4><p>{run.status} · {run.durationMs} ms</p><pre>{pretty(run.output ?? run.error)}</pre></section>; }
 function AgentDialog({ dialog, close, submit }: { dialog: { mode: "create" | "edit" | "delete"; agent?: AgentItem }; close: () => void; submit: (values: { name?: string; description?: string }) => Promise<void> }) { if (dialog.mode === "delete") return <div className="modal-backdrop"><div className="agent-dialog"><h2>删除智能体</h2><p>确认删除“{dialog.agent?.name}”及其工作流版本和运行记录？</p><footer><button onClick={close}>取消</button><button className="danger-confirm" onClick={() => void submit({})}>确认删除</button></footer></div></div>; return <div className="modal-backdrop"><form className="agent-dialog" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); void submit({ name: String(form.get("name") || ""), description: String(form.get("description") || "") }); }}><h2>{dialog.mode === "create" ? "新建智能体" : "编辑智能体"}</h2><label>名称<input name="name" defaultValue={dialog.agent?.name} required autoFocus /></label><label>描述<textarea name="description" defaultValue={dialog.agent?.description} rows={4} /></label><footer><button type="button" onClick={close}>取消</button><button className="primary-action" type="submit">保存</button></footer></form></div>; }
 
-function defaultConfig(kind: NodeKind, models: ModelOption[], sources: DataSourceOption[]): Record<string, unknown> { if (kind === "start") return defaultStartConfig(); if (kind === "llm") return { modelId: models.find((item) => item.enabled && item.modelType === "llm")?.id || "", systemPrompt: "你是 DataPilot 智能体。", userPrompt: "{{start.output.query}}" }; if (kind === "agent") return { input: "{{start.output.query}}", modelId: models.find((item) => item.enabled && ["llm", "multimodal_llm"].includes(item.modelType))?.id || "", systemPrompt: "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。", userPrompt: "{{agent.input}}", tools: [], maxIterations: 5, timeoutMs: 30000, streaming: true, memory: true }; if (kind === "knowledge_retrieval") return { knowledgeBaseId: "", query: "{{start.output.query}}", toolName: "knowledge_search", toolDescription: "检索与当前问题相关的知识", dynamicFilters: true, retrievalMode: "vector", vectorWeight: 0.7, topK: 5, scoreThreshold: 0.2, filters: {}, rerank: false, rerankModel: "", rerankTopK: 5 }; if (kind === "sql") return { datasourceId: sources[0]?.connectionId || "", sql: "SELECT 1 AS value" }; if (kind === "http") return { method: "GET", url: "https://example.com", headers: {}, query: {}, body: {} }; if (kind === "code") return { input: "{{start.output}}", code: "return { result: input };" }; if (kind === "condition") return { branches: [{ id: "true", label: "Case 1", condition: { id: conditionId("group"), combinator: "and", items: [{ id: conditionId("rule"), left: "{{start.output.value}}", operator: "==", right: "true" }] } }] }; if (kind === "assign") return { assignments: { value: "{{start.output.value}}" } }; if (kind === "end") return { output: "{{start.output}}" }; return {}; }
+function defaultConfig(kind: NodeKind, models: ModelOption[], sources: DataSourceOption[]): Record<string, unknown> { if (kind === "start") return defaultStartConfig(); if (kind === "llm") return { modelId: models.find((item) => item.enabled && item.modelType === "llm")?.id || "", systemPrompt: "你是 DataPilot 智能体。", userPrompt: "{{start.output.query}}" }; if (kind === "agent") return { input: "{{start.output.query}}", modelId: models.find((item) => item.enabled && ["llm", "multimodal_llm"].includes(item.modelType))?.id || "", systemPrompt: "你是一个严谨、通用的 AI Agent。请遵守用户要求和工具使用边界。", userPrompt: "{{agent.input}}", tools: [], maxIterations: 5, timeoutMs: 30000, streaming: true, memory: true }; if (kind === "knowledge_retrieval") return { knowledgeBaseId: "", query: "{{start.output.query}}", toolName: "knowledge_search", toolDescription: "检索与当前问题相关的知识", dynamicFilters: true, retrievalMode: "vector", vectorWeight: 0.7, topK: 5, scoreThreshold: 0.2, filters: {}, rerank: false, rerankModel: "", rerankTopK: 5 }; if (kind === "sql") return { datasourceId: sources[0]?.connectionId || "", sql: "SELECT 1 AS value" }; if (kind === "http") return { method: "GET", url: "https://example.com", headers: {}, query: {}, body: {} }; if (kind === "code") return { input: { value: "{{start.output}}" }, code: "return { result: input };" }; if (kind === "condition") return { branches: [{ id: "true", label: "Case 1", condition: { id: conditionId("group"), combinator: "and", items: [{ id: conditionId("rule"), left: "{{start.output.value}}", operator: "==", right: "true" }] } }] }; if (kind === "assign") return { assignments: { value: "{{start.output.value}}" } }; if (kind === "end") return { output: "{{start.output}}" }; return {}; }
 function defaultStartConfig() { return { mode: "conversation", enablePrologue: true, prologue: "您好，请描述您遇到的问题。", inputs: [] as StartInput[], webhookMethod: "GET", webhookSecurity: "none", webhookRequestMode: "json", webhookResponseMode: "workflow" }; }
 function normalizeStartMode(value: unknown): StartMode { return value === "task" || value === "webhook" ? value : "conversation"; }
 function startModeLabel(mode: StartMode) { return mode === "task" ? "任务" : mode === "webhook" ? "网络钩子" : "对话"; }

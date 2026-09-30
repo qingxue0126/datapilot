@@ -1,10 +1,11 @@
+import { apiUrl } from "./api-base";
+
 export async function apiRequest(path: string, init: RequestInit = {}) {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
   const attempts = !init.method || init.method.toUpperCase() === "GET" ? 3 : 1;
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
-      return await fetch(`${base}${path}`, { ...init, credentials: "include" });
+      return await fetch(apiUrl(path), { ...init, credentials: "include" });
     } catch (error) {
       lastError = error;
       if (attempt + 1 < attempts) await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));

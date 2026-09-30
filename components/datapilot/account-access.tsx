@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
+import { apiUrl } from "./api-base";
 
 type AccountRole = "tenant_owner" | "tenant_admin" | "finance_analyst" | "finance_viewer";
 export type AuthUser = {
@@ -20,8 +21,6 @@ type ApiKeyItem = { id: string; name: string; tenantId: string; enabled: boolean
 type CenterKind = "personal" | "admin";
 type PersonalSection = "profile" | "account" | "password" | "teams" | "apiKeys";
 type AdminSection = "create" | "teams" | "members" | "invite" | "roles" | "tenants" | "users" | "platform";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 
 export function AuthScreen({ mode, setMode, submitting, error, submit }: {
   mode: "login" | "register"; setMode: (mode: "login" | "register") => void; submitting: boolean; error: string; submit: (event: FormEvent<HTMLFormElement>) => void;
@@ -67,7 +66,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   useEffect(() => { if (dialog !== "personal" || personalSection !== "apiKeys") setCreatedApiKey(""); }, [dialog, personalSection]);
 
   async function request<T>(path: string, init: RequestInit = {}) {
-    const response = await fetch(`${API_BASE}${path}`, { ...init, credentials: "include", headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers } });
+    const response = await fetch(apiUrl(path), { ...init, credentials: "include", headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers } });
     const data = response.status === 204 ? undefined : await response.json();
     if (!response.ok) throw new Error(data?.error || "操作失败");
     return data as T;

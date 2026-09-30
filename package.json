@@ -6,8 +6,9 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "predev": "node scripts/check-dev-ports.mjs",
     "dev": "concurrently -k -n WEB,API -c green,blue \"npm:dev:web\" \"npm:dev:api\"",
-    "dev:web": "vinext dev",
+    "dev:web": "vinext dev --hostname 0.0.0.0 --port 3000",
     "dev:api": "tsx watch server/index.ts",
     "build": "vinext build",
     "start": "vinext start",

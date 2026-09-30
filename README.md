@@ -150,7 +150,8 @@ DEEPSEEK_MODEL=deepseek-chat
 
 API_PORT=3001
 WEB_ORIGIN=http://localhost:3000
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
+# 本机/局域网开发建议留空，前端自动使用当前页面 hostname 的 3001 端口
+NEXT_PUBLIC_API_BASE_URL=
 QUERY_MAX_ROWS=200
 ```
 
@@ -167,6 +168,10 @@ npm run dev
 - Web UI：<http://localhost:3000>
 - API：<http://localhost:3001>
 - 健康检查：<http://localhost:3001/api/health>
+
+Web 固定监听 `0.0.0.0:3000`，API 固定监听 `0.0.0.0:3001`。同一局域网设备可访问
+`http://<电脑局域网IP>:3000`；未设置 `NEXT_PUBLIC_API_BASE_URL` 时，前端会自动请求同一主机名的 3001 端口。
+`npm run dev` 会先检查两个端口：只会清理能够确认属于当前 DataPilot 工作区的遗留进程，其他占用会输出 PID、进程名和命令行后停止启动。
 
 ### 4. 添加数据源并问数
 

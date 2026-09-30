@@ -148,7 +148,8 @@ DEEPSEEK_MODEL=deepseek-chat
 
 API_PORT=3001
 WEB_ORIGIN=http://localhost:3000
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
+# Leave empty for local/LAN development; the frontend uses the current hostname on port 3001.
+NEXT_PUBLIC_API_BASE_URL=
 QUERY_MAX_ROWS=200
 ```
 
@@ -165,6 +166,10 @@ Then open:
 - Web UI: <http://localhost:3000>
 - API: <http://localhost:3001>
 - Health check: <http://localhost:3001/api/health>
+
+The Web UI is fixed to `0.0.0.0:3000` and the API to `0.0.0.0:3001`. Devices on the same LAN can use
+`http://<computer-lan-ip>:3000`; without `NEXT_PUBLIC_API_BASE_URL`, the frontend calls port 3001 on that same hostname.
+`npm run dev` checks both ports first. It only terminates stale processes that can be tied to this DataPilot workspace; otherwise it prints the PID, process name, and command line and aborts.
 
 ### 4. Connect a database and ask questions
 

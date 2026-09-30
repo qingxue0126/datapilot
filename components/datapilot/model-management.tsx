@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { ConfirmDialog } from "./confirm-dialog";
+import { apiUrl } from "./api-base";
 
 type ModelType = "llm" | "embedding" | "rerank" | "vision" | "multimodal_llm" | "multimodal_embedding" | "multimodal_rerank";
 type ModelCapability = "chat" | "reasoning" | "tool_calling" | "structured_output" | "text2sql" | "long_context" | "text_embedding" | "multilingual" | "text_rerank" | "vision" | "ocr" | "image_understanding" | "chart_understanding" | "document_understanding" | "image_embedding" | "multimodal_embedding" | "multimodal_rerank";
@@ -12,7 +13,6 @@ export type ModelOption = {
   lastTestLatencyMs: number | null; lastTestError: string | null; lastTestedAt: string | null;
 };
 type ModelRoute = { task: string; primaryModelId: string | null; fallbackModelId: string | null; temperature: number; timeout: number; maxRetries: number };
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 const taskLabels: Record<string, string> = { intent: "问题理解 / 意图识别", text2sql: "SQL 生成", sqlRepair: "SQL 修复", agent: "Agent Loop / Tool Calling", answer: "结果解释与总结", schemaMapping: "Schema / Mapping 辅助分析" };
 const providers = [
   ["openai-compatible", "OpenAI Compatible"], ["openai", "OpenAI"], ["qwen", "Qwen"], ["deepseek", "DeepSeek"],
@@ -150,7 +150,7 @@ function ModelEditor({ model, busy, close, submit }: { model?: ModelOption; busy
   </form></div>;
 }
 
-function apiFetch(path: string, init: RequestInit = {}) { return fetch(`${API_BASE}${path}`, { ...init, credentials: "include", headers: { "Content-Type": "application/json", ...(init.headers || {}) } }); }
+function apiFetch(path: string, init: RequestInit = {}) { return fetch(apiUrl(path), { ...init, credentials: "include", headers: { "Content-Type": "application/json", ...(init.headers || {}) } }); }
 function value(data: FormData, key: string) { return String(data.get(key) || "").trim(); }
 function number(data: FormData, key: string) { return Number(data.get(key)); }
 function optionalNumber(data: FormData, key: string) { const raw = value(data, key); return raw ? Number(raw) : null; }

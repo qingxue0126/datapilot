@@ -33,6 +33,7 @@ import { ToolRegistry } from "./tools/tool-registry.js";
 import { WorkflowEngine } from "./workflow/workflow-engine.js";
 import { installWorkflowRoutes } from "./workflow/workflow-routes.js";
 import { WorkflowStore } from "./workflow/workflow-store.js";
+import { createCorsOptions } from "./http/cors-policy.js";
 
 const app = express();
 const port = Number(process.env.API_PORT || 3001);
@@ -64,7 +65,7 @@ const workflowEngine = new WorkflowEngine({
   connection: (context, id) => getConnectionItem(id, context).config,
 });
 
-app.use(cors({ origin: process.env.WEB_ORIGIN || "http://localhost:3000", credentials: true }));
+app.use(cors(createCorsOptions()));
 app.use(express.json({ limit: "2mb" }));
 installAuthRoutes(app, accounts);
 
@@ -248,7 +249,7 @@ app.post("/api/query", async (request, response) => {
   } catch (error) { return response.status(error instanceof SessionStoreError ? error.status : 400).json({ error: errorMessage(error) }); }
 });
 
-app.listen(port, "127.0.0.1", () => console.log(`DataPilot API: http://localhost:${port}`));
+app.listen(port, "0.0.0.0", () => console.log(`DataPilot API: http://0.0.0.0:${port}`));
 
 function identity(request: Request) { return identities.resolve(request); }
 function belongsTo(item: StoredConnection, context: RequestContext) {

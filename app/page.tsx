@@ -9,19 +9,19 @@ import { DatasourceDetail } from "../components/datapilot/datasource-detail";
 import { erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
 import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
 import { DatasourceSwitcher } from "../components/datapilot/datasource-switcher";
-import { AgentWorkflowIcon, ChatBubbleIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon } from "../components/datapilot/icons";
+import { AgentWorkflowIcon, ChatBubbleIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon, SmartQaIcon } from "../components/datapilot/icons";
 import { AgentStudio } from "../components/datapilot/agent-studio";
 import { KnowledgeBaseView } from "../components/datapilot/knowledge-base";
 import { ModelManagement, ModelSelector, type ModelOption } from "../components/datapilot/model-management";
 import { RecentAnalyses } from "../components/datapilot/recent-analyses";
 import type { AnalysisMessage, AnalysisSession, AnalysisSessionDetail, DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
+import { apiUrl } from "../components/datapilot/api-base";
 
 type View = "chat" | "agents" | "sources" | "source-detail" | "database" | "knowledge" | "models";
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
 type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; rowCount: number; executionMs: number; requiresConfirmation?: boolean; operation?: string; affectedRows?: number };
 type PendingSql = { sql: string; operation: string; origin: "natural" | "console" };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
 const suggestions = ["本月营业收入是多少？", "按月展示今年营业收入趋势", "应收账款余额是多少？", "哪些客户应收金额最高？", "本月费用主要集中在哪些科目？"];
 
 function agentHeaders() {
@@ -32,7 +32,7 @@ function agentHeaders() {
 }
 
 function apiFetch(path: string, init: RequestInit = {}) {
-  return fetch(`${API_BASE}${path}`, { ...init, credentials: "include" });
+  return fetch(apiUrl(path), { ...init, credentials: "include" });
 }
 
 async function apiFetchWithRetry(path: string, init: RequestInit = {}, attempts = 3) {
@@ -390,7 +390,7 @@ export default function Home() {
   return <main className="app-shell">
     <aside className="sidebar">
       <button className="brand" aria-label="打开当前分析" onClick={() => setView("chat")}><span>DataPilot</span></button>
-      <button className="new-chat" onClick={startAnalysis}><span className="nav-icon">＋</span><span>新建分析</span></button>
+      <button className="new-chat" onClick={startAnalysis}><span className="nav-icon"><SmartQaIcon /></span><span>智能问答</span></button>
       <nav aria-label="主导航">
         <button className={`nav-item ${view === "agents" ? "active" : ""}`} onClick={() => setView("agents")}><span className="nav-icon"><AgentWorkflowIcon /></span>智能体</button>
         <button className={`nav-item ${view === "sources" || view === "source-detail" ? "active" : ""}`} onClick={() => setView("sources")}><span className="nav-icon"><ServerStackIcon /></span>数据源</button>
@@ -428,7 +428,7 @@ function ChatView({ session, messages, createAnalysis, sources, activeSource, ac
     <textarea aria-label="输入数据问题" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder={queryAvailable ? "例如：本月营业收入是多少？" : activeSource ? "当前数据源未连接" : "请先添加一个数据源"} rows={2} disabled={!queryAvailable} />
     <div className="query-footer"><div className="query-options"><DatasourceSwitcher sources={sources} activeSourceId={activeSourceId} onSelect={selectSource} onManageSources={openSources} /><ModelSelector models={models} value={selectedModel} onChange={selectModel} /></div><button className="send-button" type="submit" disabled={loading || !question.trim() || !queryAvailable}>{loading ? "分析中…" : "发送 ↗"}</button></div>
   </form>;
-  if (!session && !result) return <div className="content"><div className="empty-analysis"><span><ChatBubbleIcon /></span><h2>开始一项新的数据分析</h2><p>每项分析拥有独立的多轮上下文，刷新或重新登录后仍可继续。</p><button onClick={createAnalysis}>＋ 新建分析</button></div></div>;
+  if (!session && !result) return <div className="content"><div className="empty-analysis"><span><ChatBubbleIcon /></span><h2>开始智能问答</h2><p>每次问答拥有独立的多轮上下文，刷新或重新登录后仍可继续。</p><button onClick={createAnalysis}>＋ 智能问答</button></div></div>;
   return <div className={`content analysis-workspace ${hasConversation ? "has-conversation" : "new-conversation"}`}>
     {!hasConversation && <section className="hero-copy"><div className="eyebrow">ERP FINANCE DATA AGENT</div><h2>今天想了解什么？</h2><p>当前分析中的连续追问会共享上下文，不会与其他分析串联。</p></section>}
     {!hasConversation && composer}

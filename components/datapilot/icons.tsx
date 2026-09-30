@@ -13,6 +13,22 @@ export function ChatBubbleIcon({ className = "" }: { className?: string }) {
   </svg>;
 }
 
+export function SmartQaIcon({ className = "" }: { className?: string }) {
+  return <svg
+    className={`sidebar-nav-icon ${className}`.trim()}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.9"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M13.5 5H6a3 3 0 0 0-3 3v10a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-7.5" />
+    <path d="m10 14 1.2-4.1L18.1 3a2.1 2.1 0 0 1 3 3L14.2 12.9 10 14Z" />
+  </svg>;
+}
+
 export function ServerStackIcon({ className = "" }: { className?: string }) {
   return <svg
     className={`sidebar-nav-icon ${className}`.trim()}

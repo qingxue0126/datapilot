@@ -5,11 +5,11 @@ import test from "node:test";
 const page = readFileSync("app/page.tsx", "utf8");
 const studio = readFileSync("components/datapilot/agent-studio.tsx", "utf8");
 
-test("sidebar places the agent module between new analysis and datasource navigation", () => {
-  const newAnalysis = page.indexOf("新建分析");
+test("sidebar places the agent module between smart Q&A and datasource navigation", () => {
+  const smartQa = page.indexOf("智能问答");
   const agent = page.indexOf(">智能体</button>");
   const datasource = page.indexOf(">数据源</button>");
-  assert.ok(newAnalysis >= 0 && agent > newAnalysis && datasource > agent);
+  assert.ok(smartQa >= 0 && agent > smartQa && datasource > agent);
   assert.match(page, /!chatHasConversation && view !== "agents"/);
 });
 

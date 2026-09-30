@@ -7,8 +7,8 @@ const recent = readFileSync(new URL("../../components/datapilot/recent-analyses.
 
 test("new analysis creates a persistent server session", () => {
   assert.match(page, /apiFetch\("\/api\/sessions"[\s\S]*method: "POST"/);
-  assert.match(page, /＋ 新建分析/);
-  assert.doesNotMatch(page, /＋ 新建对话/);
+  assert.match(page, /＋ 智能问答/);
+  assert.doesNotMatch(page, /＋ 新建分析|＋ 新建对话/);
 });
 
 test("recent analyses can be opened, pinned, renamed, and deleted", () => {
