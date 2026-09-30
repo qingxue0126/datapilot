@@ -237,6 +237,11 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error || "无法打开分析");
       const detail = data as AnalysisSessionDetail;
       setActiveSessionId(detail.session.id); setMessages(detail.messages); setQuestion(""); setResult(null); setError(""); setView("chat");
+      const savedAgentId = [...detail.messages].reverse().map((item) => item.result && "channel" in item.result ? item.result : undefined)
+        .find((metadata) => metadata?.channel === "agent")?.agentId;
+      if (savedAgentId && usableAgents.some((agent) => agent.id === savedAgentId)) {
+        setSelectedAgentId(savedAgentId); setChatTarget("agent");
+      }
       if (detail.session.datasourceId && availableSources.some((source) => source.connectionId === detail.session.datasourceId)) {
         setActiveSourceId(detail.session.datasourceId); setShowSelectedSource(true);
       }
@@ -426,7 +431,19 @@ export default function Home() {
       });
       if (!completed || completed.status !== "success") throw new Error(completed?.error || "智能体暂时无法完成本次回答");
       const finalText = completed.output === undefined || completed.output === null || completed.output === "" ? streamedText : workflowReply(completed.output);
-      setMessages((items) => items.map((item) => item.id === answerId ? { ...item, content: finalText || streamedText } : item));
+      const answer = finalText || streamedText;
+      setMessages((items) => items.map((item) => item.id === answerId ? { ...item, content: answer } : item));
+      const savedResponse = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/exchanges`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: query, answer, result: { channel: "agent", agentId: selectedAgentId } }),
+      });
+      const saved = await savedResponse.json();
+      if (!savedResponse.ok) throw new Error(saved.error || "智能体回答已生成，但保存历史失败");
+      const persistedMessages = saved.messages as AnalysisMessage[];
+      const persistedSession = saved.session as AnalysisSession;
+      setMessages((items) => [...items.filter((item) => item.id !== userMessage.id && item.id !== answerId), ...persistedMessages]);
+      setAnalysisSessions((items) => [persistedSession, ...items.filter((item) => item.id !== persistedSession.id)]);
     } catch (caught) {
       if (!isAbortError(caught)) setError(message(caught, "智能体暂时无法回答，请稍后再试"));
       setMessages((items) => items.filter((item) => item.id !== answerId || Boolean(item.content)));
@@ -574,12 +591,16 @@ function ChatView({ messages, sources, activeSource, activeSourceId, showSelecte
     <section className="message-stream" aria-label="分析对话">
       {messages.map((item) => item.role === "user"
         ? <article className="user-message" key={item.id}><p>{item.content}</p></article>
-        : item.result ? <QueryResultCard key={item.id} result={item.result} /> : <article className="assistant-message" key={item.id}>{item.content}</article>)}
+        : isQueryResult(item.result) ? <QueryResultCard key={item.id} result={item.result} /> : <article className="assistant-message" key={item.id}>{item.content}</article>)}
       <AgentTracePanel loading={loading} />
       {result && <QueryResultCard result={result} />}
     </section>
     {hasConversation && <div className="conversation-composer">{composer}</div>}
   </div>;
+}
+
+function isQueryResult(result: AnalysisMessage["result"]): result is QueryResult {
+  return Boolean(result && typeof result.summary === "string" && Array.isArray(result.columns) && Array.isArray(result.rows));
 }
 
 function QueryResultCard({ result }: { result: QueryResult }) {

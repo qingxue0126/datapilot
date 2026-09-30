@@ -102,7 +102,7 @@ export type AnalysisMessage = {
   sessionId: string;
   role: "user" | "assistant";
   content: string;
-  result?: QueryResult;
+  result?: QueryResult | { channel?: string; agentId?: string; question?: string; [key: string]: unknown };
   createdAt: string;
 };
 

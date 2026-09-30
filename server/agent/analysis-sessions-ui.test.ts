@@ -42,6 +42,16 @@ test("query requests carry the selected session id and render a message stream",
   assert.match(page, /item\.role === "user"/);
 });
 
+test("agent conversations are persisted and immediately added to recent analyses", () => {
+  assert.match(page, /apiFetch\(`\/api\/sessions\/\$\{encodeURIComponent\(sessionId\)\}\/exchanges`/);
+  assert.match(page, /result: \{ channel: "agent", agentId: selectedAgentId \}/);
+  assert.match(page, /setMessages\(\(items\) => \[\.\.\.items\.filter\(\(item\) => item\.id !== userMessage\.id && item\.id !== answerId\), \.\.\.persistedMessages\]\)/);
+  assert.match(page, /setAnalysisSessions\(\(items\) => \[persistedSession, \.\.\.items\.filter\(\(item\) => item\.id !== persistedSession\.id\)\]\)/);
+  assert.match(page, /metadata\?\.channel === "agent"[\s\S]*usableAgents\.some\(\(agent\) => agent\.id === savedAgentId\)[\s\S]*setChatTarget\("agent"\)/);
+  assert.match(page, /isQueryResult\(item\.result\) \? <QueryResultCard/);
+  assert.match(page, /typeof result\.summary === "string"[\s\S]*Array\.isArray\(result\.columns\)[\s\S]*Array\.isArray\(result\.rows\)/);
+});
+
 test("the composer moves below the message stream after a conversation starts", () => {
   assert.match(page, /const hasConversation = messages\.length > 0/);
   assert.match(page, /<section className="message-stream"[\s\S]*\{hasConversation && <div className="conversation-composer">\{composer\}<\/div>\}/);

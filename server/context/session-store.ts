@@ -38,7 +38,7 @@ export interface SessionStore {
   appendExchange(context: RequestContext, sessionId: string, input: {
     question: string;
     answer: string;
-    datasourceId: string;
+    datasourceId?: string;
     result: Record<string, unknown>;
   }): { session: AnalysisSession; messages: [AnalysisMessage, AnalysisMessage] };
 }
@@ -151,7 +151,7 @@ export class SqliteSessionStore implements SessionStore {
     }).filter((turn) => turn.question);
   }
 
-  appendExchange(context: RequestContext, sessionId: string, input: { question: string; answer: string; datasourceId: string; result: Record<string, unknown> }) {
+  appendExchange(context: RequestContext, sessionId: string, input: { question: string; answer: string; datasourceId?: string; result: Record<string, unknown> }) {
     const owned = this.ownedRow(context, sessionId, true);
     const firstQuestion = Number(this.database.prepare(`SELECT COUNT(*) AS count FROM messages WHERE session_id = ? AND role = 'user'`).get(sessionId)?.count || 0) === 0;
     const userMessage: AnalysisMessage = {
@@ -169,7 +169,7 @@ export class SqliteSessionStore implements SessionStore {
         .run(assistantMessage.id, sessionId, assistantMessage.role, assistantMessage.content, JSON.stringify(input.result), assistantMessage.createdAt);
       const autoTitle = firstQuestion && Number(owned.title_manually_edited || 0) === 0;
       this.database.prepare(`UPDATE sessions SET title = ?, datasource_id = ?, updated_at = ? WHERE id = ?`)
-        .run(autoTitle ? titleFromQuestion(input.question) : owned.title, input.datasourceId, assistantMessage.createdAt, sessionId);
+        .run(autoTitle ? titleFromQuestion(input.question) : owned.title, input.datasourceId ?? owned.datasource_id, assistantMessage.createdAt, sessionId);
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");

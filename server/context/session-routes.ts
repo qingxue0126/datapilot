@@ -44,6 +44,24 @@ export function installSessionRoutes(
     } catch (error) { sessionError(response, error); }
   });
 
+  app.post("/api/sessions/:id/exchanges", (request, response) => {
+    try {
+      const question = typeof request.body?.question === "string" ? request.body.question.trim() : "";
+      const answer = typeof request.body?.answer === "string" ? request.body.answer.trim() : "";
+      const datasourceId = typeof request.body?.datasourceId === "string" ? request.body.datasourceId.trim() : undefined;
+      if (!question) throw new SessionStoreError("问题不能为空");
+      if (!answer) throw new SessionStoreError("回答不能为空");
+      const context = resolveIdentity(request);
+      if (datasourceId) validateDatasource?.(context, datasourceId);
+      const result = request.body?.result && typeof request.body.result === "object" && !Array.isArray(request.body.result)
+        ? request.body.result as Record<string, unknown>
+        : {};
+      response.status(201).json(store.appendExchange(context, request.params.id, {
+        question, answer, datasourceId, result: { ...result, question },
+      }));
+    } catch (error) { sessionError(response, error); }
+  });
+
   app.delete("/api/sessions/:id", (request, response) => {
     try { store.delete(resolveIdentity(request), request.params.id); response.status(204).end(); }
     catch (error) { sessionError(response, error); }

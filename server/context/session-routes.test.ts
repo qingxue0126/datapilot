@@ -37,6 +37,23 @@ test("session API supports CRUD while hiding sessions from other users", async (
     assert.equal((await pinned.json() as { session: { pinned: boolean } }).session.pinned, true);
     assert.equal((await fetch(`${base}/api/sessions/${created.session.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", "x-test-user": "bob" }, body: JSON.stringify({ pinned: true }) })).status, 404);
     assert.equal((await fetch(`${base}/api/sessions/${created.session.id}`, { method: "DELETE", headers: { "x-test-user": "bob" } })).status, 404);
+
+    const exchangeResponse = await fetch(`${base}/api/sessions/${created.session.id}/exchanges`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question: "凭证怎么删除？", answer: "请先确认凭证未记账。", result: { channel: "agent", agentId: "agent-1" } }),
+    });
+    assert.equal(exchangeResponse.status, 201);
+    const exchange = await exchangeResponse.json() as { session: { title: string; messageCount: number }; messages: { role: string; content: string; result?: Record<string, unknown> }[] };
+    assert.equal(exchange.session.messageCount, 2);
+    assert.equal(exchange.messages[0]?.content, "凭证怎么删除？");
+    assert.equal(exchange.messages[1]?.result?.channel, "agent");
+    assert.equal((await fetch(`${base}/api/sessions/${created.session.id}/exchanges`, {
+      method: "POST", headers: { "Content-Type": "application/json", "x-test-user": "bob" },
+      body: JSON.stringify({ question: "越权", answer: "不应保存" }),
+    })).status, 404);
+    assert.equal((await fetch(`${base}/api/sessions/${created.session.id}/exchanges`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ question: "", answer: "回答" }),
+    })).status, 400);
     assert.equal((await fetch(`${base}/api/sessions/${created.session.id}`, { method: "DELETE" })).status, 204);
   } finally {
     server.close(); await once(server, "close"); store.close(); rmSync(directory, { recursive: true, force: true });
