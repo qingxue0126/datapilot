@@ -210,7 +210,7 @@ test("knowledge retrieval nodes resolve dynamic filters and expose complete retr
     variables: {},
     nodes: [
       { id: "start", type: "start", position: { x: 0, y: 0 }, data: { label: "开始", config: {} } },
-      { id: "retrieve", type: "knowledge_retrieval", position: { x: 1, y: 0 }, data: { label: "知识库检索", config: { knowledgeBaseId: "kb-1", query: "{{start.output.query}}", filters: { Porduct: "{{start.output.product}}" }, retrievalMode: "hybrid", topK: 5, scoreThreshold: 0.2, rerank: false } } },
+      { id: "retrieve", type: "knowledge_retrieval", position: { x: 1, y: 0 }, data: { label: "知识库检索", config: { knowledgeBaseId: "kb-1", query: "{{start.output.query}}", filters: { Porduct: { $containsToken: "{{start.output.product}}" } }, retrievalMode: "hybrid", topK: 5, scoreThreshold: 0.2, rerank: false } } },
       { id: "end", type: "end", position: { x: 2, y: 0 }, data: { label: "结束", config: { output: "{{retrieve.output}}" } } },
     ],
     edges: [{ id: "a", source: "start", target: "retrieve" }, { id: "b", source: "retrieve", target: "end" }],
@@ -223,7 +223,7 @@ test("knowledge retrieval nodes resolve dynamic filters and expose complete retr
   const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models: {} as ModelService, knowledgeRetrieval: retrieval, connection: () => { throw new Error("unused"); } });
   const run = await engine.run(context, created.agent.id, { query: "怎么增加外币科目？", product: "好会计" });
   assert.equal(run.status, "success");
-  assert.deepEqual(request?.filters, { Porduct: "好会计" });
+  assert.deepEqual(request?.filters, { Porduct: { $containsToken: "好会计" } });
   assert.equal((run.output as { hitCount: number }).hitCount, 1);
   assert.equal((run.output as { topScore: number }).topScore, 0.91);
   assert.match((run.output as { items: { content: string }[] }).items[0].content, /Question/);

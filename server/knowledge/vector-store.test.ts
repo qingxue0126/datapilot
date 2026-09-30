@@ -1,9 +1,31 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { RequestContext } from "../core/types.js";
-import { LocalVectorStore, MilvusUnavailableError, MilvusVectorStore } from "./vector-store.js";
+import { LocalVectorStore, metadataMatches, MilvusUnavailableError, MilvusVectorStore } from "./vector-store.js";
 
 const alice: RequestContext = { tenantId: "tenant-a", accountSetId: "books-a", userId: "alice", role: "tenant_admin", sessionId: "auth-a" };
+
+test("containsToken uses slash-delimited exact token matching and preserves equality filters", () => {
+  for (const [token, value] of [
+    ["T3", "T3"], ["T3", "T3/T6"], ["T3", "U8/T3/T6"], ["T6", "T3/T6"],
+    ["U8", "U8/T3/T6"], ["T+", "T+"], ["好会计", "好会计/易代账"],
+  ]) assert.equal(metadataMatches({ 适用产品: value }, { 适用产品: { $containsToken: token } }), true);
+  assert.equal(metadataMatches({ 适用产品: "T30" }, { 适用产品: { $containsToken: "T3" } }), false);
+  assert.equal(metadataMatches({ 适用产品: "T3/T6" }, { 适用产品: "T3" }), false);
+  assert.equal(metadataMatches({ 适用产品: "T3" }, { 适用产品: "T3" }), true);
+});
+
+test("local vector adapter supports containsToken filters", async () => {
+  const vectors = new LocalVectorStore(":memory:");
+  try {
+    vectors.upsert(alice, [
+      { id: "t3", knowledgeBaseId: "kb", documentId: "doc", content: "T3", embedding: [1, 0], metadata: { 适用产品: "U8/T3/T6" }, enabled: true },
+      { id: "t30", knowledgeBaseId: "kb", documentId: "doc", content: "T30", embedding: [1, 0], metadata: { 适用产品: "T30" }, enabled: true },
+    ]);
+    const result = await vectors.search(alice, "kb", [1, 0], { limit: 10, metadataFilter: { 适用产品: { $containsToken: "T3" } } });
+    assert.deepEqual(result.map((item) => item.id), ["t3"]);
+  } finally { vectors.close(); }
+});
 
 test("local test vector adapter applies metadata AND filters, disabled filtering, and tenant isolation", async () => {
   const vectors = new LocalVectorStore(":memory:");
@@ -27,7 +49,7 @@ test("Milvus adapter creates the required schema and scopes every search before 
     loadCollection: async () => ({ status: {} }),
     upsert: async (input: Record<string, unknown>) => { calls.upsert = input; return { status: {} }; },
     delete: async () => ({ status: {} }),
-    search: async (input: Record<string, unknown>) => { calls.search = input; return { results: [{ chunk_id: "chunk", knowledge_base_id: "kb", document_id: "doc", content: "内容", metadata: { 产品: "好会计" }, enabled: true, score: 0.91 }] }; },
+    search: async (input: Record<string, unknown>) => { calls.search = input; return { results: [{ chunk_id: "chunk", knowledge_base_id: "kb", document_id: "doc", content: "内容", metadata: { 产品: "好会计", 模块: "凭证" }, enabled: true, score: 0.91 }] }; },
     closeConnection: async () => undefined,
   };
   const vectors = new MilvusVectorStore({ address: "http://milvus:19530", collection: "knowledge" }, client as never);
@@ -43,6 +65,23 @@ test("Milvus adapter creates the required schema and scopes every search before 
   assert.match(filter, /tenant_id == "tenant-a"/); assert.match(filter, /account_set_id == "books-a"/); assert.match(filter, /user_id == "alice"/);
   assert.match(filter, /knowledge_base_id == "kb"/); assert.match(filter, /enabled == true/); assert.match(filter, /metadata\["产品"\] == "好会计"/); assert.match(filter, /metadata\["模块"\] == "凭证"/);
   assert.equal(result[0].score, 0.91);
+});
+
+test("Milvus keeps containsToken out of JSON expressions and applies exact post-filtering", async () => {
+  let searchInput: Record<string, unknown> | undefined;
+  const client = {
+    hasCollection: async () => ({ value: true }), createCollection: async () => ({ status: {} }), dropCollection: async () => ({ status: {} }),
+    loadCollection: async () => ({ status: {} }), upsert: async () => ({ status: {} }), delete: async () => ({ status: {} }),
+    search: async (input: Record<string, unknown>) => { searchInput = input; return { results: [
+      { chunk_id: "match", knowledge_base_id: "kb", document_id: "doc", content: "T3", metadata: { 适用产品: "U8/T3/T6", 模块: "采购" }, enabled: true, score: 0.9 },
+      { chunk_id: "substring", knowledge_base_id: "kb", document_id: "doc", content: "T30", metadata: { 适用产品: "T30", 模块: "采购" }, enabled: true, score: 0.8 },
+    ] }; }, closeConnection: async () => undefined,
+  };
+  const vectors = new MilvusVectorStore({ address: "http://milvus:19530", collection: "knowledge" }, client as never);
+  const result = await vectors.search(alice, "kb", [1, 0], { limit: 10, metadataFilter: { 适用产品: { $containsToken: "T3" }, 模块: "采购" } });
+  assert.deepEqual(result.map((item) => item.id), ["match"]);
+  assert.doesNotMatch(String(searchInput?.filter), /contains|T3/);
+  assert.match(String(searchInput?.filter), /metadata\["模块"\] == "采购"/);
 });
 
 test("local vector adapter filters configured Excel metadata before scoring candidates", async () => {

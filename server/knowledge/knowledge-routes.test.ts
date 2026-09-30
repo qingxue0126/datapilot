@@ -125,6 +125,9 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     assert.match(v1Result.items[0].content, /答案：打开凭证列表后选择删除/);
     assert.equal(v1Result.items[0].metadata["产品"], "好会计");
     assert.equal(v1Result.items[0].source.filename, "高频问题.csv");
+    const tokenResponse = await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "凭证", filters: { 产品: { $containsToken: "好会计" } }, top_k: 3, score_threshold: -1 });
+    assert.equal(tokenResponse.status, 200);
+    assert.equal((await tokenResponse.json() as { items: unknown[] }).items.length, 1);
     assert.equal((await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "报表", filters: {}, top_k: 5, score_threshold: -1 }).then((response) => response.json()) as { items: unknown[] }).items.length, 2);
     const invalidField = await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "凭证", filters: { 不存在字段: "值" } });
     assert.equal(invalidField.status, 400);

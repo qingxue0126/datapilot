@@ -239,7 +239,11 @@ function columnRoleMap(value: unknown): NonNullable<ParserOptions["columnRoles"]
 }
 
 function cleanMetadata(value: unknown): Metadata {
-  return validateMetadata(value, "Metadata");
+  const metadata = validateMetadata(value, "Metadata");
+  if (Object.values(metadata).some((item) => typeof item === "object")) {
+    throw new KnowledgeStoreError("Metadata 值仅支持字符串、有限数字或布尔值");
+  }
+  return metadata as Metadata;
 }
 
 function legacyNumber(value: unknown) { return value === undefined ? undefined : Number(value); }

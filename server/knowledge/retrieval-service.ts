@@ -2,7 +2,7 @@ import type { RequestContext } from "../core/types.js";
 import { lexicalScore } from "./embedding.js";
 import type { EmbeddingProvider } from "./embedding.js";
 import { KnowledgeStore, KnowledgeStoreError, type RetrievalConfig } from "./knowledge-store.js";
-import type { Metadata, MetadataValue, VectorSearchResult, VectorStore } from "./vector-store.js";
+import { isContainsTokenFilter, metadataMatches, type Metadata, type MetadataFilter, type MetadataValue, type VectorSearchResult, type VectorStore } from "./vector-store.js";
 
 export interface RerankService {
   rerank(context: RequestContext, modelId: string, query: string, documents: string[], topN: number): Promise<{ results: { index: number; score: number }[] }>;
@@ -11,7 +11,7 @@ export interface RerankService {
 export type KnowledgeRetrievalRequest = {
   knowledgeBaseId: string;
   query: string;
-  filters?: Metadata;
+  filters?: MetadataFilter;
   topK?: number;
   scoreThreshold?: number;
   rerank?: boolean;
@@ -36,7 +36,7 @@ export type KnowledgeRetrievalItem = {
 
 export type KnowledgeRetrievalResult = {
   items: KnowledgeRetrievalItem[];
-  filters: Metadata;
+  filters: MetadataFilter;
   topK: number;
   scoreThreshold: number;
   rerank: boolean;
@@ -76,14 +76,18 @@ export class KnowledgeRetrievalService {
     const rerankTopK = boundedNumber(request.rerankTopK, topK, 1, 50, true, "rerank_top_k");
     const rerankModel = String(request.rerankModel ?? config.rerankModel ?? "").trim();
     const filters = validateMetadata(request.filters);
+    const vectorCandidateCount = hasContainsTokenFilter(filters)
+      ? Math.min(200, Math.max(candidateCount * 4, topK * 10))
+      : candidateCount;
 
     this.validateFilterSchema(context, knowledgeBaseId, filters);
     const queryEmbedding = await this.embeddings.embed(context, config.embeddingModel, query);
     let matches = await this.vectors.search(context, knowledgeBaseId, queryEmbedding, {
-      limit: candidateCount,
+      limit: vectorCandidateCount,
       metadataFilter: filters,
       indexConfig: vectorIndexConfig(config),
     });
+    matches = matches.filter((item) => metadataMatches(item.metadata, filters));
     if (retrievalMode === "hybrid") matches = this.hybridMatches(context, knowledgeBaseId, query, filters, matches, vectorWeight, candidateCount);
     matches = matches.filter((item) => item.score >= scoreThreshold);
     if (rerank && this.reranker && rerankModel && rerankModel !== "local-keyword-reranker-v1") {
@@ -114,7 +118,7 @@ export class KnowledgeRetrievalService {
     return { items, filters, topK: finalTopK, scoreThreshold, rerank, retrievalMode, vectorWeight, candidateCount, rerankModel, config, vectorStore: this.vectors.provider };
   }
 
-  private hybridMatches(context: RequestContext, knowledgeBaseId: string, query: string, filters: Metadata, vectorMatches: VectorSearchResult[], vectorWeight: number, limit: number) {
+  private hybridMatches(context: RequestContext, knowledgeBaseId: string, query: string, filters: MetadataFilter, vectorMatches: VectorSearchResult[], vectorWeight: number, limit: number) {
     const byId = new Map(vectorMatches.map((item) => [item.id, { ...item, score: item.score * vectorWeight }]));
     for (const chunk of this.store.listBaseChunks(context, knowledgeBaseId)) {
       if (!chunk.enabled || !metadataMatches(chunk.metadata, filters)) continue;
@@ -129,7 +133,7 @@ export class KnowledgeRetrievalService {
     return [...byId.values()].sort((left, right) => right.score - left.score).slice(0, limit);
   }
 
-  private validateFilterSchema(context: RequestContext, knowledgeBaseId: string, filters: Metadata) {
+  private validateFilterSchema(context: RequestContext, knowledgeBaseId: string, filters: MetadataFilter) {
     if (!Object.keys(filters).length) return;
     const fieldTypes = this.store.metadataSchema(context, knowledgeBaseId);
     const unknown = Object.keys(filters).filter((field) => !fieldTypes.has(field));
@@ -138,35 +142,50 @@ export class KnowledgeRetrievalService {
       throw new KnowledgeStoreError(`Metadata 过滤字段不存在: ${unknown.join(", ")}；可用字段: ${available}`);
     }
     for (const [field, value] of Object.entries(filters)) {
-      if (!fieldTypes.get(field)?.has(typeof value)) throw new KnowledgeStoreError(`Metadata 过滤值类型错误: ${field}`);
+      const expectedType = isContainsTokenFilter(value) ? "string" : typeof value;
+      if (!fieldTypes.get(field)?.has(expectedType)) throw new KnowledgeStoreError(`Metadata 过滤值类型错误: ${field}`);
     }
   }
 }
 
-function metadataMatches(metadata: Metadata, filters: Metadata) {
-  return Object.entries(filters).every(([field, value]) => metadata[field] === value);
-}
+export { metadataMatches };
 
-export function validateMetadata(value: unknown, label = "filters"): Metadata {
+export function validateMetadata(value: unknown, label = "filters"): MetadataFilter {
   if (value === undefined || value === null || value === "") return {};
   if (typeof value !== "object" || Array.isArray(value)) throw new KnowledgeStoreError(`${label} 必须是对象`);
   const entries = Object.entries(value);
   if (entries.length > 100) throw new KnowledgeStoreError(`${label} 字段不能超过 100 个`);
-  const result: Metadata = {};
+  const result: MetadataFilter = {};
   for (const [rawKey, item] of entries) {
     const key = rawKey.trim();
     if (!key || key.length > 256) throw new KnowledgeStoreError(`${label} 包含非法字段名`);
-    if (!isMetadataValue(item) || (typeof item === "number" && !Number.isFinite(item))) {
-      throw new KnowledgeStoreError(`${label}.${key} 仅支持字符串、有限数字或布尔值`);
+    if (isMetadataValue(item)) {
+      if (typeof item === "number" && !Number.isFinite(item)) throw new KnowledgeStoreError(`${label}.${key} 必须是有限数字`);
+      if (typeof item === "string" && item.length > 10_000) throw new KnowledgeStoreError(`${label}.${key} 字符串过长`);
+      result[key] = item;
+      continue;
     }
-    if (typeof item === "string" && item.length > 10_000) throw new KnowledgeStoreError(`${label}.${key} 字符串过长`);
-    result[key] = item;
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new KnowledgeStoreError(`${label}.${key} 仅支持字符串、有限数字或布尔值；过滤条件还支持 $containsToken`);
+    }
+    const operatorEntries = Object.entries(item);
+    if (operatorEntries.length !== 1 || operatorEntries[0][0] !== "$containsToken") {
+      throw new KnowledgeStoreError(`${label}.${key} 仅支持 $containsToken 操作符`);
+    }
+    const token = operatorEntries[0][1];
+    if (typeof token !== "string" || !token.trim()) throw new KnowledgeStoreError(`${label}.${key}.$containsToken 必须是非空字符串`);
+    if (token.length > 10_000) throw new KnowledgeStoreError(`${label}.${key}.$containsToken 字符串过长`);
+    result[key] = { $containsToken: token.trim() };
   }
   return result;
 }
 
 function isMetadataValue(value: unknown): value is MetadataValue {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function hasContainsTokenFilter(filters: MetadataFilter) {
+  return Object.values(filters).some(isContainsTokenFilter);
 }
 
 function boundedNumber(value: unknown, fallback: number, min: number, max: number, integer: boolean, field: string) {

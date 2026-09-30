@@ -4,6 +4,7 @@ import test from "node:test";
 
 const page = readFileSync(new URL("../../app/page.tsx", import.meta.url), "utf8");
 const recent = readFileSync(new URL("../../components/datapilot/recent-analyses.tsx", import.meta.url), "utf8");
+const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "utf8");
 
 test("new analysis creates a persistent server session", () => {
   assert.match(page, /apiFetch\("\/api\/sessions"[\s\S]*method: "POST"/);
@@ -59,4 +60,9 @@ test("chat exposes model selection and model management navigation", () => {
   assert.match(page, />模型<select disabled=\{Boolean\(selectedAgentId\)\} value=\{selectedModel\}/);
   assert.match(page, />模型管理<\/button>/);
   assert.match(page, /<ModelManagement models=\{models\}/);
+});
+
+test("new conversation configuration opens below a vertically centered composer", () => {
+  assert.match(styles, /\.analysis-workspace\.new-conversation \{[^}]*justify-content: center/);
+  assert.match(styles, /\.analysis-workspace\.new-conversation \.chat-config-menu \{[^}]*top: calc\(100% \+ 9px\); bottom: auto/);
 });

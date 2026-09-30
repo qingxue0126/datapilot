@@ -6,10 +6,13 @@ import type { RequestContext } from "../core/types.js";
 
 export type MetadataValue = string | number | boolean;
 export type Metadata = Record<string, MetadataValue>;
+export type ContainsTokenFilter = { $containsToken: string };
+export type MetadataFilterValue = MetadataValue | ContainsTokenFilter;
+export type MetadataFilter = Record<string, MetadataFilterValue>;
 export type VectorRecord = { id: string; knowledgeBaseId: string; documentId: string; content: string; embedding: number[]; metadata: Metadata; enabled: boolean };
 export type VectorSearchResult = VectorRecord & { score: number };
 export type VectorIndexOptions = { indexType: "HNSW"; metricType: "COSINE" | "IP" | "L2"; hnswM: number; hnswEfConstruction: number };
-export type VectorSearchOptions = { limit: number; metadataFilter?: Metadata; indexConfig?: VectorIndexOptions };
+export type VectorSearchOptions = { limit: number; metadataFilter?: MetadataFilter; indexConfig?: VectorIndexOptions };
 const defaultIndexConfig: VectorIndexOptions = { indexType: "HNSW", metricType: "IP", hnswM: 16, hnswEfConstruction: 200 };
 
 export class MilvusUnavailableError extends Error {
@@ -134,7 +137,8 @@ export class MilvusVectorStore implements VectorStore {
         output_fields: ["chunk_id", "knowledge_base_id", "document_id", "content", "metadata", "enabled"] });
       const results = response.results as SearchResultData[];
       return results.map((item) => ({ id: String(item.chunk_id || item.id), knowledgeBaseId: String(item.knowledge_base_id), documentId: String(item.document_id),
-        content: String(item.content || ""), embedding: [], metadata: normalizeMetadata(item.metadata), enabled: Boolean(item.enabled), score: normalizeScore(Number(item.score), indexConfig.metricType) }));
+        content: String(item.content || ""), embedding: [], metadata: normalizeMetadata(item.metadata), enabled: Boolean(item.enabled), score: normalizeScore(Number(item.score), indexConfig.metricType) }))
+        .filter((item) => metadataMatches(item.metadata, options.metadataFilter || {}));
     });
   }
   close() {
@@ -209,10 +213,28 @@ function collectionName(base: string, knowledgeBaseId: string) {
   return `${safeBase}_${safeId}`;
 }
 function ownerFilter(context: RequestContext, knowledgeBaseId?: string) { return [`tenant_id == ${literal(context.tenantId)}`, `account_set_id == ${literal(context.accountSetId)}`, `user_id == ${literal(context.userId)}`, ...(knowledgeBaseId ? [`knowledge_base_id == ${literal(knowledgeBaseId)}`] : [])].join(" and "); }
-function metadataExpressions(filter: Metadata) { return Object.entries(filter).map(([key, value]) => `metadata[${literal(key)}] == ${literal(value)}`); }
+function metadataExpressions(filter: MetadataFilter) {
+  return Object.entries(filter)
+    .filter((entry): entry is [string, MetadataValue] => isMetadataValue(entry[1]))
+    .map(([key, value]) => `metadata[${literal(key)}] == ${literal(value)}`);
+}
 function literal(value: MetadataValue) { return typeof value === "string" ? JSON.stringify(value) : String(value); }
 function normalizeMetadata(value: unknown): Metadata { if (!value || typeof value !== "object" || Array.isArray(value)) return {}; return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter(([, item]) => ["string", "number", "boolean"].includes(typeof item))) as Metadata; }
-function metadataMatches(metadata: Metadata, filter: Metadata) { return Object.entries(filter).every(([key, value]) => metadata[key] === value); }
+export function metadataMatches(metadata: Metadata, filter: MetadataFilter) {
+  return Object.entries(filter).every(([key, value]) => {
+    if (isContainsTokenFilter(value)) {
+      const metadataValue = metadata[key];
+      return typeof metadataValue === "string" && metadataValue.split("/").some((token) => token.trim() === value.$containsToken);
+    }
+    return metadata[key] === value;
+  });
+}
+export function isContainsTokenFilter(value: MetadataFilterValue): value is ContainsTokenFilter {
+  return typeof value === "object" && value !== null && "$containsToken" in value;
+}
+function isMetadataValue(value: MetadataFilterValue): value is MetadataValue {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : String(error); }
 function normalizeScore(score: number, metric: VectorIndexOptions["metricType"]) { return metric === "L2" ? 1 / (1 + Math.max(0, score)) : score; }
 function cosine(left: number[], right: number[]) { let dot = 0; let leftNorm = 0; let rightNorm = 0; const length = Math.min(left.length, right.length); for (let index = 0; index < length; index += 1) { dot += left[index] * right[index]; leftNorm += left[index] ** 2; rightNorm += right[index] ** 2; } return leftNorm && rightNorm ? dot / Math.sqrt(leftNorm * rightNorm) : 0; }
