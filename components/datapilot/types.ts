@@ -82,6 +82,7 @@ export type QueryResult = {
   operation?: string;
   explanation?: QueryExplanation;
   agent?: { runId: string; attempts: number; trace: AgentTraceEvent[] };
+  model?: string;
   sessionId?: string;
   session?: AnalysisSession;
   persistedMessages?: AnalysisMessage[];
@@ -102,7 +103,7 @@ export type AnalysisMessage = {
   sessionId: string;
   role: "user" | "assistant";
   content: string;
-  result?: QueryResult | { channel?: string; agentId?: string; question?: string; [key: string]: unknown };
+  result?: QueryResult | { channel?: string; agentId?: string; runId?: string; durationMs?: number; status?: string; question?: string; [key: string]: unknown };
   createdAt: string;
 };
 

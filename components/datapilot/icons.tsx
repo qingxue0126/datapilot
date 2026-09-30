@@ -115,6 +115,20 @@ export function ApiPlugIcon({ className = "" }: { className?: string }) {
   </svg>;
 }
 
+export function ConversationLogIcon({ className = "" }: { className?: string }) {
+  return <svg className={`sidebar-nav-icon ${className}`.trim()} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 3h10l3 3v15H6z" /><path d="M16 3v4h4M9 11h7M9 15h7M9 19h5" /><path d="M3 7h3M3 11h3M3 15h3" />
+  </svg>;
+}
+
+export function CopyOutputIcon({ className = "" }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>;
+}
+
+export function TraceLogIcon({ className = "" }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M7 3h11v18H7z" /><path d="M3 6h4M3 10h4M3 14h4M3 18h4M11 8h4M11 12h4M11 16h3" /></svg>;
+}
+
 export function SettingsGearIcon({ className = "" }: { className?: string }) {
   return <svg
     className={`settings-gear-icon ${className}`.trim()}

@@ -7,9 +7,10 @@ import { ConfirmDialog } from "../components/datapilot/confirm-dialog";
 import { DatasourceDetail } from "../components/datapilot/datasource-detail";
 import { erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
 import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
-import { AgentWorkflowIcon, ApiPlugIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon, SettingsGearIcon, SmartQaIcon } from "../components/datapilot/icons";
+import { AgentWorkflowIcon, ApiPlugIcon, ConversationLogIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon, SettingsGearIcon, SmartQaIcon } from "../components/datapilot/icons";
 import { AgentStudio } from "../components/datapilot/agent-studio";
 import { ApiManagement } from "../components/datapilot/api-management";
+import { ConversationLogs } from "../components/datapilot/conversation-logs";
 import { KnowledgeBaseView } from "../components/datapilot/knowledge-base";
 import { ModelManagement, type ModelOption } from "../components/datapilot/model-management";
 import { RecentAnalyses } from "../components/datapilot/recent-analyses";
@@ -18,7 +19,7 @@ import { apiUrl } from "../components/datapilot/api-base";
 import { streamApi } from "../components/datapilot/sse-client";
 import { generateUUID } from "../components/datapilot/generate-uuid";
 
-type View = "chat" | "agents" | "sources" | "source-detail" | "database" | "knowledge" | "models" | "api";
+type View = "chat" | "agents" | "sources" | "source-detail" | "database" | "knowledge" | "models" | "api" | "logs";
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
 type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; rowCount: number; executionMs: number; requiresConfirmation?: boolean; operation?: string; affectedRows?: number };
 type PendingSql = { sql: string; operation: string; origin: "natural" | "console" };
@@ -406,7 +407,7 @@ export default function Home() {
     chatStreamRef.current = controller;
     let streamedText = "";
     let streamingNodeId = "";
-    let completed: { id: string; status: string; output?: unknown; error?: string } | undefined;
+    let completed: { id: string; status: string; output?: unknown; error?: string; durationMs?: number } | undefined;
     setQuestion(""); setLoading(true); setError(""); setResult(null);
     setMessages((items) => [...items, userMessage, { id: answerId, sessionId, role: "assistant", content: "", createdAt: new Date().toISOString() }]);
     setView("chat");
@@ -436,7 +437,7 @@ export default function Home() {
       const savedResponse = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/exchanges`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: query, answer, result: { channel: "agent", agentId: selectedAgentId } }),
+        body: JSON.stringify({ question: query, answer, result: { channel: "agent", agentId: selectedAgentId, runId: completed.id, durationMs: completed.durationMs, status: completed.status } }),
       });
       const saved = await savedResponse.json();
       if (!savedResponse.ok) throw new Error(saved.error || "智能体回答已生成，但保存历史失败");
@@ -548,6 +549,7 @@ export default function Home() {
         <button className={`nav-item ${view === "knowledge" ? "active" : ""}`} onClick={() => setView("knowledge")}><span className="nav-icon"><KnowledgeDatabaseIcon /></span>知识库</button>
         <button className={`nav-item ${view === "models" ? "active" : ""}`} onClick={() => setView("models")}><span className="nav-icon"><ModelCubeIcon /></span>模型管理</button>
         <button className={`nav-item ${view === "api" ? "active" : ""}`} onClick={() => setView("api")}><span className="nav-icon"><ApiPlugIcon /></span>API</button>
+        <button className={`nav-item ${view === "logs" ? "active" : ""}`} onClick={() => setView("logs")}><span className="nav-icon"><ConversationLogIcon /></span>日志</button>
       </nav>
       <div className="sidebar-sessions">
         <RecentAnalyses sessions={analysisSessions} activeSessionId={activeSessionId} onOpen={(session) => void openAnalysis(session)} onPin={pinAnalysis} onRename={renameAnalysis} onDelete={async (session) => setPendingSessionDelete(session)} />
@@ -567,6 +569,7 @@ export default function Home() {
       {view === "knowledge" && <KnowledgeBaseView />}
       {view === "models" && <ModelManagement models={models} selectedModel={selectedModel} onSelect={selectModel} onRefresh={restoreModels} />}
       {view === "api" && <ApiManagement />}
+      {view === "logs" && <ConversationLogs username={currentUser.displayName || currentUser.username} models={models} agents={usableAgents} sources={sources} />}
     </section>
     {showAddSource && <ConnectionModal sshEnabled={sshEnabled} setSshEnabled={setSshEnabled} connecting={connecting} notice={connectionNotice} close={() => setShowAddSource(false)} submit={addConnection} />}
     {pendingSessionDelete && <ConfirmDialog title="删除分析" message={`确认删除分析“${pendingSessionDelete.title}”及其全部对话？`} close={() => setPendingSessionDelete(null)} confirm={async () => { const session = pendingSessionDelete; setPendingSessionDelete(null); await deleteAnalysis(session); }} />}

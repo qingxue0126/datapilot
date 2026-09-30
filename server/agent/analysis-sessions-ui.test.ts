@@ -44,7 +44,7 @@ test("query requests carry the selected session id and render a message stream",
 
 test("agent conversations are persisted and immediately added to recent analyses", () => {
   assert.match(page, /apiFetch\(`\/api\/sessions\/\$\{encodeURIComponent\(sessionId\)\}\/exchanges`/);
-  assert.match(page, /result: \{ channel: "agent", agentId: selectedAgentId \}/);
+  assert.match(page, /result: \{ channel: "agent", agentId: selectedAgentId, runId: completed\.id/);
   assert.match(page, /setMessages\(\(items\) => \[\.\.\.items\.filter\(\(item\) => item\.id !== userMessage\.id && item\.id !== answerId\), \.\.\.persistedMessages\]\)/);
   assert.match(page, /setAnalysisSessions\(\(items\) => \[persistedSession, \.\.\.items\.filter\(\(item\) => item\.id !== persistedSession\.id\)\]\)/);
   assert.match(page, /metadata\?\.channel === "agent"[\s\S]*usableAgents\.some\(\(agent\) => agent\.id === savedAgentId\)[\s\S]*setChatTarget\("agent"\)/);
