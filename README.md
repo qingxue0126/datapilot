@@ -218,7 +218,8 @@ Postman 中选择 `POST`，地址填写 `http://<DataPilot主机>:3001/api/v1/qu
 
 - API Key 自动恢复创建者的用户、租户、账套和角色权限，不能访问其他租户的数据源或会话。
 - 无效、禁用或已撤销 Key 返回 `401`；角色无权问数返回 `403`；超过基础限流返回 `429`。
-- 默认限流为每个 Key 每分钟 60 次，可通过 `API_KEY_QUERY_RATE_LIMIT_PER_MINUTE` 调整。
+- 同一个 Bearer Key 也可调用 `/api/agents/:id/run`、`/api/agents/:id/run/stream` 和知识库接口；SSE 请求直接携带相同的 `Authorization` 请求头。
+- 默认统一限流为每个 Key 每分钟 60 次，可通过 `API_KEY_RATE_LIMIT_PER_MINUTE` 调整。
 - 每次已认证问数会输出不含 Key 和问题正文的结构化调用日志，包括 requestId、租户、用户、会话、状态和耗时。
 
 ## 安全与权限

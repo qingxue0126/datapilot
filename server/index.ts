@@ -5,6 +5,7 @@ import express, { type Request } from "express";
 import { DataAgent } from "./agent/data-agent.js";
 import { installQueryRoutes } from "./agent/query-routes.js";
 import { AccountStore } from "./auth/account-store.js";
+import { createApiKeyGuard } from "./auth/api-key-guard.js";
 import { installAuthRoutes } from "./auth/auth-routes.js";
 import { EnvironmentIdentityProvider } from "./auth/identity-provider.js";
 import { PermissionService } from "./auth/permission-service.js";
@@ -71,6 +72,7 @@ app.use(express.json({ limit: "2mb" }));
 installAuthRoutes(app, accounts);
 
 app.get("/api/health", (_request, response) => response.json({ ok: true, service: "datapilot-api" }));
+app.use("/api", createApiKeyGuard(identity));
 app.use("/api", (request, response, next) => {
   try { identity(request); next(); }
   catch { response.status(401).json({ error: "请先登录" }); }

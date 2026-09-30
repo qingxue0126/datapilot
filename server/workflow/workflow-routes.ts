@@ -82,6 +82,6 @@ function handle(response: Response, operation: () => unknown, status = 200) {
   try { const value = operation(); if (status === 204) return response.status(204).end(); return response.status(status).json(value); }
   catch (error) { return workflowError(response, error); }
 }
-function workflowError(response: Response, error: unknown) { const status = error instanceof WorkflowStoreError ? error.status : 400; return response.status(status).json({ error: error instanceof Error ? error.message : "工作流操作失败" }); }
+function workflowError(response: Response, error: unknown) { const status = error instanceof Error && /无权|权限/.test(error.message) ? 403 : error instanceof WorkflowStoreError ? error.status : 400; return response.status(status).json({ error: error instanceof Error ? error.message : "工作流操作失败" }); }
 function cleanInput(value: unknown) { if (value === undefined || value === null) return {}; if (!value || typeof value !== "object" || Array.isArray(value)) throw new WorkflowStoreError("运行输入必须是 JSON 对象"); return value as Record<string, unknown>; }
 function versionNumber(value: string) { const version = Number(value); if (!Number.isInteger(version) || version < 1) throw new WorkflowStoreError("无效的版本号"); return version; }

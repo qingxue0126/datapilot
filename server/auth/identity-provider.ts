@@ -23,11 +23,7 @@ export class EnvironmentIdentityProvider implements IdentityProvider {
       try { return this.remember(request, this.accounts.authenticate(token).context); }
       catch (error) { if (!bearer?.startsWith("dp_")) throw error; }
     }
-    if (bearer?.startsWith("dp_")) {
-      const requestPath = request.originalUrl.split("?", 1)[0];
-      if (!requestPath.startsWith("/api/v1/")) throw new AuthError("API Key 仅允许访问 /api/v1/*", 401);
-      return this.remember(request, this.accounts!.authenticateApiKey(bearer));
-    }
+    if (bearer?.startsWith("dp_")) return this.remember(request, this.accounts!.authenticateApiKey(bearer));
     const secret = process.env.AUTH_JWT_SECRET?.trim();
     if (!secret) return this.accounts!.authenticate(token).context;
     const claims = verifyJwt(request, secret);

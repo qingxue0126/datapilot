@@ -250,6 +250,7 @@ function legacyNumber(value: unknown) { return value === undefined ? undefined :
 
 function knowledgeError(response: { status: (code: number) => { json: (value: unknown) => unknown } }, error: unknown) {
   const multerError = error instanceof multer.MulterError;
-  const status = error instanceof MilvusUnavailableError ? 503 : error instanceof KnowledgeStoreError ? error.status : multerError ? 413 : 400;
+  const forbidden = error instanceof Error && /无权|权限/.test(error.message);
+  const status = forbidden ? 403 : error instanceof MilvusUnavailableError ? 503 : error instanceof KnowledgeStoreError ? error.status : multerError ? 413 : 400;
   response.status(status).json({ error: error instanceof Error ? error.message : "知识库操作失败" });
 }

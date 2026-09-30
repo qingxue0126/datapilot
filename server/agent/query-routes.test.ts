@@ -6,10 +6,11 @@ import { join } from "node:path";
 import test from "node:test";
 import express from "express";
 import { AccountStore, AuthError } from "../auth/account-store.js";
+import { createApiKeyGuard, type ApiKeyAuditEntry } from "../auth/api-key-guard.js";
 import { EnvironmentIdentityProvider } from "../auth/identity-provider.js";
 import { SqliteSessionStore } from "../context/session-store.js";
 import type { DatabaseConfig } from "../database.js";
-import { installQueryRoutes, type QueryAuditEntry } from "./query-routes.js";
+import { installQueryRoutes } from "./query-routes.js";
 
 const connection: DatabaseConfig = { name: "Test", engine: "mysql", host: "127.0.0.1", port: 3306, database: "test", user: "test", password: "test" };
 
@@ -24,16 +25,17 @@ test("v1 query accepts tenant-bound API keys, preserves sessions, limits calls, 
   const otherKey = accounts.createApiKey(other.token, "Other Tenant");
   const blockedKey = accounts.createApiKey(blocked.token, "Blocked Agent");
   const identities = new EnvironmentIdentityProvider(accounts);
-  const audits: QueryAuditEntry[] = [];
+  const audits: ApiKeyAuditEntry[] = [];
   const observed: { tenantId: string; userId: string; sessionId: string }[] = [];
   const app = express();
   app.use(express.json());
+  app.use("/api", createApiKeyGuard((request) => identities.resolve(request), { limit: 2, log: (entry) => audits.push(entry) }));
   app.use("/api", (request, response, next) => {
     try { identities.resolve(request); next(); }
     catch (error) { response.status(error instanceof AuthError ? error.status : 401).json({ error: "unauthorized" }); }
   });
   installQueryRoutes(app, {
-    identity: (request) => identities.resolve(request), sessions, rateLimit: 2, log: (entry) => audits.push(entry),
+    identity: (request) => identities.resolve(request), sessions,
     permissions: { require: (context) => { if (context.userId === blocked.user.id) throw new Error("无权执行 agent:query"); } },
     connection: (id, context) => {
       if (id !== `source-${context.tenantId}`) throw new Error("数据源不存在或无权访问");
@@ -66,14 +68,14 @@ test("v1 query accepts tenant-bound API keys, preserves sessions, limits calls, 
     assert.equal((await invoke("dp_invalid_invalid_invalid_invalid_invalid_invalid", { question: "test", datasource_id: "source-x" })).status, 401);
     assert.equal((await invoke(otherKey.key, { question: "跨租户", datasource_id: `source-${owner.user.tenantId}` })).status, 403);
     assert.equal((await invoke(blockedKey.key, { question: "无权限", datasource_id: `source-${blocked.user.tenantId}` })).status, 403);
-    assert.equal((await fetch(`${base}/api/query`, { method: "POST", headers: { Authorization: `Bearer ${otherKey.key}`, "Content-Type": "application/json" }, body: "{}" })).status, 401);
+    assert.equal((await fetch(`${base}/api/query`, { method: "POST", headers: { Authorization: `Bearer ${otherKey.key}`, "Content-Type": "application/json" }, body: "{}" })).status, 400);
 
     accounts.setApiKeyEnabled(owner.token, ownerKey.apiKey.id, false);
     assert.equal((await invoke(ownerKey.key, { question: "disabled", datasource_id: `source-${owner.user.tenantId}` })).status, 401);
     accounts.setApiKeyEnabled(owner.token, ownerKey.apiKey.id, true);
     accounts.revokeApiKey(owner.token, ownerKey.apiKey.id);
     assert.equal((await invoke(ownerKey.key, { question: "revoked", datasource_id: `source-${owner.user.tenantId}` })).status, 401);
-    assert.ok(audits.some((item) => item.credential === "api-key" && item.status === 200 && item.tenantId === owner.user.tenantId));
+    assert.ok(audits.some((item) => item.status === 200 && item.tenantId === owner.user.tenantId));
     assert.ok(audits.some((item) => item.status === 429));
   } finally {
     server.close(); await once(server, "close"); sessions.close(); rmSync(directory, { recursive: true, force: true });

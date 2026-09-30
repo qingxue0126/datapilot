@@ -14,7 +14,7 @@ import { installKnowledgeRoutes } from "./knowledge-routes.js";
 import { KnowledgeStore } from "./knowledge-store.js";
 import { LocalVectorStore, MilvusVectorStore } from "./vector-store.js";
 
-test("v1 retrieval accepts tenant-bound API keys and rejects disabled, revoked, cross-tenant, and non-v1 use", async () => {
+test("knowledge retrieval accepts tenant-bound API keys and rejects disabled, revoked, and cross-tenant use", async () => {
   const directory = mkdtempSync(join(tmpdir(), "datapilot-api-key-retrieve-"));
   const accounts = new AccountStore(join(directory, "accounts.json"));
   const identities = new EnvironmentIdentityProvider(accounts);
@@ -44,11 +44,11 @@ test("v1 retrieval accepts tenant-bound API keys and rejects disabled, revoked, 
     assert.equal(sessionRetrieve.status, 200);
     assert.equal((await retrieve(createdKey.key)).status, 200);
     assert.equal((await retrieve("dp_invalid_invalid_invalid_invalid_invalid_invalid")).status, 401);
-    assert.equal((await fetch(`${base}/api/knowledge-bases`, { headers: { Authorization: `Bearer ${createdKey.key}` } })).status, 401);
+    assert.equal((await fetch(`${base}/api/knowledge-bases`, { headers: { Authorization: `Bearer ${createdKey.key}` } })).status, 200);
 
     const otherCookie = await register("other-tenant");
     const otherKey = await fetch(`${base}/api/auth/api-keys`, { method: "POST", headers: { Cookie: otherCookie, "Content-Type": "application/json" }, body: JSON.stringify({ name: "Other Agent" }) }).then((response) => response.json()) as { key: string };
-    assert.equal((await retrieve(otherKey.key)).status, 404);
+    assert.equal((await retrieve(otherKey.key)).status, 403);
 
     await fetch(`${base}/api/auth/api-keys/${createdKey.apiKey.id}`, { method: "PATCH", headers: { Cookie: ownerCookie, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) });
     assert.equal((await retrieve(createdKey.key)).status, 401);
@@ -135,7 +135,7 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     const invalidValue = await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "凭证", filters: { 产品: ["好会计"] } });
     assert.equal(invalidValue.status, 400);
     assert.match((await invalidValue.json() as { error: string }).error, /仅支持字符串、有限数字或布尔值/);
-    assert.equal((await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "凭证" }, { "x-test-user": "bob" })).status, 404);
+    assert.equal((await v1Retrieve({ knowledge_base_id: created.knowledgeBase.id, query: "凭证" }, { "x-test-user": "bob" })).status, 403);
 
     const chunkId = chunks.items[0].id;
     const disabled = await fetch(`${base}/api/chunks/${chunkId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) });
@@ -147,10 +147,10 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     assert.match((await edited.json() as { chunk: { content: string } }).chunk.content, /反记账/);
 
     for (const headers of [{ "x-test-user": "bob" }, { "x-test-tenant": "tenant-b" }, { "x-test-books": "books-b" }] as Record<string, string>[]) {
-      assert.equal((await fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}`, { headers })).status, 404);
-      assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/chunks`, { headers })).status, 404);
-      assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/preview`, { headers })).status, 404);
-      assert.equal((await fetch(`${base}/api/chunks/${chunkId}`, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) })).status, 404);
+      assert.equal((await fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}`, { headers })).status, 403);
+      assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/chunks`, { headers })).status, 403);
+      assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/preview`, { headers })).status, 403);
+      assert.equal((await fetch(`${base}/api/chunks/${chunkId}`, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) })).status, 403);
     }
 
     const reparsed = await fetch(`${base}/api/documents/${uploadedBody.document.id}/reparse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parserType: "table", metadataFields: ["产品"] }) });
