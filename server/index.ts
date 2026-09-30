@@ -3,13 +3,14 @@ import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express, { type Request } from "express";
 import { DataAgent } from "./agent/data-agent.js";
+import { installQueryRoutes } from "./agent/query-routes.js";
 import { AccountStore } from "./auth/account-store.js";
 import { installAuthRoutes } from "./auth/auth-routes.js";
 import { EnvironmentIdentityProvider } from "./auth/identity-provider.js";
 import { PermissionService } from "./auth/permission-service.js";
 import { loadConnections, saveConnections, type StoredConnection } from "./connection-store.js";
 import { installSessionRoutes } from "./context/session-routes.js";
-import { SessionStoreError, SqliteSessionStore } from "./context/session-store.js";
+import { SqliteSessionStore } from "./context/session-store.js";
 import type { RequestContext } from "./core/types.js";
 import { executeSql, getSchema, prepareSql, testDatabase, validateConfig } from "./database.js";
 import { ErpQueryService } from "./domain/erp/erp-query-service.js";
@@ -26,7 +27,6 @@ import { ManagedEmbeddingProvider } from "./knowledge/embedding.js";
 import { createVectorStore } from "./knowledge/vector-store.js";
 import { KnowledgeRetrievalService } from "./knowledge/retrieval-service.js";
 import { assertAgentSql } from "./security/sql-policy.js";
-import { closeSse, openSse, sseAbortSignal, writeSse } from "./http/sse.js";
 import { DatabaseQueryTool } from "./tools/database-query-tool.js";
 import { MetricSearchTool } from "./tools/metric-search-tool.js";
 import { SchemaSearchTool } from "./tools/schema-search-tool.js";
@@ -86,6 +86,7 @@ installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getCo
 installKnowledgeRoutes(app, knowledge, vectors, embeddings, identity, model, knowledgeRetrieval);
 installModelRoutes(app, model, permissions, identity);
 installWorkflowRoutes(app, workflows, workflowEngine, identity);
+installQueryRoutes(app, { identity, permissions, sessions, agent, connection: (id, context) => getConnectionItem(id, context).config });
 
 app.get("/api/connections", (request, response) => {
   try {
@@ -232,52 +233,6 @@ app.post("/api/database/query", async (request, response) => {
       : requestedSql;
     response.json(await executeSql(item.config, sql, request.body?.confirm === true));
   } catch (error) { response.status(400).json({ error: errorMessage(error) }); }
-});
-
-/** Business questions: database access is available to the model only through registered read-only tools. */
-app.post("/api/query", async (request, response) => {
-  try {
-    const context = identity(request);
-    const question = String(request.body?.question || "").trim().slice(0, 500);
-    if (!question) return response.status(400).json({ error: "请输入问题" });
-    const sessionId = String(request.body?.sessionId || "").trim();
-    if (!sessionId) return response.status(400).json({ error: "请先创建或选择一个分析" });
-    sessions.get(context, sessionId);
-    const datasourceId = String(request.body?.connectionId || "");
-    const item = getConnectionItem(datasourceId, context);
-    const preferredModelId = String(request.body?.model || "").trim() || undefined;
-    return response.json(await agent.run({ question, context, sessionId, datasourceId, connection: item.config, preferredModelId }));
-  } catch (error) { return response.status(error instanceof SessionStoreError ? error.status : 400).json({ error: errorMessage(error) }); }
-});
-
-app.post("/api/query/stream", async (request, response) => {
-  let streamRunId = "";
-  try {
-    const context = identity(request);
-    const question = String(request.body?.question || "").trim().slice(0, 500);
-    if (!question) return response.status(400).json({ error: "请输入问题" });
-    const sessionId = String(request.body?.sessionId || "").trim();
-    if (!sessionId) return response.status(400).json({ error: "请先创建或选择一个分析" });
-    sessions.get(context, sessionId);
-    const datasourceId = String(request.body?.connectionId || "");
-    const item = getConnectionItem(datasourceId, context);
-    const preferredModelId = String(request.body?.model || "").trim() || undefined;
-    const runId = randomUUID();
-    streamRunId = runId;
-    openSse(response);
-    const signal = sseAbortSignal(response);
-    writeSse(response, "start", { runId });
-    const result = await agent.run({ question, context, sessionId, datasourceId, connection: item.config, preferredModelId, runId, signal,
-      onToken: (delta) => writeSse(response, "delta", { runId, delta }) });
-    if (!signal.aborted) writeSse(response, "done", { runId, result });
-    closeSse(response);
-  } catch (error) {
-    if (response.headersSent) {
-      writeSse(response, "error", { runId: streamRunId || undefined, message: errorMessage(error) });
-      return closeSse(response);
-    }
-    return response.status(error instanceof SessionStoreError ? error.status : 400).json({ error: errorMessage(error) });
-  }
 });
 
 app.listen(port, "0.0.0.0", () => console.log(`DataPilot API: http://0.0.0.0:${port}`));

@@ -187,6 +187,40 @@ Web 固定监听 `0.0.0.0:3000`，API 固定监听 `0.0.0.0:3001`。同一局域
 列出金额最高的 10 笔凭证。
 ```
 
+## 第三方 API Key 调用
+
+在“个人中心 → API Key”创建 Key。完整的 `dp_...` 只在创建时显示一次，服务端仅保存 SHA-256 hash。第三方无需登录网页即可调用开放接口：
+
+```bash
+curl -X POST "http://localhost:3001/api/v1/query" \
+  -H "Authorization: Bearer dp_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "本月营业收入是多少？",
+    "datasource_id": "数据源ID"
+  }'
+```
+
+首次请求可以不传 `session_id`，响应会返回服务端创建的 `sessionId`。继续多轮问答时将它传回：
+
+```bash
+curl -X POST "http://localhost:3001/api/v1/query" \
+  -H "Authorization: Bearer dp_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "和上个月相比呢？",
+    "datasource_id": "数据源ID",
+    "session_id": "上一次响应中的 sessionId"
+  }'
+```
+
+Postman 中选择 `POST`，地址填写 `http://<DataPilot主机>:3001/api/v1/query`；在 Authorization 页签选择 Bearer Token 并粘贴 `dp_...`，Body 使用 raw JSON。字段同时兼容网页格式 `connectionId/sessionId/model` 与第三方常用格式 `datasource_id/session_id/model_id`。
+
+- API Key 自动恢复创建者的用户、租户、账套和角色权限，不能访问其他租户的数据源或会话。
+- 无效、禁用或已撤销 Key 返回 `401`；角色无权问数返回 `403`；超过基础限流返回 `429`。
+- 默认限流为每个 Key 每分钟 60 次，可通过 `API_KEY_QUERY_RATE_LIMIT_PER_MINUTE` 调整。
+- 每次已认证问数会输出不含 Key 和问题正文的结构化调用日志，包括 requestId、租户、用户、会话、状态和耗时。
+
 ## 安全与权限
 
 | 层级 | 当前实现 |
