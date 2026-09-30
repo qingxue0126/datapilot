@@ -7,8 +7,9 @@ import { ConfirmDialog } from "../components/datapilot/confirm-dialog";
 import { DatasourceDetail } from "../components/datapilot/datasource-detail";
 import { erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
 import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
-import { AgentWorkflowIcon, ChatBubbleIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon, SmartQaIcon } from "../components/datapilot/icons";
+import { AgentWorkflowIcon, ApiPlugIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon, SettingsGearIcon, SmartQaIcon } from "../components/datapilot/icons";
 import { AgentStudio } from "../components/datapilot/agent-studio";
+import { ApiManagement } from "../components/datapilot/api-management";
 import { KnowledgeBaseView } from "../components/datapilot/knowledge-base";
 import { ModelManagement, type ModelOption } from "../components/datapilot/model-management";
 import { RecentAnalyses } from "../components/datapilot/recent-analyses";
@@ -17,7 +18,7 @@ import { apiUrl } from "../components/datapilot/api-base";
 import { streamApi } from "../components/datapilot/sse-client";
 import { generateUUID } from "../components/datapilot/generate-uuid";
 
-type View = "chat" | "agents" | "sources" | "source-detail" | "database" | "knowledge" | "models";
+type View = "chat" | "agents" | "sources" | "source-detail" | "database" | "knowledge" | "models" | "api";
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
 type SqlResult = { sql: string; columns: { key: string; label: string }[]; rows: Record<string, unknown>[]; rowCount: number; executionMs: number; requiresConfirmation?: boolean; operation?: string; affectedRows?: number };
 type PendingSql = { sql: string; operation: string; origin: "natural" | "console" };
@@ -87,6 +88,8 @@ export default function Home() {
   const [interactionNotice, setInteractionNotice] = useState("");
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
+  const [showSelectedModel, setShowSelectedModel] = useState(false);
+  const [showSelectedSource, setShowSelectedSource] = useState(false);
   const [usableAgents, setUsableAgents] = useState<UsableAgent[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [chatTarget, setChatTarget] = useState<"database" | "agent">("database");
@@ -108,7 +111,7 @@ export default function Home() {
     try {
       const response = await apiFetchWithRetry("/api/auth/me");
       if (!response.ok) return;
-      const data = await response.json(); setCurrentUser(data.user); await restoreModels(); await Promise.all([restoreUsableAgents(), restoreChatKnowledgeBases()]); const restored = await restoreConnections(); await restoreAnalyses(restored);
+      const data = await response.json(); setCurrentUser(data.user); await restoreModels(); await Promise.all([restoreUsableAgents(), restoreChatKnowledgeBases()]); await restoreConnections(); await restoreAnalyses();
     } catch (caught) {
       setCurrentUser(null);
       setAuthError(caught instanceof TypeError ? "无法连接 DataPilot API，请确认服务已启动后刷新页面。" : message(caught, "会话恢复失败，请稍后重试。"));
@@ -123,7 +126,7 @@ export default function Home() {
       if (authMode === "register" && body.password !== body.confirmPassword) throw new Error("两次输入的密码不一致");
       const response = await apiFetch(`/api/auth/${authMode}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || "认证失败");
-      setCurrentUser(data.user); await restoreModels(); await Promise.all([restoreUsableAgents(), restoreChatKnowledgeBases()]); const restored = await restoreConnections(); await restoreAnalyses(restored);
+      setCurrentUser(data.user); await restoreModels(); await Promise.all([restoreUsableAgents(), restoreChatKnowledgeBases()]); await restoreConnections(); await restoreAnalyses();
     } catch (caught) { setAuthError(message(caught, "认证失败")); }
     finally { setAuthSubmitting(false); }
   }
@@ -143,17 +146,17 @@ export default function Home() {
     const teamChanged = currentUser?.tenantId !== user.tenantId;
     setCurrentUser(user);
     if (!teamChanged) return;
-    setSources([]); setActiveSourceId(""); setResult(null); setMapping(null); setAnalysisSessions([]); setActiveSessionId(""); setMessages([]); setView("chat");
+    setSources([]); setActiveSourceId(""); setShowSelectedSource(false); setShowSelectedModel(false); setResult(null); setMapping(null); setAnalysisSessions([]); setActiveSessionId(""); setMessages([]); setView("chat");
     await restoreModels();
     await restoreUsableAgents();
     await restoreChatKnowledgeBases();
-    const restored = await restoreConnections();
-    await restoreAnalyses(restored);
+    await restoreConnections();
+    await restoreAnalyses();
   }
 
   function resetAuthenticatedState() {
     chatStreamRef.current?.abort();
-    setCurrentUser(null); setSources([]); setActiveSourceId(""); setResult(null); setMapping(null); setQuestion(""); setAnalysisSessions([]); setActiveSessionId(""); setMessages([]); setModels([]); setSelectedModel(""); setUsableAgents([]); setSelectedAgentId(""); setChatTarget("database"); setChatKnowledgeBases([]); setSelectedKnowledgeBaseId(""); setAuthMode("login"); setAuthError("");
+    setCurrentUser(null); setSources([]); setActiveSourceId(""); setShowSelectedSource(false); setShowSelectedModel(false); setResult(null); setMapping(null); setQuestion(""); setAnalysisSessions([]); setActiveSessionId(""); setMessages([]); setModels([]); setSelectedModel(""); setUsableAgents([]); setSelectedAgentId(""); setChatTarget("database"); setChatKnowledgeBases([]); setSelectedKnowledgeBaseId(""); setAuthMode("login"); setAuthError("");
   }
 
   async function restoreModels() {
@@ -169,7 +172,7 @@ export default function Home() {
 
   function selectModel(id: string) {
     if (id && !models.some((model) => model.id === id && model.enabled && model.modelType === "llm")) return;
-    setSelectedModel(id); window.localStorage.setItem("datapilot-model", id);
+    setSelectedModel(id); setShowSelectedModel(Boolean(id)); window.localStorage.setItem("datapilot-model", id);
   }
 
   async function restoreUsableAgents() {
@@ -200,19 +203,18 @@ export default function Home() {
     } catch (restoreError) { setConnectionNotice(message(restoreError, "无法恢复数据源")); return [] as DataSource[]; }
   }
 
-  async function restoreAnalyses(availableSources: DataSource[]) {
+  async function restoreAnalyses() {
     try {
       const response = await apiFetch("/api/sessions");
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "无法恢复最近分析");
       const items = (data.items || []) as AnalysisSession[];
       setAnalysisSessions(items);
-      if (items[0]) await openAnalysis(items[0], availableSources);
-      else { setActiveSessionId(""); setMessages([]); setResult(null); setView("chat"); }
+      setActiveSessionId(""); setMessages([]); setQuestion(""); setResult(null); setError(""); setView("chat");
     } catch (caught) { setError(message(caught, "无法恢复最近分析")); }
   }
 
-  async function createAnalysis() {
+  async function createAnalysis(resetConversation = true) {
     const response = await apiFetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -222,7 +224,9 @@ export default function Home() {
     if (!response.ok) throw new Error(data.error || "无法新建分析");
     const session = data.session as AnalysisSession;
     setAnalysisSessions((items) => [session, ...items.filter((item) => item.id !== session.id)]);
-    setActiveSessionId(session.id); setMessages([]); setQuestion(""); setResult(null); setError(""); setView("chat");
+    setActiveSessionId(session.id);
+    if (resetConversation) { setMessages([]); setQuestion(""); }
+    setResult(null); setError(""); setView("chat");
     return session;
   }
 
@@ -234,7 +238,7 @@ export default function Home() {
       const detail = data as AnalysisSessionDetail;
       setActiveSessionId(detail.session.id); setMessages(detail.messages); setQuestion(""); setResult(null); setError(""); setView("chat");
       if (detail.session.datasourceId && availableSources.some((source) => source.connectionId === detail.session.datasourceId)) {
-        setActiveSourceId(detail.session.datasourceId);
+        setActiveSourceId(detail.session.datasourceId); setShowSelectedSource(true);
       }
     } catch (caught) { setError(message(caught, "无法打开分析")); }
   }
@@ -279,7 +283,7 @@ export default function Home() {
 
   async function ensureAnalysisSession() {
     if (activeSessionId) return activeSessionId;
-    return (await createAnalysis()).id;
+    return (await createAnalysis(false)).id;
   }
 
   function startAnalysis() {
@@ -297,7 +301,6 @@ export default function Home() {
   }
 
   const activeSource = sources.find((source) => source.id === activeSourceId);
-  const activeSession = analysisSessions.find((session) => session.id === activeSessionId);
   const chatHasConversation = view === "chat" && messages.length > 0;
   async function ask(text?: string) {
     const query = (text ?? question).trim();
@@ -504,7 +507,7 @@ export default function Home() {
   }
 
   function selectQuerySource(source: DataSource) {
-    setActiveSourceId(source.id); setResult(null); setError("");
+    setActiveSourceId(source.id); setShowSelectedSource(true); setResult(null); setError("");
     if (activeSessionId) void apiFetch(`/api/sessions/${encodeURIComponent(activeSessionId)}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ datasourceId: source.connectionId }),
     }).then(async (response) => {
@@ -527,6 +530,7 @@ export default function Home() {
         <button className={`nav-item ${view === "sources" || view === "source-detail" ? "active" : ""}`} onClick={() => setView("sources")}><span className="nav-icon"><ServerStackIcon /></span>数据源</button>
         <button className={`nav-item ${view === "knowledge" ? "active" : ""}`} onClick={() => setView("knowledge")}><span className="nav-icon"><KnowledgeDatabaseIcon /></span>知识库</button>
         <button className={`nav-item ${view === "models" ? "active" : ""}`} onClick={() => setView("models")}><span className="nav-icon"><ModelCubeIcon /></span>模型管理</button>
+        <button className={`nav-item ${view === "api" ? "active" : ""}`} onClick={() => setView("api")}><span className="nav-icon"><ApiPlugIcon /></span>API</button>
       </nav>
       <div className="sidebar-sessions">
         <RecentAnalyses sessions={analysisSessions} activeSessionId={activeSessionId} onOpen={(session) => void openAnalysis(session)} onPin={pinAnalysis} onRename={renameAnalysis} onDelete={async (session) => setPendingSessionDelete(session)} />
@@ -537,7 +541,7 @@ export default function Home() {
     </aside>
 
     <section className={`workspace ${chatHasConversation ? "chat-conversation-active" : ""}`}>
-      {view === "chat" && <ChatView session={activeSession} messages={messages} createAnalysis={startAnalysis} sources={sources} activeSource={activeSource} activeSourceId={activeSourceId} selectSource={selectQuerySource} models={models} selectedModel={selectedModel} selectModel={selectModel} knowledgeBases={chatKnowledgeBases} selectedKnowledgeBaseId={selectedKnowledgeBaseId} selectKnowledgeBase={setSelectedKnowledgeBaseId} usableAgents={usableAgents} selectedAgentId={selectedAgentId} selectAgent={(id) => { setSelectedAgentId(id); setChatTarget(id ? "agent" : "database"); }} chatTarget={chatTarget} question={question} setQuestion={setQuestion} ask={ask} stopStreaming={stopStreaming} loading={loading} error={error} result={result} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}
+      {view === "chat" && <ChatView messages={messages} sources={sources} activeSource={activeSource} activeSourceId={activeSourceId} showSelectedSource={showSelectedSource} selectSource={selectQuerySource} models={models} selectedModel={selectedModel} showSelectedModel={showSelectedModel} selectModel={selectModel} knowledgeBases={chatKnowledgeBases} selectedKnowledgeBaseId={selectedKnowledgeBaseId} selectKnowledgeBase={setSelectedKnowledgeBaseId} usableAgents={usableAgents} selectedAgentId={selectedAgentId} selectAgent={(id) => { setSelectedAgentId(id); setChatTarget(id ? "agent" : "database"); }} chatTarget={chatTarget} question={question} setQuestion={setQuestion} ask={ask} stopStreaming={stopStreaming} loading={loading} error={error} result={result} addSource={() => { setShowAddSource(true); setView("sources"); }} inspect={(tab, entity) => activeSource && void openSourceDetail(activeSource, tab, entity)} />}
       {view === "agents" && <AgentStudio models={models} canManageTenant={currentUser?.canManageTenant} />}
       {view === "sources" && <SourcesView sources={sources} activeSourceId={activeSourceId} testingSource={testingSource} notice={connectionNotice} add={() => { setConnectionNotice(""); setShowAddSource(true); }} open={(source) => void openSourceDetail(source)} test={testConnection} workbench={openDatabase} remove={removeSource} />}
       {view === "source-detail" && activeSource && <DatasourceDetail source={activeSource} mapping={mapping} loading={mappingLoading} error={mappingError} tab={detailTab} focusedEntity={focusedEntity} onTab={setDetailTab} onBack={() => setView("sources")} onOpenWorkbench={() => openDatabase(activeSource)} onRefresh={() => void openSourceDetail(activeSource, detailTab, focusedEntity)} onSaveDraft={saveMappingDraft} onValidate={validateMappingDraft} onPublish={publishMapping} onLoadVersions={loadMappingVersions} onLoadVersion={loadMappingVersion} onRollback={rollbackMapping} />}
@@ -545,6 +549,7 @@ export default function Home() {
       {view === "database" && loading && <button type="button" className="database-stream-stop" onClick={stopStreaming}>停止生成</button>}
       {view === "knowledge" && <KnowledgeBaseView />}
       {view === "models" && <ModelManagement models={models} selectedModel={selectedModel} onSelect={selectModel} onRefresh={restoreModels} />}
+      {view === "api" && <ApiManagement />}
     </section>
     {showAddSource && <ConnectionModal sshEnabled={sshEnabled} setSshEnabled={setSshEnabled} connecting={connecting} notice={connectionNotice} close={() => setShowAddSource(false)} submit={addConnection} />}
     {pendingSessionDelete && <ConfirmDialog title="删除分析" message={`确认删除分析“${pendingSessionDelete.title}”及其全部对话？`} close={() => setPendingSessionDelete(null)} confirm={async () => { const session = pendingSessionDelete; setPendingSessionDelete(null); await deleteAnalysis(session); }} />}
@@ -552,15 +557,14 @@ export default function Home() {
   </main>;
 }
 
-function ChatView({ session, messages, createAnalysis, sources, activeSource, activeSourceId, selectSource, models, selectedModel, selectModel, knowledgeBases, selectedKnowledgeBaseId, selectKnowledgeBase, usableAgents, selectedAgentId, selectAgent, chatTarget, question, setQuestion, ask, stopStreaming, loading, error, result, addSource, inspect }: { session?: AnalysisSession; messages: AnalysisMessage[]; createAnalysis: () => void; sources: DataSource[]; activeSource?: DataSource; activeSourceId: string; selectSource: (source: DataSource) => void; models: ModelOption[]; selectedModel: string; selectModel: (id: string) => void; knowledgeBases: ChatKnowledgeBase[]; selectedKnowledgeBaseId: string; selectKnowledgeBase: (id: string) => void; usableAgents: UsableAgent[]; selectedAgentId: string; selectAgent: (id: string) => void; chatTarget: "database" | "agent"; question: string; setQuestion: (v: string) => void; ask: (v?: string) => Promise<void>; stopStreaming: () => void; loading: boolean; error: string; result: QueryResult | null; addSource: () => void; inspect: (tab: DetailTab, entity?: string) => void }) {
+function ChatView({ messages, sources, activeSource, activeSourceId, showSelectedSource, selectSource, models, selectedModel, showSelectedModel, selectModel, knowledgeBases, selectedKnowledgeBaseId, selectKnowledgeBase, usableAgents, selectedAgentId, selectAgent, chatTarget, question, setQuestion, ask, stopStreaming, loading, error, result, addSource, inspect }: { messages: AnalysisMessage[]; sources: DataSource[]; activeSource?: DataSource; activeSourceId: string; showSelectedSource: boolean; selectSource: (source: DataSource) => void; models: ModelOption[]; selectedModel: string; showSelectedModel: boolean; selectModel: (id: string) => void; knowledgeBases: ChatKnowledgeBase[]; selectedKnowledgeBaseId: string; selectKnowledgeBase: (id: string) => void; usableAgents: UsableAgent[]; selectedAgentId: string; selectAgent: (id: string) => void; chatTarget: "database" | "agent"; question: string; setQuestion: (v: string) => void; ask: (v?: string) => Promise<void>; stopStreaming: () => void; loading: boolean; error: string; result: QueryResult | null; addSource: () => void; inspect: (tab: DetailTab, entity?: string) => void }) {
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const queryAvailable = chatTarget === "agent" ? Boolean(selectedAgentId) : activeSource?.status === "connected";
   const hasConversation = messages.length > 0;
   const composer = <form className="query-box" onSubmit={(event) => { event.preventDefault(); void ask(); }}>
     <textarea aria-label="输入数据问题" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void ask(); } }} placeholder={queryAvailable ? "例如：本月营业收入是多少？" : activeSource ? "当前数据源未连接" : "请先添加一个数据源"} rows={2} disabled={!queryAvailable} />
-    <div className="query-footer"><div className="query-options chat-configuration"><button type="button" className="chat-config-trigger" onClick={() => setConfigurationOpen((open) => !open)}>⚙ 配置</button><div className="chat-config-summary">{selectedAgentId ? <span>智能体 · {usableAgents.find((item) => item.id === selectedAgentId)?.name}</span> : <><span>模型 · {models.find((item) => item.id === selectedModel)?.name || "自动选择"}</span><span>数据源 · {activeSource?.name || "未选择"}</span>{selectedKnowledgeBaseId && <span>知识库 · {knowledgeBases.find((item) => item.id === selectedKnowledgeBaseId)?.name}</span>}</>}</div>{configurationOpen && <div className="chat-config-menu"><header><strong>对话配置</strong><button type="button" onClick={() => setConfigurationOpen(false)}>×</button></header><label className={selectedAgentId ? "disabled" : ""}>模型<select disabled={Boolean(selectedAgentId)} value={selectedModel} onChange={(event) => selectModel(event.target.value)}><option value="">自动选择</option>{models.filter((item) => item.enabled && item.modelType === "llm").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className={selectedAgentId ? "disabled" : ""}>数据源<select disabled={Boolean(selectedAgentId)} value={activeSourceId} onChange={(event) => { const source = sources.find((item) => item.id === event.target.value); if (source) selectSource(source); }}><option value="">请选择数据源</option>{sources.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className={selectedAgentId ? "disabled" : ""}>知识库<select disabled={Boolean(selectedAgentId)} value={selectedKnowledgeBaseId} onChange={(event) => selectKnowledgeBase(event.target.value)}><option value="">暂不使用知识库</option>{knowledgeBases.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>智能体<select value={selectedAgentId} onChange={(event) => selectAgent(event.target.value)}><option value="">暂不使用智能体</option>{usableAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><small>{selectedAgentId ? "已启用智能体模式，其余配置暂不可选" : "仅显示已发布且您拥有使用或编辑权限的智能体"}</small></label></div>}</div><button className="send-button" type={loading ? "button" : "submit"} onClick={loading ? stopStreaming : undefined} disabled={!loading && (!question.trim() || !queryAvailable)}>{loading ? "停止生成" : "发送 ↗"}</button></div>
+    <div className="query-footer"><div className="query-options chat-configuration"><button type="button" className="chat-config-trigger" onClick={() => setConfigurationOpen((open) => !open)}><SettingsGearIcon /><span>配置</span></button><div className="chat-config-summary">{selectedAgentId ? <span>智能体 · {usableAgents.find((item) => item.id === selectedAgentId)?.name}</span> : <>{showSelectedModel && selectedModel && <span>模型 · {models.find((item) => item.id === selectedModel)?.name}</span>}{showSelectedSource && activeSource && <span>数据源 · {activeSource.name}</span>}{selectedKnowledgeBaseId && <span>知识库 · {knowledgeBases.find((item) => item.id === selectedKnowledgeBaseId)?.name}</span>}</>}</div>{configurationOpen && <div className="chat-config-menu"><header><strong>对话配置</strong><button type="button" onClick={() => setConfigurationOpen(false)}>×</button></header><label className={selectedAgentId ? "disabled" : ""}>模型<select disabled={Boolean(selectedAgentId)} value={showSelectedModel ? selectedModel : ""} onChange={(event) => selectModel(event.target.value)}><option value="">自动选择</option>{models.filter((item) => item.enabled && item.modelType === "llm").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className={selectedAgentId ? "disabled" : ""}>数据源<select disabled={Boolean(selectedAgentId)} value={showSelectedSource ? activeSourceId : ""} onChange={(event) => { const source = sources.find((item) => item.id === event.target.value); if (source) selectSource(source); }}><option value="">请选择数据源</option>{sources.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className={selectedAgentId ? "disabled" : ""}>知识库<select disabled={Boolean(selectedAgentId)} value={selectedKnowledgeBaseId} onChange={(event) => selectKnowledgeBase(event.target.value)}><option value="">暂不使用知识库</option>{knowledgeBases.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label>智能体<select value={selectedAgentId} onChange={(event) => selectAgent(event.target.value)}><option value="">暂不使用智能体</option>{usableAgents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select><small>{selectedAgentId ? "已启用智能体模式，其余配置暂不可选" : "仅显示已发布且您拥有使用或编辑权限的智能体"}</small></label></div>}</div><button className="send-button" type={loading ? "button" : "submit"} onClick={loading ? stopStreaming : undefined} disabled={!loading && (!question.trim() || !queryAvailable)}>{loading ? "停止生成" : "发送 ↗"}</button></div>
   </form>;
-  if (!session && !result) return <div className="content"><div className="empty-analysis"><span><ChatBubbleIcon /></span><h2>开始智能问答</h2><p>每次问答拥有独立的多轮上下文，刷新或重新登录后仍可继续。</p><button onClick={createAnalysis}>＋ 智能问答</button></div></div>;
   return <div className={`content analysis-workspace ${hasConversation ? "has-conversation" : "new-conversation"}`}>
     {!hasConversation && <section className="hero-copy"><div className="eyebrow">ERP FINANCE DATA AGENT</div><h2>今天想了解什么？</h2><p>当前分析中的连续追问会共享上下文，不会与其他分析串联。</p></section>}
     {!hasConversation && composer}

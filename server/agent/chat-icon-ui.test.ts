@@ -5,9 +5,9 @@ import test from "node:test";
 const page = readFileSync(new URL("../../app/page.tsx", import.meta.url), "utf8");
 const icon = readFileSync(new URL("../../components/datapilot/icons.tsx", import.meta.url), "utf8");
 
-test("analysis workspace uses the shared chat bubble icon", () => {
-  assert.match(page, /ChatBubbleIcon/);
-  assert.match(page, /empty-analysis[\s\S]*ChatBubbleIcon/);
+test("fresh analysis workspace renders the smart Q&A landing without a legacy empty placeholder", () => {
+  assert.match(page, /<h2>今天想了解什么？<\/h2>/);
+  assert.doesNotMatch(page, /empty-analysis[\s\S]*ChatBubbleIcon/);
 });
 
 test("legacy data question primary navigation is removed", () => {

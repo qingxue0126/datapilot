@@ -8,7 +8,8 @@ const styles = readFileSync(new URL("../../app/globals.css", import.meta.url), "
 
 test("new analysis creates a persistent server session", () => {
   assert.match(page, /apiFetch\("\/api\/sessions"[\s\S]*method: "POST"/);
-  assert.match(page, /＋ 智能问答/);
+  assert.match(page, /<span>智能问答<\/span>/);
+  assert.match(page, /<h2>今天想了解什么？<\/h2>/);
   assert.doesNotMatch(page, /＋ 新建分析|＋ 新建对话/);
 });
 
@@ -21,6 +22,14 @@ test("recent analyses can be opened, pinned, renamed, and deleted", () => {
   assert.match(recent, /分析标题/);
   assert.match(recent, />重命名</);
   assert.match(recent, />删除</);
+});
+
+test("refresh and login open a fresh smart Q&A landing without restoring the latest conversation", () => {
+  assert.match(page, /async function restoreAnalyses\(\)[\s\S]*setAnalysisSessions\(items\);[\s\S]*setActiveSessionId\(""\); setMessages\(\[\]\); setQuestion\(""\); setResult\(null\); setError\(""\); setView\("chat"\)/);
+  assert.doesNotMatch(page, /if \(items\[0\]\) await openAnalysis\(items\[0\]/);
+  assert.doesNotMatch(page, /if \(!session && !result\) return/);
+  assert.match(page, /async function ensureAnalysisSession\(\)[\s\S]*if \(activeSessionId\) return activeSessionId;[\s\S]*createAnalysis\(false\)/);
+  assert.match(page, /if \(resetConversation\) \{ setMessages\(\[\]\); setQuestion\(""\); \}/);
 });
 
 test("empty new sessions stay out of the recent list until the first exchange is saved", () => {
@@ -57,9 +66,19 @@ test("user messages render without an avatar", () => {
 });
 
 test("chat exposes model selection and model management navigation", () => {
-  assert.match(page, />模型<select disabled=\{Boolean\(selectedAgentId\)\} value=\{selectedModel\}/);
+  assert.match(page, />模型<select disabled=\{Boolean\(selectedAgentId\)\} value=\{showSelectedModel \? selectedModel : ""\}/);
   assert.match(page, />模型管理<\/button>/);
   assert.match(page, /<ModelManagement models=\{models\}/);
+});
+
+test("chat hides implicit defaults, uses the shared settings icon, and keeps message text sizes aligned", () => {
+  assert.match(page, /showSelectedModel && selectedModel && <span>模型 ·/);
+  assert.match(page, /showSelectedSource && activeSource && <span>数据源 ·/);
+  assert.match(page, /value=\{showSelectedModel \? selectedModel : ""\}/);
+  assert.match(page, /value=\{showSelectedSource \? activeSourceId : ""\}/);
+  assert.match(page, /<SettingsGearIcon \/><span>配置<\/span>/);
+  assert.match(styles, /\.user-message p \{[^}]*font-size: 16px;[^}]*line-height: 1\.55/);
+  assert.match(styles, /\.assistant-message \{[^}]*font-size: 16px;[^}]*line-height: 1\.55/);
 });
 
 test("new conversation configuration opens below a vertically centered composer", () => {

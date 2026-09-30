@@ -20,9 +20,7 @@ type AccountCenter = {
   invitations: IncomingInvitation[];
   admin?: { scope: "platform" | "tenant"; teams: AdminTeam[]; members: AdminMember[]; invitations: { id: string; identifier: string; role: AccountRole; tenantId: string }[]; platform?: { tenantCount: number; userCount: number } };
 };
-type ApiKeyItem = { id: string; name: string; tenantId: string; enabled: boolean; createdAt: string; lastUsedAt?: string };
 type CenterKind = "personal" | "admin";
-type PersonalSection = "profile" | "password" | "teams" | "invitations" | "apiKeys";
 type AdminSection = "organizations" | "users";
 
 export function AuthScreen({ mode, setMode, submitting, error, submit }: {
@@ -50,24 +48,20 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<CenterKind | "delete" | null>(null);
   const [center, setCenter] = useState<AccountCenter | null>(null);
-  const [personalSection, setPersonalSection] = useState<PersonalSection>("profile");
   const [adminSection, setAdminSection] = useState<AdminSection>("organizations");
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [confirmation, setConfirmation] = useState("");
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
-  const [createdApiKey, setCreatedApiKey] = useState("");
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const closeOutside = (event: MouseEvent) => { if (!root.current?.contains(event.target as Node)) setMenuOpen(false); };
-    const closeEscape = (event: KeyboardEvent) => { if (event.key === "Escape") { setMenuOpen(false); setDialog(null); } };
+    const closeEscape = (event: KeyboardEvent) => { if (event.key === "Escape") { setMenuOpen(false); setPasswordOpen(false); setDialog(null); } };
     document.addEventListener("mousedown", closeOutside); document.addEventListener("keydown", closeEscape);
     return () => { document.removeEventListener("mousedown", closeOutside); document.removeEventListener("keydown", closeEscape); };
   }, []);
-  useEffect(() => { if (dialog !== "personal" || personalSection !== "apiKeys") setCreatedApiKey(""); }, [dialog, personalSection]);
-
   async function request<T>(path: string, init: RequestInit = {}) {
     const response = await fetch(apiUrl(path), { ...init, credentials: "include", headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers } });
     const data = response.status === 204 ? undefined : await response.json();
@@ -75,8 +69,8 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
     return data as T;
   }
   async function loadCenter() {
-    const [data, keys] = await Promise.all([request<AccountCenter>("/api/auth/account-center"), request<{ items: ApiKeyItem[] }>("/api/auth/api-keys")]);
-    setCenter(data); setApiKeys(keys.items); return data;
+    const data = await request<AccountCenter>("/api/auth/account-center");
+    setCenter(data); return data;
   }
   async function openCenter(kind: CenterKind) {
     setMenuOpen(false); setDialog(kind); setError(""); setNotice(""); setWorking(true);
@@ -97,10 +91,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   }
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
-    await action(async () => { await request("/api/auth/password", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) }); formElement.reset(); }, "密码已修改，其他会话已退出");
-  }
-  async function switchTeam(tenantId: string) {
-    await action(async () => { const data = await request<AccountCenter>("/api/auth/teams/switch", { method: "POST", body: JSON.stringify({ tenantId }) }); setCenter(data); await onContextChanged(data.user); }, "当前团队已切换");
+    await action(async () => { await request("/api/auth/password", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) }); formElement.reset(); setPasswordOpen(false); }, "密码已修改，其他会话已退出");
   }
   async function createTeam(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
@@ -116,23 +107,6 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   async function changeRole(member: AdminMember, role: AccountRole) {
     await action(async () => { await request(`/api/auth/admin/members/${encodeURIComponent(member.userId)}`, { method: "PATCH", body: JSON.stringify({ tenantId: member.tenantId, role }) }); await loadCenter(); }, "成员角色已更新");
   }
-  async function createApiKey(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const formElement = event.currentTarget; const form = new FormData(formElement);
-    await action(async () => {
-      const data = await request<{ apiKey: ApiKeyItem; key: string }>("/api/auth/api-keys", { method: "POST", body: JSON.stringify({ name: form.get("name") }) });
-      setApiKeys((items) => [data.apiKey, ...items]); setCreatedApiKey(data.key); formElement.reset();
-    }, "API Key 已创建，请立即复制保存");
-  }
-  async function toggleApiKey(item: ApiKeyItem) {
-    await action(async () => {
-      const data = await request<{ apiKey: ApiKeyItem }>(`/api/auth/api-keys/${encodeURIComponent(item.id)}`, { method: "PATCH", body: JSON.stringify({ enabled: !item.enabled }) });
-      setApiKeys((items) => items.map((key) => key.id === item.id ? data.apiKey : key));
-    }, item.enabled ? "API Key 已禁用" : "API Key 已启用");
-  }
-  async function revokeApiKey(item: ApiKeyItem) {
-    await action(async () => { await request(`/api/auth/api-keys/${encodeURIComponent(item.id)}`, { method: "DELETE" }); setApiKeys((items) => items.filter((key) => key.id !== item.id)); }, "API Key 已撤销");
-  }
-
   const activeTeam = center?.teams.find((team) => team.active);
   return <div className="account-entry" ref={root}>
     {menuOpen && <div className="account-menu" role="menu">
@@ -144,48 +118,35 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
     <button className="profile profile-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
       <span className="avatar">{user.displayName.slice(0, 1).toUpperCase()}</span><span><strong>{user.displayName}</strong><small>{user.isRoot ? "平台管理员" : roleLabel(user.role)}</small></span><span className="more">•••</span>
     </button>
-    {dialog && <div className="modal-backdrop account-dialog-backdrop" onMouseDown={() => !working && setDialog(null)}>
-      <section className={`account-dialog ${dialog !== "delete" ? "account-center-dialog" : ""}`} role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><h2 id="account-dialog-title">{dialog === "personal" ? "个人中心" : dialog === "admin" ? "管理员中心" : "注销账户"}</h2><p>{dialog === "personal" ? "管理个人资料、账号安全与当前团队" : dialog === "admin" ? "管理团队、成员及角色权限" : "此操作会立即使当前账户和全部会话失效。"}</p></div><button aria-label="关闭" disabled={working} onClick={() => setDialog(null)}>×</button></header>
+    {dialog && <div className={`modal-backdrop account-dialog-backdrop ${dialog === "personal" ? "personal-center-backdrop" : ""}`} onMouseDown={() => !working && setDialog(null)}>
+      <section className={`account-dialog ${dialog === "personal" ? "personal-center-dialog" : dialog === "admin" ? "account-center-dialog" : ""}`} role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><h2 id="account-dialog-title">{dialog === "personal" ? "个人信息" : dialog === "admin" ? "管理员中心" : "注销账户"}</h2>{dialog !== "personal" && <p>{dialog === "admin" ? "管理团队、成员及角色权限" : "此操作会立即使当前账户和全部会话失效。"}</p>}</div><button aria-label={dialog === "personal" ? "返回" : "关闭"} disabled={working} onClick={() => setDialog(null)}>{dialog === "personal" ? "←" : "×"}</button></header>
         {dialog === "delete" ? <DeletePanel confirmation={confirmation} setConfirmation={setConfirmation} error={error} working={working} cancel={() => setDialog(null)} confirm={() => void removeAccount()} />
-          : <div className="account-center-layout">
-            <nav aria-label={dialog === "personal" ? "个人中心导航" : "管理员中心导航"}>
-              {dialog === "personal" ? <>
-                <CenterNav label="个人信息" active={personalSection === "profile"} onClick={() => setPersonalSection("profile")} />
-                <CenterNav label="修改密码" active={personalSection === "password"} onClick={() => setPersonalSection("password")} />
-                <CenterNav label="我的组织" active={personalSection === "teams"} onClick={() => setPersonalSection("teams")} />
-                <CenterNav label={`组织邀请${center?.invitations.length ? ` (${center.invitations.length})` : ""}`} active={personalSection === "invitations"} onClick={() => setPersonalSection("invitations")} />
-                <CenterNav label="API Key" active={personalSection === "apiKeys"} onClick={() => setPersonalSection("apiKeys")} />
-              </> : center?.admin ? <>
+          : dialog === "personal" ? <div className="personal-center-content">
+            {working && !center ? <p className="center-empty">正在加载…</p> : center && <PersonalProfile center={center} updateProfile={updateProfile} openPassword={() => { setError(""); setNotice(""); setPasswordOpen(true); }} working={working} />}
+            {notice && <div className="center-notice success" role="status">{notice}</div>}{error && <div className="center-notice error" role="alert">{error}</div>}
+          </div> : <div className="account-center-layout">
+            <nav aria-label="管理员中心导航">
+              {center?.admin ? <>
                 <CenterNav label="组织" active={adminSection === "organizations"} onClick={() => setAdminSection("organizations")} />
                 <CenterNav label="用户" active={adminSection === "users"} onClick={() => setAdminSection("users")} />
               </> : <CenterNav label={`组织邀请${center?.invitations.length ? ` (${center.invitations.length})` : ""}`} active onClick={() => undefined} />}
             </nav>
             <div className="account-center-content">
-              {working && !center ? <p className="center-empty">正在加载…</p> : dialog === "personal" ? <PersonalCenter section={personalSection} center={center} activeTeam={activeTeam} updateProfile={updateProfile} changePassword={changePassword} switchTeam={switchTeam} respondInvitation={respondInvitation} apiKeys={apiKeys} createdApiKey={createdApiKey} createApiKey={createApiKey} toggleApiKey={toggleApiKey} revokeApiKey={revokeApiKey} working={working} /> : <AdminCenter section={adminSection} center={center} activeTeam={activeTeam} createTeam={createTeam} invite={invite} changeRole={changeRole} respondInvitation={respondInvitation} working={working} />}
+              {working && !center ? <p className="center-empty">正在加载…</p> : <AdminCenter section={adminSection} center={center} activeTeam={activeTeam} createTeam={createTeam} invite={invite} changeRole={changeRole} respondInvitation={respondInvitation} working={working} />}
               {notice && <div className="center-notice success" role="status">{notice}</div>}{error && <div className="center-notice error" role="alert">{error}</div>}
             </div>
           </div>}
       </section>
     </div>}
+    {passwordOpen && <div className="modal-backdrop password-dialog-backdrop" onMouseDown={() => !working && setPasswordOpen(false)}><section className="password-change-dialog" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title" onMouseDown={(event) => event.stopPropagation()}><header><h2 id="password-dialog-title">更改密码</h2><button aria-label="关闭" disabled={working} onClick={() => setPasswordOpen(false)}>×</button></header><form onSubmit={(event) => void changePassword(event)}><label><span><b>*</b> 旧密码</span><input name="currentPassword" type="password" autoComplete="current-password" placeholder="请输入旧密码" required /></label><label><span><b>*</b> 新密码</span><input name="newPassword" type="password" autoComplete="new-password" minLength={8} placeholder="请输入，密码需包含字母、数字，长度8-20" required /></label><label><span><b>*</b> 确认新密码</span><input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} placeholder="请再次输入新密码" required /></label>{error && <div className="center-notice error" role="alert">{error}</div>}<footer><button type="button" onClick={() => setPasswordOpen(false)}>取消</button><button className="primary-action" disabled={working}>{working ? "提交中…" : "确定"}</button></footer></form></section></div>}
   </div>;
 }
 
 function CenterNav({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) { return <button className={active ? "active" : ""} onClick={onClick}>{label}</button>; }
 
-function PersonalCenter({ section, center, activeTeam, updateProfile, changePassword, switchTeam, respondInvitation, apiKeys, createdApiKey, createApiKey, toggleApiKey, revokeApiKey, working }: {
-  section: PersonalSection; center: AccountCenter | null; activeTeam?: Team; updateProfile: (event: FormEvent<HTMLFormElement>) => Promise<void>; changePassword: (event: FormEvent<HTMLFormElement>) => Promise<void>; switchTeam: (id: string) => Promise<void>; respondInvitation: (invitation: IncomingInvitation, accept: boolean) => Promise<void>; apiKeys: ApiKeyItem[]; createdApiKey: string; createApiKey: (event: FormEvent<HTMLFormElement>) => Promise<void>; toggleApiKey: (item: ApiKeyItem) => Promise<void>; revokeApiKey: (item: ApiKeyItem) => Promise<void>; working: boolean;
-}) {
-  if (!center) return null;
-  if (section === "profile") return <CenterSection title="个人信息" description="维护头像和联系信息。用户名不可修改。"><form className="personal-profile-form" onSubmit={(event) => void updateProfile(event)}><AvatarField user={center.user} /><div className="personal-fields"><label>用户名<input value={center.user.username} disabled /></label><label>显示名称<input name="displayName" defaultValue={center.user.displayName} minLength={2} maxLength={64} required /></label><label>密码<div className="password-summary"><input value="••••••••" disabled /><span>请在“修改密码”中更新</span></div></label><label>单位<input name="unit" defaultValue={center.user.unit || ""} maxLength={100} placeholder="请输入单位" /></label><label>电话<input name="phone" defaultValue={center.user.phone || ""} maxLength={25} placeholder="请输入电话" /></label><label>邮箱<input name="email" type="email" defaultValue={center.user.email || ""} maxLength={254} placeholder="请输入邮箱" /></label><label>备注<textarea name="remark" defaultValue={center.user.remark || ""} maxLength={300} placeholder="请输入备注" /></label><button disabled={working}>保存资料</button></div></form></CenterSection>;
-  if (section === "password") return <CenterSection title="修改密码" description="更新后将退出除当前浏览器之外的其他会话。"><form className="center-form" onSubmit={(event) => void changePassword(event)}><label>当前密码<input name="currentPassword" type="password" autoComplete="current-password" required /></label><label>新密码<input name="newPassword" type="password" autoComplete="new-password" minLength={8} required /></label><label>确认新密码<input name="confirmPassword" type="password" autoComplete="new-password" minLength={8} required /></label><button disabled={working}>修改密码</button></form></CenterSection>;
-  if (section === "apiKeys") return <CenterSection title="API Key" description="用于 RAGFlow 或外部 Agent 调用 /api/v1/*；Key 绑定当前团队，完整值只显示一次。">
-    <form className="center-form compact" onSubmit={(event) => void createApiKey(event)}><label>名称<input name="name" minLength={2} maxLength={80} placeholder="例如：RAGFlow 生产环境" required /></label><button disabled={working}>创建 API Key</button></form>
-    {createdApiKey && <div className="api-key-created"><strong>请立即复制，关闭后无法再次查看</strong><code>{createdApiKey}</code><button type="button" onClick={() => void navigator.clipboard.writeText(createdApiKey)}>复制</button></div>}
-    <div className="api-key-list">{apiKeys.length ? apiKeys.map((item) => <article key={item.id}><div><strong>{item.name}</strong><small>{item.tenantId} · 创建于 {new Date(item.createdAt).toLocaleString()} · 最后使用 {item.lastUsedAt ? new Date(item.lastUsedAt).toLocaleString() : "从未"}</small></div><span className={item.enabled ? "enabled" : "disabled"}>{item.enabled ? "已启用" : "已禁用"}</span><button type="button" disabled={working} onClick={() => void toggleApiKey(item)}>{item.enabled ? "禁用" : "启用"}</button><button type="button" className="danger" disabled={working} onClick={() => void revokeApiKey(item)}>撤销</button></article>) : <p className="center-empty">当前团队还没有 API Key。</p>}</div>
-  </CenterSection>;
-  if (section === "invitations") return <CenterSection title="组织邀请" description="管理员发送的邀请会保留在这里，只有接受后才会加入组织。"><div className="invitation-list">{center.invitations.length ? center.invitations.map((invitation) => <article key={invitation.id}><div><strong>{invitation.tenantName}</strong><small>{invitation.invitedBy} 邀请你以“{roleLabel(invitation.role)}”身份加入 · {new Date(invitation.createdAt).toLocaleString()}</small></div><div><button className="secondary" disabled={working} onClick={() => void respondInvitation(invitation, false)}>拒绝</button><button disabled={working} onClick={() => void respondInvitation(invitation, true)}>接受邀请</button></div></article>) : <p className="center-empty">暂无待处理邀请。</p>}</div></CenterSection>;
-  return <CenterSection title="我的团队" description="只能切换到你已经加入的团队，切换后业务数据会按新上下文重新加载。"><div className="team-list">{center.teams.map((team) => <article key={team.id} className={team.active ? "active" : ""}><div><strong>{team.name}</strong><small>{roleLabel(team.role)} · {team.memberCount} 位成员</small></div>{team.active ? <span>当前团队</span> : <button disabled={working} onClick={() => void switchTeam(team.id)}>切换</button>}</article>)}</div></CenterSection>;
+function PersonalProfile({ center, updateProfile, openPassword, working }: { center: AccountCenter; updateProfile: (event: FormEvent<HTMLFormElement>) => Promise<void>; openPassword: () => void; working: boolean }) {
+  return <form className="personal-profile-form" onSubmit={(event) => void updateProfile(event)}><AvatarField user={center.user} /><div className="personal-fields"><input type="hidden" name="displayName" value={center.user.displayName} /><label>用户名<input value={center.user.username} disabled /></label><label>密码<div className="password-summary"><input value="***" disabled /><button type="button" onClick={openPassword}>修改密码</button></div></label><label>单位<input name="unit" defaultValue={center.user.unit || ""} maxLength={100} placeholder="--" /></label><label>电话<input name="phone" defaultValue={center.user.phone || ""} maxLength={25} placeholder="--" /></label><label>邮箱<input name="email" type="email" defaultValue={center.user.email || ""} maxLength={254} placeholder="--" /></label><label>备注<textarea name="remark" defaultValue={center.user.remark || ""} maxLength={300} placeholder="--" /></label><button disabled={working}>{working ? "保存中…" : "保存资料"}</button></div></form>;
 }
 
 function AvatarField({ user }: { user: AuthUser }) {
