@@ -33,6 +33,27 @@ test("knowledge store scopes bases, documents, and chunks to the full owner cont
   } finally { store.close(); }
 });
 
+test("team permission shares reads within the tenant and account set without sharing write access", () => {
+  const store = new KnowledgeStore(":memory:");
+  const otherAccount: RequestContext = { ...bob, accountSetId: "books-b" };
+  const otherTenant: RequestContext = { ...bob, tenantId: "tenant-b" };
+  try {
+    const base = store.create(alice, { name: "团队知识库" });
+    assert.equal(base.permission, "private");
+    assert.equal(base.isOwner, true);
+    assert.equal(store.list(bob).length, 0);
+
+    const shared = store.update(alice, base.id, { permission: "team" });
+    assert.equal(shared.permission, "team");
+    assert.equal(store.list(bob)[0]?.id, base.id);
+    assert.equal(store.get(bob, base.id).knowledgeBase.isOwner, false);
+    assert.equal(store.retrievalContext(bob, base.id).userId, alice.userId);
+    assert.throws(() => store.update(bob, base.id, { name: "越权修改" }), (error: KnowledgeStoreError) => error.status === 404);
+    assert.throws(() => store.get(otherAccount, base.id), (error: KnowledgeStoreError) => error.status === 404);
+    assert.throws(() => store.get(otherTenant, base.id), (error: KnowledgeStoreError) => error.status === 404);
+  } finally { store.close(); }
+});
+
 test("chunk CRUD persists content, metadata, enabled, and updated timestamp", () => {
   const store = new KnowledgeStore(":memory:");
   try {

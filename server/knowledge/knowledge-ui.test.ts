@@ -37,7 +37,9 @@ test("knowledge UI exposes parser, chunks, metadata, embedding, and retrieval te
   assert.doesNotMatch(component, /window\.confirm/);
   assert.doesNotMatch(component, /<option value="auto">Auto<\/option>/);
   assert.doesNotMatch(component, /状态 \/ Parser/);
-  for (const label of ["基本信息", "解析", "分块", "元数据", "嵌入", "索引", "Chunk Strategy", "Column Mode", "Content", "Embedding", "Metadata", "Ignore", "Metric Type", "私有（当前租户 / 账套 / 用户）"]) assert.ok(component.includes(label));
+  for (const label of ["基本信息", "解析", "分块", "元数据", "嵌入", "索引", "Chunk Strategy", "Column Mode", "Content", "Embedding", "Metadata", "Ignore", "Metric Type", "仅自己", "团队"]) assert.ok(component.includes(label));
+  assert.match(component, /select name="permission"/);
+  assert.doesNotMatch(component, /select disabled defaultValue="private"/);
   for (const strategy of ["Fixed", "Paragraph", "Heading（预留）", "Table Row", "QA Pair"]) assert.ok(component.includes(strategy));
   assert.ok(component.includes("Auto 按表头语义推断"));
   assert.ok(component.includes('columnMode === "auto" ?'));

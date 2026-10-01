@@ -42,6 +42,19 @@ test("vector and hybrid retrieval apply identical containsToken semantics", asyn
   } finally { vectors.close(); store.close(); }
 });
 
+test("team members retrieve shared vectors through the owner's scoped vector context", async () => {
+  const { store, knowledgeBase, records } = fixture();
+  const vectors = new LocalVectorStore(":memory:");
+  const teammate: RequestContext = { ...context, userId: "bob", sessionId: "session-b" };
+  try {
+    vectors.upsert(context, records);
+    store.update(context, knowledgeBase.id, { permission: "team" });
+    const service = new KnowledgeRetrievalService(store, vectors, new TestEmbeddingProvider());
+    const result = await service.retrieve(teammate, { knowledgeBaseId: knowledgeBase.id, query: "product", topK: 10, scoreThreshold: -1 });
+    assert.deepEqual(result.items.map((item) => item.chunkId), ["t3", "t30"]);
+  } finally { vectors.close(); store.close(); }
+});
+
 test("Milvus retrieval expands candidates and service-level filtering removes substring matches", async () => {
   const { store, knowledgeBase, records } = fixture();
   let searchInput: Record<string, unknown> | undefined;

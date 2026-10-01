@@ -3,7 +3,7 @@ import multer from "multer";
 import type { RequestContext } from "../core/types.js";
 import { DocumentPipeline, parseDocumentPreview, supportedDocumentExtensions, type ParserOptions } from "./document-pipeline.js";
 import type { EmbeddingProvider } from "./embedding.js";
-import { KnowledgeStore, KnowledgeStoreError, type RetrievalConfig } from "./knowledge-store.js";
+import { KnowledgeStore, KnowledgeStoreError, type KnowledgePermission, type RetrievalConfig } from "./knowledge-store.js";
 import { KnowledgeRetrievalService, validateMetadata } from "./retrieval-service.js";
 import { MilvusUnavailableError, type Metadata, type VectorStore } from "./vector-store.js";
 import type { RerankService } from "./retrieval-service.js";
@@ -28,7 +28,7 @@ export function installKnowledgeRoutes(
   });
 
   app.post("/api/knowledge-bases", (request, response) => {
-    try { response.status(201).json({ knowledgeBase: store.create(resolveIdentity(request), { name: String(request.body?.name || ""), description: request.body?.description, config: request.body?.config }) }); }
+    try { response.status(201).json({ knowledgeBase: store.create(resolveIdentity(request), { name: String(request.body?.name || ""), description: request.body?.description, permission: request.body?.permission as KnowledgePermission | undefined, config: request.body?.config }) }); }
     catch (error) { knowledgeError(response, error); }
   });
 
@@ -44,9 +44,10 @@ export function installKnowledgeRoutes(
 
   app.patch("/api/knowledge-bases/:id", (request, response) => {
     try {
-      const input: { name?: string; description?: string; config?: Partial<RetrievalConfig> } = {};
+      const input: { name?: string; description?: string; permission?: KnowledgePermission; config?: Partial<RetrievalConfig> } = {};
       if (request.body?.name !== undefined) input.name = String(request.body.name);
       if (request.body?.description !== undefined) input.description = String(request.body.description);
+      if (request.body?.permission !== undefined) input.permission = String(request.body.permission) as KnowledgePermission;
       if (request.body?.config !== undefined) input.config = request.body.config as Partial<RetrievalConfig>;
       response.json({ knowledgeBase: store.update(resolveIdentity(request), request.params.id, input) });
     } catch (error) { knowledgeError(response, error); }

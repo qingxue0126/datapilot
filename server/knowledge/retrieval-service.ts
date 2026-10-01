@@ -82,7 +82,8 @@ export class KnowledgeRetrievalService {
 
     this.validateFilterSchema(context, knowledgeBaseId, filters);
     const queryEmbedding = await this.embeddings.embed(context, config.embeddingModel, query);
-    let matches = await this.vectors.search(context, knowledgeBaseId, queryEmbedding, {
+    const vectorContext = this.store.retrievalContext(context, knowledgeBaseId);
+    let matches = await this.vectors.search(vectorContext, knowledgeBaseId, queryEmbedding, {
       limit: vectorCandidateCount,
       metadataFilter: filters,
       indexConfig: vectorIndexConfig(config),

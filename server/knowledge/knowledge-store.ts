@@ -13,6 +13,7 @@ export type ColumnMode = "auto" | "manual";
 export type ChunkStrategy = "fixed" | "paragraph" | "heading" | "table-row" | "qa-pair";
 export type VectorIndexType = "HNSW";
 export type VectorMetricType = "COSINE" | "IP" | "L2";
+export type KnowledgePermission = "private" | "team";
 
 export type RetrievalConfig = {
   language: "zh-CN" | "en";
@@ -43,6 +44,8 @@ export type KnowledgeBase = {
   documentCount: number;
   chunkCount: number;
   requiresReindex: boolean;
+  permission: KnowledgePermission;
+  isOwner: boolean;
   config: RetrievalConfig;
   createdAt: string;
   updatedAt: string;
@@ -79,7 +82,7 @@ export type KnowledgeChunk = {
 };
 
 type KnowledgeBaseRow = {
-  id: string; name: string; description: string; config_json: string; requires_reindex: number;
+  id: string; user_id: string; name: string; description: string; permission: KnowledgePermission; config_json: string; requires_reindex: number;
   created_at: string; updated_at: string; document_count?: number; chunk_count?: number;
 };
 type DocumentRow = {
@@ -114,6 +117,7 @@ export class KnowledgeStore {
         user_id TEXT NOT NULL,
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
+        permission TEXT NOT NULL DEFAULT 'private',
         config_json TEXT NOT NULL,
         requires_reindex INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
@@ -157,6 +161,7 @@ export class KnowledgeStore {
       );
     `);
     this.ensureColumn("knowledge_bases", "requires_reindex", "INTEGER NOT NULL DEFAULT 0");
+    this.ensureColumn("knowledge_bases", "permission", "TEXT NOT NULL DEFAULT 'private'");
     this.ensureColumn("knowledge_documents", "parser_type", "TEXT NOT NULL DEFAULT 'general'");
     this.ensureColumn("knowledge_documents", "columns_json", "TEXT NOT NULL DEFAULT '[]'");
     this.ensureColumn("knowledge_documents", "source_data", "BLOB");
@@ -172,31 +177,32 @@ export class KnowledgeStore {
 
   list(context: RequestContext) {
     const rows = this.database.prepare(`
-      SELECT kb.id, kb.name, kb.description, kb.config_json, kb.requires_reindex, kb.created_at, kb.updated_at,
+      SELECT kb.id, kb.user_id, kb.name, kb.description, kb.permission, kb.config_json, kb.requires_reindex, kb.created_at, kb.updated_at,
         COUNT(DISTINCT d.id) AS document_count, COUNT(c.id) AS chunk_count
       FROM knowledge_bases kb
       LEFT JOIN knowledge_documents d ON d.knowledge_base_id = kb.id
       LEFT JOIN knowledge_chunks c ON c.document_id = d.id
-      WHERE kb.tenant_id = ? AND kb.account_set_id = ? AND kb.user_id = ?
+      WHERE kb.tenant_id = ? AND kb.account_set_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
       GROUP BY kb.id ORDER BY kb.updated_at DESC, kb.id DESC
     `).all(context.tenantId, context.accountSetId, context.userId) as unknown as KnowledgeBaseRow[];
-    return rows.map(toKnowledgeBase);
+    return rows.map((row) => toKnowledgeBase(row, context.userId));
   }
 
-  create(context: RequestContext, input: { name: string; description?: string; config?: Partial<RetrievalConfig> }) {
+  create(context: RequestContext, input: { name: string; description?: string; permission?: KnowledgePermission; config?: Partial<RetrievalConfig> }) {
     const name = cleanName(input.name);
     if (!name) throw new KnowledgeStoreError("知识库名称不能为空");
     const id = randomUUID(); const now = new Date().toISOString();
     const config = normalizeConfig(input.config);
+    const permission = normalizePermission(input.permission);
     this.database.prepare(`INSERT INTO knowledge_bases
-      (id, tenant_id, account_set_id, user_id, name, description, config_json, requires_reindex, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`)
-      .run(id, context.tenantId, context.accountSetId, context.userId, name, String(input.description || "").trim().slice(0, 500), JSON.stringify(config), now, now);
+      (id, tenant_id, account_set_id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`)
+      .run(id, context.tenantId, context.accountSetId, context.userId, name, String(input.description || "").trim().slice(0, 500), permission, JSON.stringify(config), now, now);
     return this.get(context, id).knowledgeBase;
   }
 
   get(context: RequestContext, id: string) {
-    const row = this.ownedBase(context, id);
+    const row = this.readableBase(context, id);
     const documents = this.database.prepare(`
       SELECT id, knowledge_base_id, filename, file_type, size, parser_type, columns_json, status, error,
         chunk_count, created_at, updated_at
@@ -204,7 +210,7 @@ export class KnowledgeStore {
     `).all(id) as unknown as DocumentRow[];
     return {
       knowledgeBase: {
-        ...toKnowledgeBase(row),
+        ...toKnowledgeBase(row, context.userId),
         documentCount: documents.length,
         chunkCount: documents.reduce((sum, item) => sum + Number(item.chunk_count), 0),
       },
@@ -212,11 +218,12 @@ export class KnowledgeStore {
     };
   }
 
-  update(context: RequestContext, id: string, input: { name?: string; description?: string; config?: Partial<RetrievalConfig> }) {
+  update(context: RequestContext, id: string, input: { name?: string; description?: string; permission?: KnowledgePermission; config?: Partial<RetrievalConfig> }) {
     const current = this.ownedBase(context, id); const now = new Date().toISOString();
     const name = input.name === undefined ? current.name : cleanName(input.name);
     if (!name) throw new KnowledgeStoreError("知识库名称不能为空");
     const description = input.description === undefined ? current.description : String(input.description).trim().slice(0, 500);
+    const permission = input.permission === undefined ? current.permission : normalizePermission(input.permission);
     const previousConfig = parseConfig(current.config_json);
     const config = normalizeConfig({ ...previousConfig, ...input.config });
     const vectorConfigChanged = config.embeddingModel !== previousConfig.embeddingModel
@@ -225,9 +232,9 @@ export class KnowledgeStore {
       || config.hnswM !== previousConfig.hnswM
       || config.hnswEfConstruction !== previousConfig.hnswEfConstruction;
     this.database.prepare(`
-      UPDATE knowledge_bases SET name = ?, description = ?, config_json = ?,
+      UPDATE knowledge_bases SET name = ?, description = ?, permission = ?, config_json = ?,
         requires_reindex = CASE WHEN ? THEN 1 ELSE requires_reindex END, updated_at = ? WHERE id = ?
-    `).run(name, description, JSON.stringify(config), vectorConfigChanged ? 1 : 0, now, id);
+    `).run(name, description, permission, JSON.stringify(config), vectorConfigChanged ? 1 : 0, now, id);
     return this.get(context, id).knowledgeBase;
   }
 
@@ -282,7 +289,7 @@ export class KnowledgeStore {
   }
 
   documentSource(context: RequestContext, id: string) {
-    const row = this.ownedDocument(context, id, true);
+    const row = this.readableDocument(context, id, true);
     if (!row.source_data) throw new KnowledgeStoreError("文档原始文件不存在，无法重新解析", 409);
     return Buffer.from(row.source_data);
   }
@@ -305,23 +312,23 @@ export class KnowledgeStore {
     } catch (error) { this.database.exec("ROLLBACK"); throw error; }
   }
 
-  document(context: RequestContext, id: string) { return toDocument(this.ownedDocument(context, id)); }
+  document(context: RequestContext, id: string) { return toDocument(this.readableDocument(context, id)); }
 
   listChunks(context: RequestContext, documentId: string) {
-    this.ownedDocument(context, documentId);
+    this.readableDocument(context, documentId);
     const rows = this.database.prepare(`
       SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.embedding_content, c.metadata_json,
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
       JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-      WHERE c.document_id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND kb.user_id = ?
+      WHERE c.document_id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
       ORDER BY c.chunk_index ASC
     `).all(documentId, context.tenantId, context.accountSetId, context.userId) as unknown as ChunkRow[];
     return rows.map(toChunk);
   }
 
   listBaseChunks(context: RequestContext, knowledgeBaseId: string) {
-    this.ownedBase(context, knowledgeBaseId);
+    this.readableBase(context, knowledgeBaseId);
     const rows = this.database.prepare(`
       SELECT id, knowledge_base_id, document_id, chunk_index, content, embedding_content, metadata_json, enabled, created_at, updated_at
       FROM knowledge_chunks WHERE knowledge_base_id = ? ORDER BY document_id, chunk_index
@@ -330,7 +337,7 @@ export class KnowledgeStore {
   }
 
   metadataSchema(context: RequestContext, knowledgeBaseId: string) {
-    this.ownedBase(context, knowledgeBaseId);
+    this.readableBase(context, knowledgeBaseId);
     const rows = this.database.prepare("SELECT metadata_json FROM knowledge_chunks WHERE knowledge_base_id=?")
       .all(knowledgeBaseId) as unknown as ChunkMetadataRow[];
     const schema = new Map<string, Set<string>>();
@@ -345,7 +352,7 @@ export class KnowledgeStore {
   }
 
   metadataFacets(context: RequestContext, knowledgeBaseId: string) {
-    this.ownedBase(context, knowledgeBaseId);
+    this.readableBase(context, knowledgeBaseId);
     const chunks = this.listBaseChunks(context, knowledgeBaseId);
     const facets = new Map<string, { types: Set<string>; values: Set<string | number | boolean> }>();
     for (const chunk of chunks) {
@@ -361,7 +368,12 @@ export class KnowledgeStore {
     }));
   }
 
-  chunk(context: RequestContext, id: string) { return toChunk(this.ownedChunk(context, id)); }
+  chunk(context: RequestContext, id: string) { return toChunk(this.readableChunk(context, id)); }
+
+  retrievalContext(context: RequestContext, knowledgeBaseId: string): RequestContext {
+    const row = this.readableBase(context, knowledgeBaseId);
+    return row.user_id === context.userId ? context : { ...context, userId: row.user_id };
+  }
 
   updateChunk(context: RequestContext, id: string, input: { content?: string; embeddingContent?: string; metadata?: Metadata; enabled?: boolean }) {
     const current = this.ownedChunk(context, id); const now = new Date().toISOString();
@@ -390,8 +402,18 @@ export class KnowledgeStore {
 
   private ownedBase(context: RequestContext, id: string) {
     const row = this.database.prepare(`
-      SELECT id, name, description, config_json, requires_reindex, created_at, updated_at
+      SELECT id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at
       FROM knowledge_bases WHERE id = ? AND tenant_id = ? AND account_set_id = ? AND user_id = ?
+    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as KnowledgeBaseRow | undefined;
+    if (!row) throw new KnowledgeStoreError("知识库不存在或无权访问", 404);
+    return row;
+  }
+
+  private readableBase(context: RequestContext, id: string) {
+    const row = this.database.prepare(`
+      SELECT id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at
+      FROM knowledge_bases
+      WHERE id = ? AND tenant_id = ? AND account_set_id = ? AND (user_id = ? OR permission = 'team')
     `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as KnowledgeBaseRow | undefined;
     if (!row) throw new KnowledgeStoreError("知识库不存在或无权访问", 404);
     return row;
@@ -409,12 +431,35 @@ export class KnowledgeStore {
     return row;
   }
 
+  private readableDocument(context: RequestContext, id: string, includeSource = false) {
+    const source = includeSource ? ", d.source_data" : "";
+    const row = this.database.prepare(`
+      SELECT d.id, d.knowledge_base_id, d.filename, d.file_type, d.size, d.parser_type, d.columns_json,
+        d.status, d.error, d.chunk_count, d.created_at, d.updated_at ${source}
+      FROM knowledge_documents d JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
+      WHERE d.id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as DocumentRow | undefined;
+    if (!row) throw new KnowledgeStoreError("文档不存在或无权访问", 404);
+    return row;
+  }
+
   private ownedChunk(context: RequestContext, id: string) {
     const row = this.database.prepare(`
       SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.embedding_content, c.metadata_json,
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
       WHERE c.id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND kb.user_id = ?
+    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as ChunkRow | undefined;
+    if (!row) throw new KnowledgeStoreError("Chunk 不存在或无权访问", 404);
+    return row;
+  }
+
+  private readableChunk(context: RequestContext, id: string) {
+    const row = this.database.prepare(`
+      SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.embedding_content, c.metadata_json,
+        c.enabled, c.created_at, c.updated_at
+      FROM knowledge_chunks c JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
+      WHERE c.id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
     `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as ChunkRow | undefined;
     if (!row) throw new KnowledgeStoreError("Chunk 不存在或无权访问", 404);
     return row;
@@ -492,11 +537,12 @@ export function normalizeConfig(input: Partial<RetrievalConfig> = {}): Retrieval
   };
 }
 
-function toKnowledgeBase(row: KnowledgeBaseRow): KnowledgeBase {
+function toKnowledgeBase(row: KnowledgeBaseRow, currentUserId: string): KnowledgeBase {
   return {
     id: row.id, name: row.name, description: row.description,
     documentCount: Number(row.document_count || 0), chunkCount: Number(row.chunk_count || 0),
-    requiresReindex: Boolean(row.requires_reindex), config: parseConfig(row.config_json),
+    requiresReindex: Boolean(row.requires_reindex), permission: normalizePermission(row.permission), isOwner: row.user_id === currentUserId,
+    config: parseConfig(row.config_json),
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -524,6 +570,11 @@ function normalizeMetadata(value: unknown): Metadata {
   return Object.fromEntries(Object.entries(value).filter(([, item]) => ["string", "number", "boolean"].includes(typeof item) || item === null).slice(0, 100)) as Metadata;
 }
 function cleanName(value: unknown) { return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80); }
+function normalizePermission(value: unknown): KnowledgePermission {
+  if (value === undefined || value === null || value === "" || value === "private") return "private";
+  if (value === "team") return "team";
+  throw new KnowledgeStoreError("权限仅支持 private 或 team");
+}
 function cleanModel(value: unknown, fallback: string) { return String(value ?? fallback).trim().slice(0, 120) || fallback; }
 function cleanColumn(value: unknown, fallback: string) { return String(value || fallback).trim().slice(0, 120) || fallback; }
 function parserType(value: unknown): ParserType { return value === "table" || value === "qa" ? value : "general"; }

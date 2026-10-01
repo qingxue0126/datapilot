@@ -17,7 +17,7 @@ export type RetrievalConfig = {
 };
 export type KnowledgeBaseData = {
   id: string; name: string; description: string; documentCount: number; chunkCount: number; requiresReindex: boolean;
-  config: RetrievalConfig; createdAt: string; updatedAt: string;
+  permission: "private" | "team"; isOwner: boolean; config: RetrievalConfig; createdAt: string; updatedAt: string;
 };
 export type KnowledgeDocumentData = {
   id: string; knowledgeBaseId: string; filename: string; fileType: string; size: number; parserType: ParserType; columns: string[];
@@ -162,7 +162,7 @@ export function KnowledgeBaseDetail({ detail, setDetail, busy, setBusy, notice, 
     try {
       const previous = detail.knowledgeBase.config;
       const data = await responseJson(await apiRequest(`/api/knowledge-bases/${encodeURIComponent(detail.knowledgeBase.id)}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: String(form.get("name") || kb.name), description: String(form.get("description") || ""), config }),
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: String(form.get("name") || kb.name), description: String(form.get("description") || ""), permission: String(form.get("permission") || "private"), config }),
       }));
       await refresh();
       const vectorChanged = previous.embeddingModel !== config.embeddingModel || previous.metricType !== config.metricType
@@ -388,11 +388,11 @@ function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
     setChunkStrategy(next === "table" ? "table-row" : next === "qa" ? "qa-pair" : ["fixed", "paragraph", "heading"].includes(chunkStrategy) ? chunkStrategy : "fixed");
   }
   return <form className="knowledge-settings" key={kb.updatedAt} onSubmit={save}>
-    <section className="knowledge-settings-block"><header><h3>基本信息</h3><p>管理知识库名称、语言与描述。知识库继续遵循当前租户、账套和用户隔离。</p></header><div className="knowledge-settings-fields">
+    <section className="knowledge-settings-block"><header><h3>基本信息</h3><p>管理知识库名称、语言、描述与团队可见范围。</p></header><div className="knowledge-settings-fields">
       <label><span><b>*</b> 名称</span><input name="name" required maxLength={80} defaultValue={kb.name} /></label>
       <label><span>语言</span><select name="language" defaultValue={config.language}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
       <label><span>描述</span><textarea name="description" rows={3} maxLength={500} defaultValue={kb.description} placeholder="请输入知识库描述" /></label>
-      <label><span>权限</span><select disabled defaultValue="private"><option value="private">私有（当前租户 / 账套 / 用户）</option></select></label>
+      <label><span>权限</span><select name="permission" defaultValue={kb.permission}><option value="private">仅自己</option><option value="team">团队</option></select></label>
     </div></section>
 
     <section className="knowledge-settings-block"><header><h3>解析</h3><p>选择文档解析器。Table 和 QA 会自动识别工作表表头与业务行。</p></header><div className="knowledge-settings-fields">
