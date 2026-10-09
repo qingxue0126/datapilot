@@ -371,15 +371,48 @@ button:disabled { cursor: not-allowed; }
 .team-switcher { display: grid; gap: 5px; min-width: 150px; color: #53675d; font-size: 12px; font-weight: 600; }
 .team-switcher select { padding: 9px 10px; }
 .admin-toolbar form input { width: 190px; }
+.user-toolbar { align-items: end; flex-wrap: wrap; }
+.user-toolbar > input { width: min(280px, 100%); max-width: none; height: 42px; }
+.user-toolbar .team-switcher select { height: 42px; }
+.user-toolbar .invite-inline-form { display: flex; align-items: end; }
+.user-toolbar .invite-inline-form select[name="role"] { display: none; }
+.user-action-buttons { display: flex; gap: 10px; margin-left: auto; }
+.user-action-buttons button { min-width: 112px; height: 42px; }
+.user-action-buttons .secondary { color: #247b5f; border-color: #b9d2c5; background: #fff; }
+.user-action-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: rgba(19,42,33,.35); }
+.user-action-dialog { width: min(560px, 100%); padding: 28px 30px; border-radius: 12px; background: #fff; box-shadow: 0 24px 70px rgba(9,27,20,.28); }
+.user-action-dialog > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.user-action-dialog h3 { margin: 0; color: #29463a; font-size: 24px; }
+.user-action-dialog > header button { border: 0; color: #7d8983; background: transparent; font-size: 24px; cursor: pointer; }
+.user-action-form { display: grid; gap: 18px; }
+.user-action-form label { display: grid; gap: 8px; color: #43584f; font-size: 14px; font-weight: 600; }
+.user-action-form label b { color: #c85a4b; }
+.user-action-form input, .user-action-form select { width: 100%; min-height: 44px; border: 1px solid #d6dfda; border-radius: 8px; padding: 10px 12px; color: #294237; background: #fff; font: inherit; }
+.user-action-form textarea { width: 100%; min-height: 110px; border: 1px solid #d6dfda; border-radius: 8px; padding: 10px 12px; color: #294237; background: #fff; font: inherit; resize: vertical; }
+.org-icon-upload { display: grid; place-items: center; width: 112px; height: 96px; border-radius: 10px; color: #247b5f; background: #edf5f1; cursor: pointer; }
+.user-action-dialog-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+.user-action-dialog-footer button { min-width: 88px; border: 1px solid #247b5f; border-radius: 7px; padding: 10px 16px; color: #fff; background: #247b5f; cursor: pointer; }
+.user-action-dialog-footer button.secondary { color: #52665d; border-color: #d2ddd7; background: #fff; }
 .invite-inline-form { flex-wrap: wrap; justify-content: flex-end; }
 .management-table { overflow-x: auto; border: 1px solid #e0e7e3; border-radius: 10px; background: #fff; }
 .management-table .table-row { display: grid; align-items: center; min-width: 800px; padding: 14px 16px; border-bottom: 1px solid #edf1ef; color: #5f7068; font-size: 13px; }
 .management-table .table-row:last-child { border-bottom: 0; }
 .management-table .table-head { color: #40564c; background: #f5f8f6; font-weight: 700; }
 .organization-table .table-row { grid-template-columns: 1.15fr 1.5fr .6fr 1fr .55fr; }
-.user-table .table-row { grid-template-columns: 1.35fr 1fr .8fr .65fr 1fr .55fr; }
+.user-table .table-row { grid-template-columns: 1.35fr 1fr .8fr .65fr 1fr minmax(250px, .95fr); }
 .table-actions button { border: 0; color: #247b5f; background: transparent; cursor: pointer; }
 .table-actions button:disabled { color: #9ba8a2; cursor: not-allowed; }
+.member-actions { display: flex; align-items: center; gap: 14px; white-space: nowrap; }
+.organization-actions { display: flex; align-items: center; gap: 12px; }
+.organization-actions .delete-action { color: #b85b51; }
+.organization-actions .delete-action:disabled { color: #b8c0bc; cursor: not-allowed; }
+.delete-confirm-dialog { width: min(500px, 100%); padding: 28px 30px 24px; border-radius: 12px; background: #fff; box-shadow: 0 24px 70px rgba(9,27,20,.28); }
+.delete-confirm-dialog > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+.delete-confirm-dialog h3 { margin: 0; color: #29463a; font-size: 22px; }
+.delete-confirm-dialog > header button { border: 0; color: #7d8983; background: transparent; font-size: 24px; cursor: pointer; }
+.delete-confirm-dialog > p { display: flex; align-items: center; gap: 14px; margin: 0; color: #5f6663; font-size: 16px; }
+.warning-icon { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 auto; border-radius: 50%; color: #fff; background: #e8a12f; font-size: 22px; font-weight: 700; }
+.delete-confirm-dialog .danger-confirm { border-color: #cf5e52; background: #cf5e52; }
 .user-cell { display: flex; align-items: center; gap: 10px; }
 .user-cell > span:last-child { display: grid; gap: 3px; }
 .user-cell small { color: #93a099; }
@@ -388,6 +421,27 @@ button:disabled { cursor: not-allowed; }
 .status-pill.deleted { color: #8a554d; background: #faebe8; }
 .pending-invitations { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -6px 0 16px; color: #64766d; font-size: 12px; }
 .pending-invitations span { border-radius: 999px; padding: 6px 10px; background: #e9f2ed; }
+
+/* Improve contrast across the administrator center. */
+.account-center-dialog > header h2 { color: #29463a; font-weight: 650; }
+.account-center-dialog > header p { color: #5f7068; }
+.account-center-layout > nav button {
+  color: #29463a;
+  font: 650 25px/1.2 Georgia, "Songti SC", serif;
+  text-align: center;
+}
+.account-center-layout > nav button:hover,
+.account-center-layout > nav button.active { color: #124b39; }
+.center-nav-divider { color: #65776e; font-weight: 650; }
+.center-section > header h3 { color: #1f392e; }
+.center-section > header p { color: #60736a; }
+.team-switcher { color: #40564c; }
+.management-table .table-row { color: #4b6157; }
+.management-table .table-head { color: #304a3e; }
+.user-cell small { color: #71827a; }
+.pending-invitations { color: #52675d; }
+.admin-toolbar input::placeholder,
+.invite-inline-form input::placeholder { color: #82918a; opacity: 1; }
 
 @media (max-width: 800px) {
   .account-center-dialog { width: calc(100vw - 16px); height: calc(100vh - 16px); }

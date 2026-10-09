@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+﻿import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import bcrypt from "bcryptjs";
@@ -192,6 +192,50 @@ export class AccountStore {
     return tenant;
   }
 
+  updateTeam(token: string | undefined, teamId: string, input: { name?: unknown }) {
+    const manager = this.requireManager(token);
+    const tenantId = this.managedTenantId(manager, teamId);
+    const tenant = this.state.tenants.find((item) => item.id === tenantId);
+    if (!tenant) throw new AuthError("Team not found", 404);
+    const name = String(input.name || "").trim();
+    if (name.length < 2 || name.length > 80) throw new AuthError("Invalid team name", 400);
+    tenant.name = name;
+    this.persist();
+    return tenant;
+  }
+
+  deleteTeam(token: string | undefined, teamIdInput: string) {
+    const manager = this.requireManager(token);
+    const tenantId = this.managedTenantId(manager, teamIdInput);
+    const nextMembership = this.state.memberships.find((item) => item.userId === manager.id && item.tenantId !== tenantId);
+    manager.activeTenantId = nextMembership?.tenantId || "";
+    this.state.tenants = this.state.tenants.filter((item) => item.id !== tenantId);
+    this.state.memberships = this.state.memberships.filter((item) => item.tenantId !== tenantId);
+    this.state.invitations = this.state.invitations.filter((item) => item.tenantId !== tenantId);
+    this.persist();
+    return { deleted: true };
+  }
+
+  async createManagedMember(token: string | undefined, input: { username?: unknown; password?: unknown; phone?: unknown; email?: unknown; tenantId?: unknown }) {
+    const manager = this.requireManager(token);
+    const username = normalizeIdentifier(String(input.username || ""));
+    const password = String(input.password || "");
+    const tenantId = this.managedTenantId(manager, input.tenantId);
+    validatePassword(password, password);
+    if (!/^[A-Za-z0-9_]{2,20}$/.test(username)) throw new AuthError("Invalid username", 400);
+    if (this.state.accounts.some((item) => item.status === "active" && (item.username === username || item.email?.toLowerCase() === String(input.email || "").trim().toLowerCase()))) throw new AuthError("User already exists", 409);
+    const timestamp = this.now().toISOString();
+    const userId = randomUUID();
+    const email = String(input.email || "").trim().toLowerCase();
+    const phone = String(input.phone || "").trim();
+    const accountSetId = this.state.tenants.find((item) => item.id === tenantId)?.accountSetId || manager.accountSetId;
+    const account: Account = { id: userId, username, email: email || undefined, displayName: username, phone: phone || undefined, passwordHash: await bcrypt.hash(password, 12), tenantId, accountSetId, role: "finance_viewer", activeTenantId: tenantId, status: "active", createdAt: timestamp, updatedAt: timestamp };
+    this.state.accounts.push(account);
+    this.state.memberships.push({ userId, tenantId, accountSetId, role: "finance_viewer", joinedAt: timestamp });
+    this.persist();
+    return { user: this.toPublicAccount(account) };
+  }
+
   inviteMember(token: string | undefined, input: { identifier?: unknown; role?: unknown; tenantId?: unknown }) {
     const manager = this.requireManager(token);
     const identifier = normalizeIdentifier(String(input.identifier || ""));
@@ -229,6 +273,66 @@ export class AccountStore {
     if (account?.activeTenantId === tenantId) { account.role = membership.role; account.updatedAt = this.now().toISOString(); }
     this.persist();
     return membership;
+  }
+
+  updateManagedMember(token: string | undefined, userIdInput: unknown, input: { phone?: unknown; email?: unknown; role?: unknown; tenantId?: unknown }) {
+    const manager = this.requireManager(token);
+    const tenantId = this.managedTenantId(manager, input.tenantId);
+    const userId = String(userIdInput || "").trim();
+    const membership = this.state.memberships.find((item) => item.tenantId === tenantId && item.userId === userId);
+    const account = this.state.accounts.find((item) => item.id === userId && item.status === "active");
+    if (!membership || !account) throw new AuthError("Member not found", 404);
+    if (membership.role === "tenant_owner" && !this.isRoot(manager)) throw new AuthError("Owner cannot be edited", 403);
+    const email = String(input.email || "").trim().toLowerCase();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new AuthError("Invalid email", 400);
+    if (email && this.state.accounts.some((item) => item.id !== account.id && item.status === "active" && item.email?.toLowerCase() === email)) throw new AuthError("Email is already in use", 409);
+    const phone = String(input.phone || "").trim();
+    if (phone && !/^[+\d][\d\s-]{5,24}$/.test(phone)) throw new AuthError("Invalid phone", 400);
+    account.email = email || undefined;
+    account.phone = phone || undefined;
+    if (input.role !== undefined) {
+      if (membership.role === "tenant_owner" && !this.isRoot(manager)) throw new AuthError("Owner role cannot be changed", 403);
+      membership.role = memberRole(input.role);
+      if (account.activeTenantId === tenantId) account.role = membership.role;
+    }
+    account.updatedAt = this.now().toISOString();
+    this.persist();
+    return membership;
+  }
+
+  removeManagedMember(token: string | undefined, userIdInput: unknown, tenantIdInput: unknown) {
+    const manager = this.requireManager(token);
+    const tenantId = this.managedTenantId(manager, tenantIdInput);
+    const userId = String(userIdInput || "").trim();
+    if (userId === manager.id) throw new AuthError("You cannot remove yourself", 400);
+    const membership = this.state.memberships.find((item) => item.tenantId === tenantId && item.userId === userId);
+    const account = this.state.accounts.find((item) => item.id === userId);
+    if (!membership || !account) throw new AuthError("Member not found", 404);
+    if (membership.role === "tenant_owner" && !this.isRoot(manager)) throw new AuthError("Owner cannot be removed", 403);
+    this.state.memberships = this.state.memberships.filter((item) => !(item.userId === userId && item.tenantId === tenantId));
+    if (!this.state.memberships.some((item) => item.userId === userId)) {
+      account.status = "deleted";
+      this.state.sessions = this.state.sessions.filter((session) => session.userId !== userId);
+    }
+    this.persist();
+    return { removed: true };
+  }
+
+  async resetManagedMemberPassword(token: string | undefined, userIdInput: unknown, input: { newPassword?: unknown; confirmPassword?: unknown; tenantId?: unknown }) {
+    const manager = this.requireManager(token);
+    const tenantId = this.managedTenantId(manager, input.tenantId);
+    const userId = String(userIdInput || "").trim();
+    const membership = this.state.memberships.find((item) => item.tenantId === tenantId && item.userId === userId);
+    const account = this.state.accounts.find((item) => item.id === userId && item.status === "active");
+    if (!membership || !account) throw new AuthError("Member not found", 404);
+    if (membership.role === "tenant_owner" && !this.isRoot(manager)) throw new AuthError("Owner password cannot be reset", 403);
+    const password = String(input.newPassword || "");
+    validatePassword(password, String(input.confirmPassword || ""));
+    account.passwordHash = await bcrypt.hash(password, 12);
+    account.updatedAt = this.now().toISOString();
+    this.state.sessions = this.state.sessions.filter((session) => session.userId !== userId);
+    this.persist();
+    return { reset: true };
   }
 
   logout(token?: string) {
