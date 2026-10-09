@@ -10,6 +10,7 @@ import type { WorkflowStore } from "./workflow-store.js";
 import { workflowNodeTypes, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode, type WorkflowNodeRun, type WorkflowNodeRunStatus, type WorkflowRun } from "./workflow-types.js";
 
 type Scope = Record<string, unknown>;
+type BoundKnowledgeAccess = Set<string>;
 export type WorkflowStreamListener = {
   signal?: AbortSignal;
   onStart?: (run: WorkflowRun) => void;
@@ -53,6 +54,7 @@ export class WorkflowEngine {
   private async execute(context: RequestContext, definition: WorkflowDefinition, ordered: WorkflowNode[], run: WorkflowRun, input: Record<string, unknown>, stream?: WorkflowStreamListener): Promise<WorkflowRun> {
     const started = Date.now();
     const scope: Scope = { input, variables: definition.variables };
+    const boundKnowledgeBaseIds = collectBoundKnowledgeBaseIds(definition);
     const activeEdges = new Set<string>();
     let failed = false;
     let finalOutput: unknown = null;
@@ -81,7 +83,7 @@ export class WorkflowEngine {
           const connectedTools = resolveValue(connectedAgentTools(node.id, definition), scope) as AgentToolConfig[];
           resolvedInput = { ...object(resolvedInput), tools: [...asArray(object(resolvedInput).tools), ...connectedTools] };
         }
-        const output = await this.executeNode(context, node, object(resolvedInput), scope, (partial) => {
+        const output = await this.executeNode(context, node, object(resolvedInput), scope, boundKnowledgeBaseIds, (partial) => {
           if (nodeExecutionFinished) return;
           this.dependencies.store.finishNodeRun(context, run.id, runningNode.id, { status: "running", input: resolvedInput, output: partial, error: null, durationMs: Date.now() - nodeStarted, finishedAt: new Date().toISOString() });
           const progress = object(partial);
@@ -108,7 +110,7 @@ export class WorkflowEngine {
     return this.dependencies.store.finishRun(context, run.id, failed ? "failed" : "success", finalOutput, runError, Date.now() - started);
   }
 
-  private async executeNode(context: RequestContext, node: WorkflowNode, config: Record<string, unknown>, scope: Scope, onProgress?: (output: unknown) => void, signal?: AbortSignal): Promise<unknown> {
+  private async executeNode(context: RequestContext, node: WorkflowNode, config: Record<string, unknown>, scope: Scope, boundKnowledgeBaseIds: BoundKnowledgeAccess, onProgress?: (output: unknown) => void, signal?: AbortSignal): Promise<unknown> {
     switch (node.type) {
       case "start": return validateStartInput(config, object(scope.input));
       case "end": return config.output ?? lastOutput(scope);
@@ -126,7 +128,7 @@ export class WorkflowEngine {
         } : undefined });
         return { text: response.content };
       }
-      case "agent": return this.executeAgent(context, config, onProgress, object(scope.input).__conversationHistory, signal);
+      case "agent": return this.executeAgent(context, config, boundKnowledgeBaseIds, onProgress, object(scope.input).__conversationHistory, signal);
       case "knowledge_retrieval": {
         if (!this.dependencies.knowledgeRetrieval) throw new Error("知识库检索服务未配置");
         const result = await this.dependencies.knowledgeRetrieval.retrieve(context, {
@@ -141,6 +143,7 @@ export class WorkflowEngine {
           rerankTopK: optionalNumber(config.rerankTopK),
           vectorWeight: optionalNumber(config.vectorWeight),
           candidateCount: optionalNumber(config.candidateCount),
+          access: agentKnowledgeAccess(boundKnowledgeBaseIds),
         });
         return {
           items: result.items,
@@ -161,7 +164,7 @@ export class WorkflowEngine {
     }
   }
 
-  private async executeAgent(context: RequestContext, config: Record<string, unknown>, onProgress?: (output: unknown) => void, conversationHistory?: unknown, signal?: AbortSignal) {
+  private async executeAgent(context: RequestContext, config: Record<string, unknown>, boundKnowledgeBaseIds: BoundKnowledgeAccess, onProgress?: (output: unknown) => void, conversationHistory?: unknown, signal?: AbortSignal) {
     const trace: AgentTraceEntry[] = [];
     const modelId = required(config.modelId, "请选择 Agent LLM 模型");
     const maxIterations = boundedInteger(config.maxIterations, 5, 1, 20, "最大迭代次数");
@@ -235,7 +238,7 @@ export class WorkflowEngine {
         const toolStarted = Date.now();
         const args = object(decision.arguments);
         try {
-          const result = await this.executeAgentTool(context, tool, args);
+          const result = await this.executeAgentTool(context, tool, args, boundKnowledgeBaseIds);
           if (timedOut) throw new Error(`Agent 响应超时（${timeoutMs}ms）`);
           trace.push({ type: "tool", name: tool.name, input: args, output: result, durationMs: Date.now() - toolStarted, iteration });
           toolCalls += 1;
@@ -266,7 +269,7 @@ export class WorkflowEngine {
     }
   }
 
-  private async executeAgentTool(context: RequestContext, tool: AgentToolConfig, args: Record<string, unknown>) {
+  private async executeAgentTool(context: RequestContext, tool: AgentToolConfig, args: Record<string, unknown>, boundKnowledgeBaseIds: BoundKnowledgeAccess) {
     if (tool.type !== "knowledge_retrieval") throw new Error(`不支持的 Agent Tool 类型：${tool.type}`);
     if (!this.dependencies.knowledgeRetrieval) throw new Error("知识库检索服务未配置");
     const query = required(args.query, `工具 ${tool.name} 缺少 query 参数`);
@@ -284,6 +287,7 @@ export class WorkflowEngine {
       rerankTopK: optionalNumber(tool.rerankTopK),
       vectorWeight: optionalNumber(tool.vectorWeight),
       candidateCount: optionalNumber(tool.candidateCount),
+      access: agentKnowledgeAccess(boundKnowledgeBaseIds),
     });
     return { items: result.items, topScore: result.items[0]?.score ?? 0, hitCount: result.items.length };
   }
@@ -424,6 +428,21 @@ function connectedAgentTools(agentId: string, definition: WorkflowDefinition): A
         dynamicFilters: config.dynamicFilters !== false,
       }];
     });
+}
+function collectBoundKnowledgeBaseIds(definition: WorkflowDefinition): BoundKnowledgeAccess {
+  const ids = new Set<string>();
+  for (const node of definition.nodes) {
+    if (node.type === "knowledge_retrieval") addStaticKnowledgeBaseId(ids, node.data.config.knowledgeBaseId);
+    if (node.type === "agent") for (const tool of normalizeAgentTools(node.data.config.tools)) addStaticKnowledgeBaseId(ids, tool.knowledgeBaseId);
+  }
+  return ids;
+}
+function addStaticKnowledgeBaseId(ids: BoundKnowledgeAccess, value: unknown) {
+  const id = String(value || "").trim();
+  if (id && !id.includes("{{")) ids.add(id);
+}
+function agentKnowledgeAccess(ids: BoundKnowledgeAccess) {
+  return { mode: "agent" as const, allowedKnowledgeBaseIds: ids };
 }
 function selectedEdges(node: WorkflowNode, output: unknown, edges: WorkflowEdge[]) {
   const outgoing = edges.filter((edge) => edge.source === node.id);

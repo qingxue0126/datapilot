@@ -82,7 +82,7 @@ export type KnowledgeChunk = {
 };
 
 type KnowledgeBaseRow = {
-  id: string; user_id: string; name: string; description: string; permission: KnowledgePermission; config_json: string; requires_reindex: number;
+  id: string; tenant_id?: string; account_set_id: string; user_id: string; name: string; description: string; permission: KnowledgePermission; config_json: string; requires_reindex: number;
   created_at: string; updated_at: string; document_count?: number; chunk_count?: number;
 };
 type DocumentRow = {
@@ -177,14 +177,14 @@ export class KnowledgeStore {
 
   list(context: RequestContext) {
     const rows = this.database.prepare(`
-      SELECT kb.id, kb.user_id, kb.name, kb.description, kb.permission, kb.config_json, kb.requires_reindex, kb.created_at, kb.updated_at,
+      SELECT kb.id, kb.tenant_id, kb.account_set_id, kb.user_id, kb.name, kb.description, kb.permission, kb.config_json, kb.requires_reindex, kb.created_at, kb.updated_at,
         COUNT(DISTINCT d.id) AS document_count, COUNT(c.id) AS chunk_count
       FROM knowledge_bases kb
       LEFT JOIN knowledge_documents d ON d.knowledge_base_id = kb.id
       LEFT JOIN knowledge_chunks c ON c.document_id = d.id
-      WHERE kb.tenant_id = ? AND kb.account_set_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+      WHERE kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
       GROUP BY kb.id ORDER BY kb.updated_at DESC, kb.id DESC
-    `).all(context.tenantId, context.accountSetId, context.userId) as unknown as KnowledgeBaseRow[];
+    `).all(context.tenantId, context.userId) as unknown as KnowledgeBaseRow[];
     return rows.map((row) => toKnowledgeBase(row, context.userId));
   }
 
@@ -289,7 +289,7 @@ export class KnowledgeStore {
   }
 
   documentSource(context: RequestContext, id: string) {
-    const row = this.readableDocument(context, id, true);
+    const row = this.ownedDocument(context, id, true);
     if (!row.source_data) throw new KnowledgeStoreError("文档原始文件不存在，无法重新解析", 409);
     return Buffer.from(row.source_data);
   }
@@ -321,9 +321,9 @@ export class KnowledgeStore {
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
       JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-      WHERE c.document_id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+      WHERE c.document_id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
       ORDER BY c.chunk_index ASC
-    `).all(documentId, context.tenantId, context.accountSetId, context.userId) as unknown as ChunkRow[];
+    `).all(documentId, context.tenantId, context.userId) as unknown as ChunkRow[];
     return rows.map(toChunk);
   }
 
@@ -372,7 +372,16 @@ export class KnowledgeStore {
 
   retrievalContext(context: RequestContext, knowledgeBaseId: string): RequestContext {
     const row = this.readableBase(context, knowledgeBaseId);
-    return row.user_id === context.userId ? context : { ...context, userId: row.user_id };
+    return row.user_id === context.userId && row.account_set_id === context.accountSetId ? context : { ...context, userId: row.user_id, accountSetId: row.account_set_id };
+  }
+
+  boundAgentRetrievalContext(context: RequestContext, knowledgeBaseId: string): RequestContext {
+    const row = this.database.prepare(`
+      SELECT id, tenant_id, account_set_id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at
+      FROM knowledge_bases WHERE id = ? AND tenant_id = ?
+    `).get(knowledgeBaseId, context.tenantId) as unknown as KnowledgeBaseRow | undefined;
+    if (!row) throw new KnowledgeStoreError("知识库不存在或无权访问", 404);
+    return { ...context, userId: row.user_id, accountSetId: row.account_set_id };
   }
 
   updateChunk(context: RequestContext, id: string, input: { content?: string; embeddingContent?: string; metadata?: Metadata; enabled?: boolean }) {
@@ -402,19 +411,19 @@ export class KnowledgeStore {
 
   private ownedBase(context: RequestContext, id: string) {
     const row = this.database.prepare(`
-      SELECT id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at
-      FROM knowledge_bases WHERE id = ? AND tenant_id = ? AND account_set_id = ? AND user_id = ?
-    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as KnowledgeBaseRow | undefined;
+      SELECT id, tenant_id, account_set_id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at
+      FROM knowledge_bases WHERE id = ? AND tenant_id = ? AND user_id = ?
+    `).get(id, context.tenantId, context.userId) as unknown as KnowledgeBaseRow | undefined;
     if (!row) throw new KnowledgeStoreError("知识库不存在或无权访问", 404);
     return row;
   }
 
   private readableBase(context: RequestContext, id: string) {
     const row = this.database.prepare(`
-      SELECT id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at
+      SELECT id, tenant_id, account_set_id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at
       FROM knowledge_bases
-      WHERE id = ? AND tenant_id = ? AND account_set_id = ? AND (user_id = ? OR permission = 'team')
-    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as KnowledgeBaseRow | undefined;
+      WHERE id = ? AND tenant_id = ? AND (user_id = ? OR permission = 'team')
+    `).get(id, context.tenantId, context.userId) as unknown as KnowledgeBaseRow | undefined;
     if (!row) throw new KnowledgeStoreError("知识库不存在或无权访问", 404);
     return row;
   }
@@ -425,8 +434,8 @@ export class KnowledgeStore {
       SELECT d.id, d.knowledge_base_id, d.filename, d.file_type, d.size, d.parser_type, d.columns_json,
         d.status, d.error, d.chunk_count, d.created_at, d.updated_at ${source}
       FROM knowledge_documents d JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-      WHERE d.id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND kb.user_id = ?
-    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as DocumentRow | undefined;
+      WHERE d.id = ? AND kb.tenant_id = ? AND kb.user_id = ?
+    `).get(id, context.tenantId, context.userId) as unknown as DocumentRow | undefined;
     if (!row) throw new KnowledgeStoreError("文档不存在或无权访问", 404);
     return row;
   }
@@ -437,8 +446,8 @@ export class KnowledgeStore {
       SELECT d.id, d.knowledge_base_id, d.filename, d.file_type, d.size, d.parser_type, d.columns_json,
         d.status, d.error, d.chunk_count, d.created_at, d.updated_at ${source}
       FROM knowledge_documents d JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-      WHERE d.id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
-    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as DocumentRow | undefined;
+      WHERE d.id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+    `).get(id, context.tenantId, context.userId) as unknown as DocumentRow | undefined;
     if (!row) throw new KnowledgeStoreError("文档不存在或无权访问", 404);
     return row;
   }
@@ -448,8 +457,8 @@ export class KnowledgeStore {
       SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.embedding_content, c.metadata_json,
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
-      WHERE c.id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND kb.user_id = ?
-    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as ChunkRow | undefined;
+      WHERE c.id = ? AND kb.tenant_id = ? AND kb.user_id = ?
+    `).get(id, context.tenantId, context.userId) as unknown as ChunkRow | undefined;
     if (!row) throw new KnowledgeStoreError("Chunk 不存在或无权访问", 404);
     return row;
   }
@@ -459,8 +468,8 @@ export class KnowledgeStore {
       SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.embedding_content, c.metadata_json,
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
-      WHERE c.id = ? AND kb.tenant_id = ? AND kb.account_set_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
-    `).get(id, context.tenantId, context.accountSetId, context.userId) as unknown as ChunkRow | undefined;
+      WHERE c.id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+    `).get(id, context.tenantId, context.userId) as unknown as ChunkRow | undefined;
     if (!row) throw new KnowledgeStoreError("Chunk 不存在或无权访问", 404);
     return row;
   }

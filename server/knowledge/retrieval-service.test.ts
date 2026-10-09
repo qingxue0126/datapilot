@@ -42,16 +42,46 @@ test("vector and hybrid retrieval apply identical containsToken semantics", asyn
   } finally { vectors.close(); store.close(); }
 });
 
-test("team members retrieve shared vectors through the owner's scoped vector context", async () => {
+test("team members retrieve shared vectors through the owner's scoped vector context across account sets", async () => {
   const { store, knowledgeBase, records } = fixture();
   const vectors = new LocalVectorStore(":memory:");
-  const teammate: RequestContext = { ...context, userId: "bob", sessionId: "session-b" };
+  const teammate: RequestContext = { ...context, accountSetId: "books-b", userId: "bob", sessionId: "session-b" };
   try {
     vectors.upsert(context, records);
     store.update(context, knowledgeBase.id, { permission: "team" });
     const service = new KnowledgeRetrievalService(store, vectors, new TestEmbeddingProvider());
     const result = await service.retrieve(teammate, { knowledgeBaseId: knowledgeBase.id, query: "product", topK: 10, scoreThreshold: -1 });
     assert.deepEqual(result.items.map((item) => item.chunkId), ["t3", "t30"]);
+  } finally { vectors.close(); store.close(); }
+});
+
+test("agent-bound access retrieves a private knowledge base without granting arbitrary retrieval", async () => {
+  const { store, knowledgeBase, records } = fixture();
+  const vectors = new LocalVectorStore(":memory:");
+  const teammate: RequestContext = { ...context, accountSetId: "books-b", userId: "bob", role: "finance_viewer", sessionId: "session-b" };
+  try {
+    vectors.upsert(context, records);
+    const service = new KnowledgeRetrievalService(store, vectors, new TestEmbeddingProvider());
+    await assert.rejects(
+      service.retrieve(teammate, { knowledgeBaseId: knowledgeBase.id, query: "product", topK: 10, scoreThreshold: -1 }),
+      /知识库不存在|无权访问/,
+    );
+    const result = await service.retrieve(teammate, {
+      knowledgeBaseId: knowledgeBase.id,
+      query: "product",
+      topK: 10,
+      scoreThreshold: -1,
+      access: { mode: "agent", allowedKnowledgeBaseIds: [knowledgeBase.id] },
+    });
+    assert.deepEqual(result.items.map((item) => item.chunkId), ["t3", "t30"]);
+    await assert.rejects(
+      service.retrieve(teammate, {
+        knowledgeBaseId: knowledgeBase.id,
+        query: "product",
+        access: { mode: "agent", allowedKnowledgeBaseIds: ["other-kb"] },
+      }),
+      /未绑定当前智能体/,
+    );
   } finally { vectors.close(); store.close(); }
 });
 

@@ -20,6 +20,7 @@ export type KnowledgeRetrievalRequest = {
   candidateCount?: number;
   rerankModel?: string;
   rerankTopK?: number;
+  access?: { mode: "agent"; allowedKnowledgeBaseIds: Iterable<string> };
 };
 
 export type KnowledgeRetrievalItem = {
@@ -62,7 +63,8 @@ export class KnowledgeRetrievalService {
     const query = String(request.query || "").trim();
     if (!query) throw new KnowledgeStoreError("query 不能为空");
 
-    const detail = this.store.get(context, knowledgeBaseId);
+    const accessContext = this.resolveAccessContext(context, knowledgeBaseId, request.access);
+    const detail = this.store.get(accessContext, knowledgeBaseId);
     if (detail.knowledgeBase.requiresReindex) throw new KnowledgeStoreError("Embedding 模型或索引配置已变更，请先重新向量化", 409);
     const config = detail.knowledgeBase.config;
     const topK = boundedNumber(request.topK, config.topK, 1, 50, true, "top_k");
@@ -80,16 +82,16 @@ export class KnowledgeRetrievalService {
       ? Math.min(200, Math.max(candidateCount * 4, topK * 10))
       : candidateCount;
 
-    this.validateFilterSchema(context, knowledgeBaseId, filters);
+    this.validateFilterSchema(accessContext, knowledgeBaseId, filters);
     const queryEmbedding = await this.embeddings.embed(context, config.embeddingModel, query);
-    const vectorContext = this.store.retrievalContext(context, knowledgeBaseId);
+    const vectorContext = this.store.retrievalContext(accessContext, knowledgeBaseId);
     let matches = await this.vectors.search(vectorContext, knowledgeBaseId, queryEmbedding, {
       limit: vectorCandidateCount,
       metadataFilter: filters,
       indexConfig: vectorIndexConfig(config),
     });
     matches = matches.filter((item) => metadataMatches(item.metadata, filters));
-    if (retrievalMode === "hybrid") matches = this.hybridMatches(context, knowledgeBaseId, query, filters, matches, vectorWeight, candidateCount);
+    if (retrievalMode === "hybrid") matches = this.hybridMatches(accessContext, knowledgeBaseId, query, filters, matches, vectorWeight, candidateCount);
     matches = matches.filter((item) => item.score >= scoreThreshold);
     if (rerank && this.reranker && rerankModel && rerankModel !== "local-keyword-reranker-v1") {
       const ranked = await this.reranker.rerank(context, rerankModel, query, matches.map((item) => item.content), rerankTopK);
@@ -146,6 +148,14 @@ export class KnowledgeRetrievalService {
       const expectedType = isContainsTokenFilter(value) ? "string" : typeof value;
       if (!fieldTypes.get(field)?.has(expectedType)) throw new KnowledgeStoreError(`Metadata 过滤值类型错误: ${field}`);
     }
+  }
+
+  private resolveAccessContext(context: RequestContext, knowledgeBaseId: string, access?: KnowledgeRetrievalRequest["access"]) {
+    if (!access) return context;
+    if (access.mode !== "agent") return context;
+    const allowed = new Set([...access.allowedKnowledgeBaseIds].map(String));
+    if (!allowed.has(knowledgeBaseId)) throw new KnowledgeStoreError("知识库未绑定当前智能体，无法通过该智能体检索", 403);
+    return this.store.boundAgentRetrievalContext(context, knowledgeBaseId);
   }
 }
 

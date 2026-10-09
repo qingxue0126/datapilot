@@ -243,6 +243,8 @@ test("knowledge retrieval nodes resolve dynamic filters and expose complete retr
   let request: Record<string, unknown> | undefined;
   const retrieval = { retrieve: async (_context: RequestContext, value: Record<string, unknown>) => {
     request = value;
+    const access = value.access as { allowedKnowledgeBaseIds?: Iterable<string> } | undefined;
+    assert.deepEqual([...(access?.allowedKnowledgeBaseIds || [])], ["kb-1"]);
     return { items: [{ rank: 1, chunkId: "c1", documentId: "d1", filename: "qa.xlsx", fileType: "XLSX", chunkIndex: 0, content: "Question：如何增加外币科目？\nAnswer：进入设置。", score: 0.91, metadata: { Porduct: "好会计" } }] };
   } } as unknown as KnowledgeRetrievalService;
   const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models: {} as ModelService, knowledgeRetrieval: retrieval, connection: () => { throw new Error("unused"); } });
@@ -281,6 +283,8 @@ test("Agent autonomously calls a configured knowledge tool, carries memory, and 
   let retrievalRequest: Record<string, unknown> | undefined;
   const knowledgeRetrieval = { retrieve: async (_context: RequestContext, request: Record<string, unknown>) => {
     retrievalRequest = request;
+    const access = request.access as { allowedKnowledgeBaseIds?: Iterable<string> } | undefined;
+    assert.deepEqual([...(access?.allowedKnowledgeBaseIds || [])], ["kb-1"]);
     return { items: [{ rank: 1, chunkId: "c1", documentId: "d1", filename: "policy.md", fileType: "MD", chunkIndex: 0, content: "可在订单页申请退款。", score: 0.94, metadata: { product: "Pro" } }] };
   } } as unknown as KnowledgeRetrievalService;
   const engine = new WorkflowEngine({ store, permissions: new PermissionService(), models, knowledgeRetrieval, connection: () => { throw new Error("unused"); } });

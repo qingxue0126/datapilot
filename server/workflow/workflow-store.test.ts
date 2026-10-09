@@ -6,6 +6,7 @@ import { WorkflowStore } from "./workflow-store.js";
 const owner: RequestContext = { tenantId: "tenant-a", accountSetId: "account-a", userId: "user-a", role: "tenant_admin", sessionId: "session-a" };
 const outsider: RequestContext = { ...owner, tenantId: "tenant-b", userId: "user-b" };
 const teammate: RequestContext = { ...owner, userId: "user-c", role: "finance_viewer" };
+const teammateOtherAccount: RequestContext = { ...teammate, accountSetId: "account-b" };
 
 test("workflow store persists agent CRUD, copies definitions, and isolates tenants", () => {
   const store = new WorkflowStore(":memory:");
@@ -30,6 +31,7 @@ test("workflow store persists agent CRUD, copies definitions, and isolates tenan
   store.setMemberPermission(owner, created.agent.id, teammate.userId, "use");
   assert.equal(store.getAgent(teammate, created.agent.id).permission, "tenant");
   assert.equal(store.getAgent(teammate, created.agent.id).accessLevel, "use");
+  assert.equal(store.getAgent(teammateOtherAccount, created.agent.id).accessLevel, "use");
 
   store.saveWorkflow(owner, created.agent.id, { ...saved.definition, variables: { region: "华南" } });
   assert.equal(store.listVersions(owner, created.agent.id).length, 1);
@@ -56,6 +58,7 @@ test("team agent use and edit grants are enforced independently", () => {
   store.publish(owner, created.agent.id, true, "tenant");
   store.setMemberPermission(owner, created.agent.id, teammate.userId, "use");
   assert.equal(store.getAgent(teammate, created.agent.id).accessLevel, "use");
+  assert.equal(store.getAgent(teammateOtherAccount, created.agent.id).accessLevel, "use");
   assert.throws(() => store.requireEdit(teammate, created.agent.id), /编辑权限/);
   store.setMemberPermission(owner, created.agent.id, teammate.userId, "edit");
   store.requireEdit(teammate, created.agent.id);

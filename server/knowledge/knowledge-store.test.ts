@@ -14,7 +14,7 @@ test("multipart UTF-8 document filenames are repaired from Multer Latin-1 decodi
   assert.equal(normalizeDocumentFilename("report_0924.xlsx"), "report_0924.xlsx");
 });
 
-test("knowledge store scopes bases, documents, and chunks to the full owner context", () => {
+test("knowledge store scopes private bases, documents, and chunks to the owner within the tenant", () => {
   const store = new KnowledgeStore(":memory:");
   try {
     const knowledgeBase = store.create(alice, { name: "制度库", config: { chunkSize: 500, topK: 8 } });
@@ -33,7 +33,7 @@ test("knowledge store scopes bases, documents, and chunks to the full owner cont
   } finally { store.close(); }
 });
 
-test("team permission shares reads within the tenant and account set without sharing write access", () => {
+test("team permission shares reads within the tenant without binding to account set or write/download access", () => {
   const store = new KnowledgeStore(":memory:");
   const otherAccount: RequestContext = { ...bob, accountSetId: "books-b" };
   const otherTenant: RequestContext = { ...bob, tenantId: "tenant-b" };
@@ -49,8 +49,25 @@ test("team permission shares reads within the tenant and account set without sha
     assert.equal(store.get(bob, base.id).knowledgeBase.isOwner, false);
     assert.equal(store.retrievalContext(bob, base.id).userId, alice.userId);
     assert.throws(() => store.update(bob, base.id, { name: "越权修改" }), (error: KnowledgeStoreError) => error.status === 404);
-    assert.throws(() => store.get(otherAccount, base.id), (error: KnowledgeStoreError) => error.status === 404);
+    assert.equal(store.get(otherAccount, base.id).knowledgeBase.id, base.id);
+    assert.equal(store.retrievalContext(otherAccount, base.id).accountSetId, alice.accountSetId);
     assert.throws(() => store.get(otherTenant, base.id), (error: KnowledgeStoreError) => error.status === 404);
+    const document = store.createDocument(alice, base.id, { filename: "team.txt", fileType: "TXT", size: 4, source: Buffer.from("team") });
+    assert.throws(() => store.documentSource(bob, document.id), (error: KnowledgeStoreError) => error.status === 404);
+  } finally { store.close(); }
+});
+
+test("agent-bound retrieval context can reach a private knowledge base only in the same tenant", () => {
+  const store = new KnowledgeStore(":memory:");
+  const teammate: RequestContext = { ...bob, accountSetId: "books-b" };
+  const otherTenant: RequestContext = { ...teammate, tenantId: "tenant-b" };
+  try {
+    const base = store.create(alice, { name: "Private Agent KB" });
+    const context = store.boundAgentRetrievalContext(teammate, base.id);
+    assert.equal(context.userId, alice.userId);
+    assert.equal(context.accountSetId, alice.accountSetId);
+    assert.equal(store.get(context, base.id).knowledgeBase.id, base.id);
+    assert.throws(() => store.boundAgentRetrievalContext(otherTenant, base.id), (error: KnowledgeStoreError) => error.status === 404);
   } finally { store.close(); }
 });
 

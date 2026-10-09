@@ -146,12 +146,17 @@ test("knowledge API supports retrieval, chunk CRUD, reparse, disabled filtering,
     assert.equal(edited.status, 200);
     assert.match((await edited.json() as { chunk: { content: string } }).chunk.content, /反记账/);
 
-    for (const headers of [{ "x-test-user": "bob" }, { "x-test-tenant": "tenant-b" }, { "x-test-books": "books-b" }] as Record<string, string>[]) {
+    for (const headers of [{ "x-test-user": "bob" }, { "x-test-tenant": "tenant-b" }] as Record<string, string>[]) {
       assert.equal((await fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}`, { headers })).status, 403);
       assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/chunks`, { headers })).status, 403);
       assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/preview`, { headers })).status, 403);
       assert.equal((await fetch(`${base}/api/chunks/${chunkId}`, { method: "PATCH", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: false }) })).status, 403);
     }
+    const otherBooks = { "x-test-books": "books-b" };
+    assert.equal((await fetch(`${base}/api/knowledge-bases/${created.knowledgeBase.id}`, { headers: otherBooks })).status, 200);
+    assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/chunks`, { headers: otherBooks })).status, 200);
+    assert.equal((await fetch(`${base}/api/documents/${uploadedBody.document.id}/preview`, { headers: otherBooks })).status, 200);
+    assert.equal((await fetch(`${base}/api/chunks/${chunkId}`, { method: "PATCH", headers: { ...otherBooks, "Content-Type": "application/json" }, body: JSON.stringify({ enabled: true }) })).status, 200);
 
     const reparsed = await fetch(`${base}/api/documents/${uploadedBody.document.id}/reparse`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ parserType: "table", metadataFields: ["产品"] }) });
     assert.equal(reparsed.status, 200); assert.equal((await reparsed.json() as { document: { status: string } }).document.status, "ready");

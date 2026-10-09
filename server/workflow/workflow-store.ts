@@ -24,8 +24,8 @@ export class WorkflowStore {
 
   listAgents(context: RequestContext): AgentRecord[] {
     const admin = isManager(context);
-    return (this.database.prepare(`${agentSelect} WHERE tenant_id=? AND account_set_id=? AND (user_id=? OR (?=1 AND permission='tenant') OR (permission='tenant' AND EXISTS (SELECT 1 FROM agent_member_permissions p WHERE p.agent_id=agents.id AND p.user_id=? AND (agents.status='published' OR p.access_level='edit')))) ORDER BY updated_at DESC`)
-      .all(context.tenantId, context.accountSetId, context.userId, admin ? 1 : 0, context.userId) as Row[]).map((row) => this.toAgent(context, row));
+    return (this.database.prepare(`${agentSelect} WHERE tenant_id=? AND (user_id=? OR (?=1 AND permission='tenant') OR (permission='tenant' AND EXISTS (SELECT 1 FROM agent_member_permissions p WHERE p.agent_id=agents.id AND p.user_id=? AND (agents.status='published' OR p.access_level='edit')))) ORDER BY updated_at DESC`)
+      .all(context.tenantId, context.userId, admin ? 1 : 0, context.userId) as Row[]).map((row) => this.toAgent(context, row));
   }
 
   getAgent(context: RequestContext, id: string): AgentRecord {
@@ -50,8 +50,8 @@ export class WorkflowStore {
     const description = input.description === undefined ? current.description : String(input.description).trim().slice(0, 500);
     const status = input.status === undefined ? current.status : validateStatus(input.status);
     const permission = input.permission === undefined ? current.permission : validatePermission(input.permission);
-    this.database.prepare("UPDATE agents SET name=?,description=?,status=?,permission=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=?")
-      .run(name, description, status, permission, new Date().toISOString(), id, context.tenantId, context.accountSetId);
+    this.database.prepare("UPDATE agents SET name=?,description=?,status=?,permission=?,updated_at=? WHERE id=? AND tenant_id=?")
+      .run(name, description, status, permission, new Date().toISOString(), id, context.tenantId);
     return this.getAgent(context, id);
   }
 
@@ -65,8 +65,8 @@ export class WorkflowStore {
 
   deleteAgent(context: RequestContext, id: string) {
     this.ownedAgentRow(context, id);
-    this.database.prepare("DELETE FROM agents WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
-      .run(id, context.tenantId, context.accountSetId, context.userId);
+    this.database.prepare("DELETE FROM agents WHERE id=? AND tenant_id=? AND user_id=?")
+      .run(id, context.tenantId, context.userId);
   }
 
   getWorkflow(context: RequestContext, agentId: string): WorkflowRecord {
@@ -81,8 +81,8 @@ export class WorkflowStore {
     const now = new Date().toISOString();
     this.database.prepare("UPDATE workflows SET definition_json=?,updated_at=? WHERE agent_id=?")
       .run(JSON.stringify(definition), now, agentId);
-    this.database.prepare("UPDATE agents SET status='draft',updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=?")
-      .run(now, agentId, context.tenantId, context.accountSetId);
+    this.database.prepare("UPDATE agents SET status='draft',updated_at=? WHERE id=? AND tenant_id=?")
+      .run(now, agentId, context.tenantId);
     return this.getWorkflow(context, agentId);
   }
 
@@ -93,15 +93,15 @@ export class WorkflowStore {
     const nextPermission = permission === undefined ? agent.permission : validatePermission(permission);
     const now = new Date().toISOString();
     if (!enabled) {
-      this.database.prepare("UPDATE agents SET status=?,permission=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=?")
-        .run(status, nextPermission, now, agentId, context.tenantId, context.accountSetId);
+      this.database.prepare("UPDATE agents SET status=?,permission=?,updated_at=? WHERE id=? AND tenant_id=?")
+        .run(status, nextPermission, now, agentId, context.tenantId);
       return { agent: { ...agent, status, permission: nextPermission, updatedAt: now }, version: null };
     }
     const row = this.database.prepare("SELECT COALESCE(MAX(version),0) AS version FROM workflow_versions WHERE agent_id=? AND status='published'").get(agentId) as Row;
     const version = Number(row.version) + 1;
     this.database.prepare("UPDATE workflows SET version=?,updated_at=? WHERE agent_id=?").run(version, now, agentId);
-    this.database.prepare("UPDATE agents SET status='published',permission=?,current_version=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=?")
-      .run(nextPermission, version, now, agentId, context.tenantId, context.accountSetId);
+    this.database.prepare("UPDATE agents SET status='published',permission=?,current_version=?,updated_at=? WHERE id=? AND tenant_id=?")
+      .run(nextPermission, version, now, agentId, context.tenantId);
     this.saveVersion(agentId, version, workflow.definition, "published", now, true);
     return { agent: this.getAgent(context, agentId), version: this.getVersion(context, agentId, version) };
   }
@@ -167,15 +167,15 @@ export class WorkflowStore {
   }
 
   private ownedAgentRow(context: RequestContext, id: string): Row {
-    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?`)
-      .get(id, context.tenantId, context.accountSetId, context.userId) as Row | undefined;
+    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND user_id=?`)
+      .get(id, context.tenantId, context.userId) as Row | undefined;
     if (!row) throw new WorkflowStoreError("智能体不存在或无权访问", 404);
     return row;
   }
 
   private readableAgentRow(context: RequestContext, id: string): Row {
-    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND account_set_id=? AND (user_id=? OR (?=1 AND permission='tenant') OR (permission='tenant' AND EXISTS (SELECT 1 FROM agent_member_permissions p WHERE p.agent_id=agents.id AND p.user_id=? AND (agents.status='published' OR p.access_level='edit'))))`)
-      .get(id, context.tenantId, context.accountSetId, context.userId, isManager(context) ? 1 : 0, context.userId) as Row | undefined;
+    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND (user_id=? OR (?=1 AND permission='tenant') OR (permission='tenant' AND EXISTS (SELECT 1 FROM agent_member_permissions p WHERE p.agent_id=agents.id AND p.user_id=? AND (agents.status='published' OR p.access_level='edit'))))`)
+      .get(id, context.tenantId, context.userId, isManager(context) ? 1 : 0, context.userId) as Row | undefined;
     if (!row) throw new WorkflowStoreError("智能体不存在或无权访问", 404);
     return row;
   }
@@ -201,15 +201,15 @@ export class WorkflowStore {
   }
 
   private editableAgentRow(context: RequestContext, id: string): Row {
-    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND account_set_id=? AND (user_id=? OR (?=1 AND permission='tenant') OR (permission='tenant' AND EXISTS (SELECT 1 FROM agent_member_permissions p WHERE p.agent_id=agents.id AND p.user_id=? AND p.access_level='edit')))`)
-      .get(id, context.tenantId, context.accountSetId, context.userId, isManager(context) ? 1 : 0, context.userId) as Row | undefined;
+    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND (user_id=? OR (?=1 AND permission='tenant') OR (permission='tenant' AND EXISTS (SELECT 1 FROM agent_member_permissions p WHERE p.agent_id=agents.id AND p.user_id=? AND p.access_level='edit')))`)
+      .get(id, context.tenantId, context.userId, isManager(context) ? 1 : 0, context.userId) as Row | undefined;
     if (!row) throw new WorkflowStoreError("智能体不存在或没有编辑权限", 403);
     return row;
   }
 
   private manageableAgentRow(context: RequestContext, id: string): Row {
     if (!isManager(context)) throw new WorkflowStoreError("仅团队管理员可以设置成员权限", 403);
-    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND account_set_id=? AND permission='tenant'`).get(id, context.tenantId, context.accountSetId) as Row | undefined;
+    const row = this.database.prepare(`${agentSelect} WHERE id=? AND tenant_id=? AND permission='tenant'`).get(id, context.tenantId) as Row | undefined;
     if (!row) throw new WorkflowStoreError("智能体未发布到当前团队", 404);
     return row;
   }
