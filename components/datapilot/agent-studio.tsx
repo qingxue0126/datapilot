@@ -125,6 +125,8 @@ export function AgentStudio({ models, canManageTenant = false }: { models: Model
   const [edges, setEdges] = useState<Edge[]>([]);
   const [variables, setVariables] = useState<Record<string, unknown>>({});
   const [selectedId, setSelectedId] = useState("");
+  const [paletteOpen, setPaletteOpen] = useState(true);
+  const [configPanelOpen, setConfigPanelOpen] = useState(true);
   const [sources, setSources] = useState<DataSourceOption[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseOption[]>([]);
   const [notice, setNotice] = useState("");
@@ -405,16 +407,18 @@ export function AgentStudio({ models, canManageTenant = false }: { models: Model
       <div className="agent-editor-actions"><button onClick={() => setRunnerOpen(true)} disabled={running}>{running ? "运行中…" : "▶ 运行"}</button><span className="agent-manage-wrap"><button className="agent-manage-trigger" onClick={() => setManageOpen((open) => !open)}><PaletteChevronIcon />管理</button>{manageOpen && <menu className="agent-manage-menu"><button onClick={() => void openManage("versions")}>历史版本</button><button onClick={() => void openManage("logs")}>日志</button><button onClick={() => void exportAgent()}>导出</button><button onClick={() => void openManage("settings")}>设置</button>{canManageTenant && active.permission === "tenant" && <button onClick={() => void openManage("permissions")}>成员权限</button>}</menu>}</span><button className="save-action" onClick={() => void save()} disabled={saving || running}>{saving ? "保存中…" : "保存"}</button><button className="primary-action" onClick={() => setPublishOpen(true)}>发布</button></div>
     </header>
     {notice && <div className={`agent-notice ${run?.status === "failed" ? "error" : ""}`}>{notice}</div>}
-    <div className="agent-builder">
+    <div className={`agent-builder ${configPanelOpen ? "" : "config-panel-collapsed"} ${paletteOpen ? "" : "palette-collapsed"}`}>
+      <button type="button" className="agent-palette-toggle" aria-label={paletteOpen ? "收起节点面板" : "展开节点面板"} title={paletteOpen ? "收起节点面板" : "展开节点面板"} onClick={() => setPaletteOpen((open) => !open)}>{paletteOpen ? "‹" : "›"}</button>
       <aside className="agent-node-palette"><h3>节点</h3><p>拖入画布构建流程</p><details className="agent-palette-group" open><summary><span>输入/输出</span><i><PaletteChevronIcon /></i></summary><div>{inputOutputNodes.map((item) => <PaletteNode key={item.type} item={item} />)}</div></details><details className="agent-palette-group" open><summary><span>AI</span><i><PaletteChevronIcon /></i></summary><div>{aiNodes.map((item) => <PaletteNode key={item.type} item={item} />)}</div></details><details className="agent-palette-group" open><summary><span>工具</span><i><PaletteChevronIcon /></i></summary><div>{toolNodes.map((item) => <PaletteNode key={item.type} item={item} />)}</div></details><details className="agent-palette-group" open><summary><span>逻辑</span><i><PaletteChevronIcon /></i></summary><div>{logicNodes.map((item) => <PaletteNode key={item.type} item={item} />)}</div></details></aside>
       <section className="agent-canvas" ref={canvasRef} onDrop={drop} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}>
-        <ReactFlow<FlowNode, Edge> nodes={canvasNodes} edges={canvasEdges} nodeTypes={flowNodeTypes} connectionMode={ConnectionMode.Loose} defaultEdgeOptions={{ animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }} onInit={setInstance} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeDoubleClick={(_event, node) => setSelectedId(node.id)} onPaneClick={() => setSelectedId("")} connectionRadius={36} fitView deleteKeyCode={["Backspace", "Delete"]}>
+        <ReactFlow<FlowNode, Edge> nodes={canvasNodes} edges={canvasEdges} nodeTypes={flowNodeTypes} connectionMode={ConnectionMode.Loose} defaultEdgeOptions={{ animated: false, markerEnd: { type: MarkerType.ArrowClosed, color: "#43866a" } }} onInit={setInstance} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeDoubleClick={(_event, node) => { setSelectedId(node.id); setConfigPanelOpen(true); }} onPaneClick={() => setSelectedId("")} connectionRadius={36} fitView deleteKeyCode={["Backspace", "Delete"]}>
           <Background color="#aeb3bc" gap={32} size={1.4} /><MiniMap nodeColor="#2d8163" maskColor="rgba(247,248,249,.76)" /><Controls />
         </ReactFlow>
       </section>
-      <aside className="agent-config-panel">
+      {configPanelOpen && <aside className="agent-config-panel">
         {selected ? <NodeConfiguration agentId={active.id} node={selected} nodes={nodes} edges={edges} models={models} sources={sources} knowledgeBases={knowledgeBases} updateLabel={(value) => updateNode({ label: value })} updateConfig={updateConfig} close={() => setSelectedId("")} run={selectedRun} /> : <><h3>工作流配置</h3><p>双击画布节点查看配置、输入输出与错误。</p><label>全局变量（JSON）<textarea value={pretty(variables)} onChange={(event) => { const parsed = tryJson(event.target.value); if (parsed) setVariables(parsed); }} rows={8} /></label>{run && <RunSummary run={run} />}</>}
-      </aside>
+        <button type="button" className="agent-config-panel-close" aria-label="收起配置面板" title="收起配置面板" onClick={() => setConfigPanelOpen(false)}>×</button>
+      </aside>}
     </div>
     {runnerOpen && <WorkflowRunner nodes={nodes} run={run} running={running} close={() => setRunnerOpen(false)} execute={runWorkflow} stop={stopWorkflow} />}
     {publishOpen && <PublishDialog agent={active} close={() => setPublishOpen(false)} submit={publish} />}

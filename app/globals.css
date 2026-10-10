@@ -788,3 +788,17 @@ button:disabled { cursor: not-allowed; }
 .invitation-popup footer { display: flex; justify-content: flex-end; gap: 10px; }
 .invitation-popup footer button { min-width: 82px; padding: 10px 18px; border: 1px solid #d3ded8; border-radius: 8px; background: #fff; cursor: pointer; }
 .invitation-popup footer button.primary-action { border-color: #247b5f; color: #fff; background: #247b5f; }
+.agent-builder.config-panel-collapsed { grid-template-columns: 210px minmax(0,1fr); }
+.agent-config-panel { position: relative; }
+.agent-config-panel-close { position: absolute; top: 14px; right: 14px; z-index: 2; width: 28px; height: 28px; border: 0; border-radius: 6px; color: #728179; background: transparent; font-size: 24px; line-height: 24px; cursor: pointer; }
+.agent-config-panel-close:hover { color: #2f604b; background: #eef4f1; }
+.agent-builder { position: relative; }
+.agent-builder.palette-collapsed { grid-template-columns: 44px minmax(0,1fr) 390px; }
+.agent-builder.config-panel-collapsed.palette-collapsed { grid-template-columns: 44px minmax(0,1fr); }
+.palette-collapsed .agent-node-palette { padding: 18px 6px; }
+.palette-collapsed .agent-node-palette > h3,
+.palette-collapsed .agent-node-palette > p,
+.palette-collapsed .agent-node-palette > details { display: none; }
+.agent-palette-toggle { position: absolute; top: 12px; left: 166px; z-index: 5; display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid #cbd4d0; border-radius: 5px; color: #66736d; background: #fff; font-size: 25px; line-height: 1; cursor: pointer; }
+.agent-palette-toggle:hover { color: #276f54; border-color: #8ab6a3; background: #f1f7f3; }
+.palette-collapsed .agent-palette-toggle { left: 7px; }
