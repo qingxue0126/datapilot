@@ -54,6 +54,7 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [invitationOpen, setInvitationOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -62,6 +63,18 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
     document.addEventListener("mousedown", closeOutside); document.addEventListener("keydown", closeEscape);
     return () => { document.removeEventListener("mousedown", closeOutside); document.removeEventListener("keydown", closeEscape); };
   }, []);
+  useEffect(() => {
+    let disposed = false;
+    const refreshInvitations = async () => {
+      try {
+        const data = await request<AccountCenter>("/api/auth/account-center");
+        if (!disposed) setCenter(data);
+      } catch { /* 页面级会话负责处理失效登录 */ }
+    };
+    void refreshInvitations();
+    const timer = window.setInterval(() => void refreshInvitations(), 30_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [user.id]);
   async function request<T>(path: string, init: RequestInit = {}) {
     const response = await fetch(apiUrl(path), { ...init, credentials: "include", headers: { ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers } });
     const data = response.status === 204 ? undefined : await response.json();
@@ -122,6 +135,12 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   async function respondInvitation(invitation: IncomingInvitation, accept: boolean) {
     await action(async () => { const data = await request<AccountCenter>(`/api/auth/invitations/${encodeURIComponent(invitation.id)}/${accept ? "accept" : "reject"}`, { method: "POST" }); setCenter(data); if (accept) await onContextChanged(data.user); }, accept ? "已加入组织" : "已拒绝邀请");
   }
+  async function respondSidebarInvitation(accept: boolean) {
+    const invitation = center?.invitations[0];
+    if (!invitation) return;
+    await respondInvitation(invitation, accept);
+    if (accept || center?.invitations.length === 1) setInvitationOpen(false);
+  }
   async function changeRole(member: AdminMember, role: AccountRole) {
     await action(async () => { await request(`/api/auth/admin/members/${encodeURIComponent(member.userId)}`, { method: "PATCH", body: JSON.stringify({ tenantId: member.tenantId, role }) }); await loadCenter(); }, "成员角色已更新");
   }
@@ -135,17 +154,20 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
     await action(async () => { await request(`/api/auth/admin/members/${encodeURIComponent(member.userId)}/reset-password`, { method: "POST", body: JSON.stringify({ tenantId: member.tenantId, newPassword, confirmPassword }) }); }, "密码已重置");
   }
   const activeTeam = center?.teams.find((team) => team.active);
+  const pendingInvitation = center?.invitations[0];
   return <div className="account-entry" ref={root}>
     {menuOpen && <div className="account-menu" role="menu">
       <button role="menuitem" onClick={() => void openCenter("personal")}>个人中心</button>
       {user.isPlatformAdmin && <button role="menuitem" onClick={() => void openCenter("platform")}>平台管理中心</button>}
-      {user.canManageTenant && <button role="menuitem" onClick={() => void openCenter("admin")}>组织管理中心</button>}
+      <button role="menuitem" onClick={() => void openCenter("admin")}>{user.canManageTenant ? "组织管理中心" : "组织信息"}</button>
       <button role="menuitem" disabled={working} onClick={() => void logout()}>退出登录</button>
       <button role="menuitem" className="danger" onClick={() => { setDialog("delete"); setMenuOpen(false); setConfirmation(""); setError(""); }}>注销账户</button>
     </div>}
     <button className="profile profile-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
       <span className="avatar">{user.displayName.slice(0, 1).toUpperCase()}</span><span><strong>{user.displayName}</strong><small>{user.isRoot ? "平台管理员" : roleLabel(user.role)}</small></span><span className="more">•••</span>
     </button>
+    {center && center.invitations.length > 0 && <button type="button" className="sidebar-invitation-alert" onClick={() => { setInvitationOpen(true); setMenuOpen(false); }}><span className="sidebar-invitation-dot">!</span><span><strong>待处理团队邀请</strong><small>{center.invitations.length > 1 ? `${center.invitations.length} 条邀请` : "点击查看邀请"}</small></span></button>}
+    {invitationOpen && pendingInvitation && <div className="modal-backdrop invitation-popup-backdrop" onMouseDown={() => !working && setInvitationOpen(false)}><section className="invitation-popup" role="dialog" aria-modal="true" aria-labelledby="invitation-popup-title" onMouseDown={(event) => event.stopPropagation()}><header><h2 id="invitation-popup-title">团队邀请</h2><button type="button" aria-label="关闭" disabled={working} onClick={() => setInvitationOpen(false)}>×</button></header><p><strong>{pendingInvitation.invitedBy}</strong> 邀请你加入组织「{pendingInvitation.tenantName}」，以“{roleLabel(pendingInvitation.role)}”身份加入。</p><footer><button type="button" className="secondary" disabled={working} onClick={() => void respondSidebarInvitation(false)}>取消</button><button type="button" className="primary-action" disabled={working} onClick={() => void respondSidebarInvitation(true)}>加入</button></footer></section></div>}
     {dialog && <div className={`modal-backdrop account-dialog-backdrop ${dialog === "personal" ? "personal-center-backdrop" : ""}`} onMouseDown={() => !working && setDialog(null)}>
       <section className={`account-dialog ${dialog === "personal" ? "personal-center-dialog" : dialog === "admin" || dialog === "platform" ? "account-center-dialog" : ""}`} role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
         <header><div><h2 id="account-dialog-title">{dialog === "personal" ? "个人信息" : dialog === "platform" ? "平台管理中心" : dialog === "admin" ? "组织管理中心" : "注销账户"}</h2>{dialog !== "personal" && <p>{dialog === "platform" ? "管理全平台组织、用户与平台配置" : dialog === "admin" ? "管理本组织成员与业务资源" : "此操作会立即使当前账户和全部会话失效。"}</p>}</div><button aria-label={dialog === "personal" ? "返回" : "关闭"} disabled={working} onClick={() => setDialog(null)}>{dialog === "personal" ? "←" : "×"}</button></header>
@@ -204,6 +226,7 @@ function AdminCenter({ section, center, activeTeam, switchTeam, createTeam, upda
   const [orgEditState, setOrgEdit] = useState<AdminTeam | null>(null);
   const orgEdit = orgEditState as AdminTeam;
   if (!center) return null;
+  if (!center.admin) return <ReadOnlyOrganization center={center} />;
   if (!center.admin) return <CenterSection title="组织邀请" description="你没有组织管理权限；管理员发给你的邀请会显示在这里。"><div className="invitation-list">{center.invitations.length ? center.invitations.map((invitation) => <article key={invitation.id}><div><strong>{invitation.tenantName}</strong><small>{invitation.invitedBy} 邀请你以“{roleLabel(invitation.role)}”身份加入 · {new Date(invitation.createdAt).toLocaleString()}</small></div><div><button className="secondary" disabled={working} onClick={() => void respondInvitation(invitation, false)}>拒绝</button><button disabled={working} onClick={() => void respondInvitation(invitation, true)}>接受邀请</button></div></article>) : <p className="center-empty">暂无待处理邀请。</p>}</div></CenterSection>;
   const admin = center.admin;
   const incomingInvitations = center.invitations.length > 0 && <CenterSection title="待处理邀请" description="你收到的组织邀请需要先确认，确认后即可加入对应组织。"><div className="invitation-list">{center.invitations.map((invitation) => <article key={invitation.id}><div><strong>{invitation.tenantName}</strong><small>{invitation.invitedBy} 邀请你以“{roleLabel(invitation.role)}”身份加入 · {new Date(invitation.createdAt).toLocaleString()}</small></div><div><button className="secondary" disabled={working} onClick={() => void respondInvitation(invitation, false)}>拒绝</button><button disabled={working} onClick={() => void respondInvitation(invitation, true)}>接受邀请</button></div></article>)}</div></CenterSection>;
@@ -237,6 +260,17 @@ function UserManagement({ admin, activeTeam, query, setQuery, switchTeam, create
   {removing && <div className="user-action-backdrop" onMouseDown={() => setRemoving(null)}><section className="delete-confirm-dialog" onMouseDown={(event) => event.stopPropagation()}><header><h3>提示</h3><button type="button" onClick={() => setRemoving(null)}>×</button></header><p><span className="warning-icon">!</span>该账户将从组织内移除，是否确认？</p><footer className="user-action-dialog-footer"><button type="button" className="secondary" onClick={() => setRemoving(null)}>取消</button><button type="button" className="danger-confirm" disabled={working} onClick={() => void removeMember(removing).then(() => setRemoving(null))}>确定</button></footer></section></div>}
   {resetting && <div className="user-action-backdrop" onMouseDown={() => setResetting(null)}><section className="user-action-dialog" onMouseDown={(event) => event.stopPropagation()}><header><h3>更改密码</h3><button type="button" onClick={() => setResetting(null)}>×</button></header><form className="user-action-form" onSubmit={(event) => { event.preventDefault(); const form = new FormData(event.currentTarget); void resetMemberPassword(resetting, String(form.get("newPassword") || ""), String(form.get("confirmPassword") || "")).then(() => setResetting(null)); }}><label><span>新密码</span><input name="newPassword" type="password" minLength={8} maxLength={20} placeholder="请输入，密码需包含字母、数字，长度8-20" required /></label><label><span>确认新密码</span><input name="confirmPassword" type="password" minLength={8} maxLength={20} placeholder="请再次输入新密码" required /></label><footer className="user-action-dialog-footer"><button type="button" className="secondary" onClick={() => setResetting(null)}>取消</button><button type="submit" disabled={working}>确定</button></footer></form></section></div>}
   </>;
+}
+
+function ReadOnlyOrganization({ center }: { center: AccountCenter }) {
+  const activeTeam = center.teams.find((team) => team.active) || center.teams[0];
+  return <CenterSection title={"\u7EC4\u7EC7\u4FE1\u606F"} description={"\u5F53\u524D\u8D26\u6237\u6240\u5C5E\u7684\u7EC4\u7EC7\u4E0E\u89D2\u8272"}>
+    <div className="team-list">
+      {activeTeam && <article className="active"><div><strong>{activeTeam.name}</strong><small>{"\u5F53\u524D\u7EC4\u7EC7\u00B7\u6210\u5458\u6570\uFF1A"}{activeTeam.memberCount}</small></div><span>{roleLabel(activeTeam.role)}</span></article>}
+      {center.teams.filter((team) => !team.active).map((team) => <article key={team.id}><div><strong>{team.name}</strong><small>{"\u6210\u5458\u6570\uFF1A"}{team.memberCount}</small></div><span>{roleLabel(team.role)}</span></article>)}
+    </div>
+    {center.invitations.length > 0 && <p className="center-notice success">{"\u4F60\u6709"} {center.invitations.length} {"\u6761\u5F85\u5904\u7406\u7684\u7EC4\u7EC7\u9080\u8BF7\u3002"}</p>}
+  </CenterSection>;
 }
 
 function CenterSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <section className="center-section"><header><h3>{title}</h3><p>{description}</p></header>{children}</section>; }

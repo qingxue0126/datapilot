@@ -128,7 +128,8 @@ export class AccountStore {
     const account = this.authenticatedAccount(token);
     const user = this.toPublicAccount(account);
     const effectiveScope = scope || (this.isPlatformAdmin(account) ? "platform" : "tenant");
-    return { user, teams: this.teamsFor(account), invitations: this.incomingInvitations(account), admin: effectiveScope === "platform" && this.isPlatformAdmin(account) ? this.adminSnapshot(account, true) : user.canManageTenant ? this.adminSnapshot(account, false) : undefined };
+    const canManageTenant = this.canManageTenant(account);
+    return { user, teams: this.teamsFor(account), invitations: this.incomingInvitations(account), admin: effectiveScope === "platform" && this.isPlatformAdmin(account) ? this.adminSnapshot(account, true) : canManageTenant ? this.adminSnapshot(account, false) : undefined };
   }
 
   updateProfile(token: string | undefined, input: { displayName?: unknown; email?: unknown; phone?: unknown; unit?: unknown; remark?: unknown; avatar?: unknown }) {
@@ -440,7 +441,10 @@ export class AccountStore {
   private toPublicAccount(account: Account): PublicAccount {
     const membership = this.activeMembership(account);
     const isPlatformAdmin = this.isPlatformAdmin(account);
-    return { id: account.id, username: account.username, email: account.email, displayName: account.displayName, phone: account.phone, unit: account.unit, remark: account.remark, avatar: account.avatar, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: normalizeRole(membership.role), isBootstrapAdmin: isPlatformAdmin, isRoot: isPlatformAdmin, isPlatformAdmin, canManageTenant: ADMIN_ROLES.includes(normalizeRole(membership.role) as Role), createdAt: account.createdAt, updatedAt: account.updatedAt };
+    return { id: account.id, username: account.username, email: account.email, displayName: account.displayName, phone: account.phone, unit: account.unit, remark: account.remark, avatar: account.avatar, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: normalizeRole(membership.role), isBootstrapAdmin: isPlatformAdmin, isRoot: isPlatformAdmin, isPlatformAdmin, canManageTenant: this.canManageTenant(account), createdAt: account.createdAt, updatedAt: account.updatedAt };
+  }
+  private canManageTenant(account: Account) {
+    return ADMIN_ROLES.includes(normalizeRole(this.activeMembership(account).role) as Role);
   }
   private isRoot(account: Account) {
     return this.isPlatformAdmin(account);

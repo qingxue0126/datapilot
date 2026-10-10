@@ -126,6 +126,7 @@ test("member, owner, and root receive the expected account-center permissions", 
     assert.equal(item.store.accountCenter(root.token).user.isRoot, true);
     assert.equal(item.store.accountCenter(root.token).admin?.scope, "platform");
     assert.equal(item.store.accountCenter(owner.token).user.role, "tenant_owner");
+    assert.equal(item.store.accountCenter(owner.token).user.canManageTenant, true);
     assert.equal(item.store.accountCenter(owner.token).admin?.scope, "tenant");
 
     const invitation = item.store.inviteMember(root.token, { identifier: "ordinary-member", role: "finance_viewer" });
