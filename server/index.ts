@@ -9,6 +9,7 @@ import { createApiKeyGuard } from "./auth/api-key-guard.js";
 import { installAuthRoutes } from "./auth/auth-routes.js";
 import { EnvironmentIdentityProvider } from "./auth/identity-provider.js";
 import { PermissionService } from "./auth/permission-service.js";
+import { ResourcePermissionStore } from "./auth/resource-permission-store.js";
 import { loadConnections, saveConnections, type StoredConnection } from "./connection-store.js";
 import { installSessionRoutes } from "./context/session-routes.js";
 import { SqliteSessionStore } from "./context/session-store.js";
@@ -43,13 +44,14 @@ const connections = loadConnections();
 const accounts = new AccountStore();
 const identities = new EnvironmentIdentityProvider(accounts);
 const permissions = new PermissionService();
+const resourcePermissions = new ResourcePermissionStore();
 const sessions = new SqliteSessionStore();
-const modelStore = new ModelStore();
+const modelStore = new ModelStore(undefined, undefined, resourcePermissions);
 const modelRouter = new ModelRouter(modelStore);
 const model = new ModelService(modelStore, modelRouter);
 const mappingRegistry = new MappingRegistryStore();
 const mappingReview = new MappingReviewService(mappingRegistry, permissions);
-const knowledge = new KnowledgeStore();
+const knowledge = new KnowledgeStore(undefined, resourcePermissions);
 const vectors = createVectorStore();
 const embeddings = new ManagedEmbeddingProvider(model);
 const knowledgeRetrieval = new KnowledgeRetrievalService(knowledge, vectors, embeddings, model);
@@ -87,7 +89,12 @@ app.get("/api/me", (request, response) => {
 installSessionRoutes(app, sessions, identity, (context, datasourceId) => { getConnectionItem(datasourceId, context); });
 installKnowledgeRoutes(app, knowledge, vectors, embeddings, identity, model, knowledgeRetrieval);
 installModelRoutes(app, model, permissions, identity);
-installWorkflowRoutes(app, workflows, workflowEngine, identity);
+installWorkflowRoutes(app, workflows, workflowEngine, identity, (context, agentId, type, resourceId) => {
+  const ownerContext = workflows.executionContext(context, agentId, type);
+  if (type === "datasource") { getConnectionItem(resourceId, context); return; }
+  if (type === "knowledge_base") { knowledge.get(ownerContext, resourceId); return; }
+  model.get(ownerContext, resourceId);
+});
 installQueryRoutes(app, { identity, permissions, sessions, agent, connection: (id, context) => getConnectionItem(id, context).config });
 
 app.get("/api/connections", (request, response) => {
@@ -95,7 +102,7 @@ app.get("/api/connections", (request, response) => {
     const context = identity(request);
     permissions.require(context, "database:read");
     const items = [...connections.entries()]
-      .filter(([, item]) => belongsTo(item, context))
+      .filter(([connectionId, item]) => belongsTo(connectionId, item, context))
       .map(([connectionId, item]) => publicConnection(connectionId, item));
     response.json({ items });
   } catch (error) { response.status(403).json({ error: errorMessage(error) }); }
@@ -111,6 +118,8 @@ app.post("/api/connections", async (request, response) => {
     connections.set(connectionId, {
       tenantId: context.tenantId,
       accountSetId: context.accountSetId,
+      ownerId: context.userId,
+      permission: request.body?.permission === "tenant" ? "tenant" : "private",
       config,
       createdAt: Date.now(),
       details: { version: details.version, tables: details.tables, latencyMs: details.latencyMs },
@@ -140,6 +149,20 @@ app.delete("/api/connections/:id", (request, response) => {
     connections.delete(request.params.id);
     saveConnections(connections);
     response.status(204).end();
+  } catch (error) { response.status(403).json({ error: errorMessage(error) }); }
+});
+
+app.get("/api/connections/:id/permissions", (request, response) => {
+  try {
+    const context = identity(request); const item = getConnectionItem(request.params.id, context);
+    response.json({ items: resourcePermissions.list(context, "datasource", request.params.id, item.ownerId || context.userId) });
+  } catch (error) { response.status(403).json({ error: errorMessage(error) }); }
+});
+
+app.put("/api/connections/:id/permissions/:userId", (request, response) => {
+  try {
+    const context = identity(request); const item = getConnectionItem(request.params.id, context);
+    response.json({ items: resourcePermissions.set(context, "datasource", request.params.id, item.ownerId || context.userId, request.params.userId, request.body?.access === null ? null : request.body?.access) });
   } catch (error) { response.status(403).json({ error: errorMessage(error) }); }
 });
 
@@ -240,16 +263,16 @@ app.post("/api/database/query", async (request, response) => {
 app.listen(port, "0.0.0.0", () => console.log(`DataPilot API: http://0.0.0.0:${port}`));
 
 function identity(request: Request) { return identities.resolve(request); }
-function belongsTo(item: StoredConnection, context: RequestContext) {
-  return item.tenantId === context.tenantId && item.accountSetId === context.accountSetId;
+function belongsTo(connectionId: string, item: StoredConnection, context: RequestContext) {
+  return item.tenantId === context.tenantId && item.accountSetId === context.accountSetId && (!item.ownerId || item.ownerId === context.userId || item.permission === "tenant" || Boolean(resourcePermissions.access(context, "datasource", connectionId, item.ownerId, "private")));
 }
 function getConnectionItem(id: string, context: RequestContext) {
   const item = connections.get(id);
-  if (!item || !belongsTo(item, context)) throw new Error("数据源不存在或无权访问");
+  if (!item || !belongsTo(id, item, context)) throw new Error("数据源不存在或无权访问");
   return item;
 }
 function publicConnection(connectionId: string, item: StoredConnection) {
-  return { connectionId, name: item.config.name, engine: item.config.engine, host: item.config.host, port: item.config.port, database: item.config.database, sshEnabled: !!item.config.ssh?.enabled, version: item.details.version, tables: item.details.tables, createdAt: item.createdAt };
+  return { connectionId, name: item.config.name, engine: item.config.engine, host: item.config.host, port: item.config.port, database: item.config.database, sshEnabled: !!item.config.ssh?.enabled, version: item.details.version, tables: item.details.tables, permission: item.permission || "tenant", createdAt: item.createdAt };
 }
 function errorMessage(error: unknown) {
   const message = error instanceof Error ? error.message : "未知错误";

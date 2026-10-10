@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { RequestContext } from "../core/types.js";
+import type { ResourceAccess, ResourcePermissionStore } from "../auth/resource-permission-store.js";
 import { isChatCapableModel, modelCapabilities, modelProviders, modelTasks, normalizeModelType, type ModelCapability, type ModelConfig, type ModelConfigInput, type ModelRoute, type ModelTask, type RuntimeModelConfig } from "./model-types.js";
 
 type ModelRow = Record<string, unknown>;
@@ -24,11 +25,13 @@ export class ModelStoreError extends Error {
 export class ModelStore {
   private readonly database: DatabaseSync;
   private readonly encryptionKey: Buffer;
+  private readonly resourcePermissions?: ResourcePermissionStore;
 
-  constructor(databasePath = process.env.MODEL_DB_PATH || resolve(".data", "models.sqlite"), encryptionKey?: Buffer) {
+  constructor(databasePath = process.env.MODEL_DB_PATH || resolve(".data", "models.sqlite"), encryptionKey?: Buffer, resourcePermissions?: ResourcePermissionStore) {
     if (databasePath !== ":memory:") mkdirSync(dirname(databasePath), { recursive: true });
     this.database = new DatabaseSync(databasePath);
     this.encryptionKey = encryptionKey || loadEncryptionKey();
+    this.resourcePermissions = resourcePermissions;
     this.database.exec("PRAGMA foreign_keys = ON");
     if (databasePath !== ":memory:") this.database.exec("PRAGMA journal_mode = WAL");
     this.migrate();
@@ -36,8 +39,10 @@ export class ModelStore {
 
   list(context: RequestContext): ModelConfig[] {
     this.ensureLegacyModel(context);
-    return this.database.prepare(`${selectModels} WHERE tenant_id=? AND account_set_id=? AND user_id=? ORDER BY created_at ASC`)
-      .all(context.tenantId, context.accountSetId, context.userId).map((row) => publicModel(row as ModelRow, this.encryptionKey));
+    const rows = this.database.prepare(`${selectModels} WHERE tenant_id=? AND account_set_id=? ORDER BY created_at ASC`)
+      .all(context.tenantId, context.accountSetId) as ModelRow[];
+    return rows.filter((row) => String(row.user_id) === context.userId || String(row.permission) === "tenant" || Boolean(this.resourcePermissions?.access(context, "model", String(row.id), String(row.user_id), "private")))
+      .map((row) => publicModel(row, this.encryptionKey));
   }
 
   get(context: RequestContext, id: string): ModelConfig {
@@ -54,11 +59,11 @@ export class ModelStore {
     const id = randomUUID();
     const now = new Date().toISOString();
     this.database.prepare(`INSERT INTO model_configs (
-      id,tenant_id,account_set_id,user_id,name,model_type,provider,model_id,base_url,api_key_encrypted,context_window,timeout,max_retries,temperature,
+      id,tenant_id,account_set_id,user_id,name,model_type,provider,model_id,base_url,api_key_encrypted,permission,context_window,timeout,max_retries,temperature,
       supports_tools,supports_structured_output,supports_vision,capabilities_json,embedding_dimension,max_input_tokens,top_n,enabled,created_at,updated_at
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
       id, context.tenantId, context.accountSetId, context.userId, value.name, value.modelType || "llm", value.provider, value.modelId, value.baseUrl,
-      encryptSecret(value.apiKey || "", this.encryptionKey), value.contextWindow, value.timeout, value.maxRetries, value.temperature,
+      encryptSecret(value.apiKey || "", this.encryptionKey), value.permission || "private", value.contextWindow, value.timeout, value.maxRetries, value.temperature,
       flag(value.supportsTools), flag(value.supportsStructuredOutput), flag(value.supportsVision), JSON.stringify(value.capabilities || []), value.embeddingDimension, value.maxInputTokens, value.topN,
       flag(value.enabled), now, now,
     );
@@ -66,9 +71,9 @@ export class ModelStore {
   }
 
   update(context: RequestContext, id: string, input: Partial<ModelConfigInput> & { clearApiKey?: boolean }): ModelConfig {
-    const current = this.getRow(context, id);
+    const current = this.editableRow(context, id);
     const merged = validateModelInput({
-      name: input.name ?? String(current.name), modelType: input.modelType ?? String(current.model_type || "llm") as ModelConfigInput["modelType"], provider: input.provider ?? String(current.provider) as ModelConfigInput["provider"],
+      name: input.name ?? String(current.name), modelType: input.modelType ?? String(current.model_type || "llm") as ModelConfigInput["modelType"], provider: input.provider ?? String(current.provider) as ModelConfigInput["provider"], permission: input.permission ?? String(current.permission || "private") as ModelConfigInput["permission"],
       modelId: input.modelId ?? String(current.model_id), baseUrl: input.baseUrl ?? String(current.base_url),
       apiKey: input.apiKey || decryptSecret(String(current.api_key_encrypted || ""), this.encryptionKey),
       contextWindow: input.contextWindow ?? Number(current.context_window), timeout: input.timeout ?? Number(current.timeout),
@@ -83,25 +88,25 @@ export class ModelStore {
     });
     const secret = input.clearApiKey ? "" : (input.apiKey?.trim() ? input.apiKey.trim() : decryptSecret(String(current.api_key_encrypted || ""), this.encryptionKey));
     const now = new Date().toISOString();
-    this.database.prepare(`UPDATE model_configs SET name=?,model_type=?,provider=?,model_id=?,base_url=?,api_key_encrypted=?,context_window=?,timeout=?,max_retries=?,temperature=?,supports_tools=?,supports_structured_output=?,supports_vision=?,capabilities_json=?,embedding_dimension=?,max_input_tokens=?,top_n=?,enabled=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?`).run(
-      merged.name, merged.modelType || "llm", merged.provider, merged.modelId, merged.baseUrl, encryptSecret(secret, this.encryptionKey), merged.contextWindow, merged.timeout,
+    this.database.prepare(`UPDATE model_configs SET name=?,model_type=?,provider=?,model_id=?,base_url=?,api_key_encrypted=?,permission=?,context_window=?,timeout=?,max_retries=?,temperature=?,supports_tools=?,supports_structured_output=?,supports_vision=?,capabilities_json=?,embedding_dimension=?,max_input_tokens=?,top_n=?,enabled=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?`).run(
+      merged.name, merged.modelType || "llm", merged.provider, merged.modelId, merged.baseUrl, encryptSecret(secret, this.encryptionKey), merged.permission || "private", merged.contextWindow, merged.timeout,
       merged.maxRetries, merged.temperature, flag(merged.supportsTools), flag(merged.supportsStructuredOutput), flag(merged.supportsVision), JSON.stringify(merged.capabilities || []),
       merged.embeddingDimension, merged.maxInputTokens, merged.topN, flag(merged.enabled), now,
-      id, context.tenantId, context.accountSetId, context.userId,
+      id, context.tenantId, context.accountSetId, String(current.user_id),
     );
     return this.get(context, id);
   }
 
   delete(context: RequestContext, id: string) {
-    this.getRow(context, id);
+    this.ownedRow(context, id);
     this.database.prepare("DELETE FROM model_configs WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
       .run(id, context.tenantId, context.accountSetId, context.userId);
   }
 
   setTestResult(context: RequestContext, id: string, result: { success: boolean; latencyMs: number; error?: string }) {
-    this.getRow(context, id);
+    const current = this.editableRow(context, id);
     this.database.prepare("UPDATE model_configs SET last_test_status=?,last_test_latency_ms=?,last_test_error=?,last_tested_at=?,updated_at=? WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?")
-      .run(result.success ? "success" : "failed", result.latencyMs, result.error?.slice(0, 500) || null, new Date().toISOString(), new Date().toISOString(), id, context.tenantId, context.accountSetId, context.userId);
+      .run(result.success ? "success" : "failed", result.latencyMs, result.error?.slice(0, 500) || null, new Date().toISOString(), new Date().toISOString(), id, context.tenantId, context.accountSetId, String(current.user_id));
   }
 
   listRoutes(context: RequestContext): ModelRoute[] {
@@ -127,10 +132,37 @@ export class ModelStore {
     return { ...route, updatedAt: now };
   }
 
-  private getRow(context: RequestContext, id: string): ModelRow {
+  private ownedRow(context: RequestContext, id: string): ModelRow {
     const row = this.database.prepare(`${selectModels} WHERE id=? AND tenant_id=? AND account_set_id=? AND user_id=?`)
       .get(id, context.tenantId, context.accountSetId, context.userId) as ModelRow | undefined;
+    if (!row) throw new ModelStoreError("Model is not owned by the current user", 403);
+    return row;
+  }
+
+  private getRow(context: RequestContext, id: string): ModelRow {
+    const row = this.database.prepare(`${selectModels} WHERE id=? AND tenant_id=? AND account_set_id=?`)
+      .get(id, context.tenantId, context.accountSetId) as ModelRow | undefined;
     if (!row) throw new ModelStoreError("模型不存在或无权访问", 404);
+    if (String(row.user_id) !== context.userId && String(row.permission) !== "tenant" && !this.resourcePermissions?.access(context, "model", id, String(row.user_id), "private")) throw new ModelStoreError("模型不存在或无权访问", 404);
+    return row;
+  }
+
+  listPermissions(context: RequestContext, id: string) {
+    const row = this.ownedRow(context, id);
+    return this.resourcePermissions?.list(context, "model", id, String(row.user_id)) || [];
+  }
+
+  setPermission(context: RequestContext, id: string, userId: string, access: ResourceAccess | null) {
+    const row = this.ownedRow(context, id);
+    if (!this.resourcePermissions) throw new ModelStoreError("资源成员权限未配置", 500);
+    return this.resourcePermissions.set(context, "model", id, String(row.user_id), userId, access);
+  }
+
+  private editableRow(context: RequestContext, id: string): ModelRow {
+    const row = this.database.prepare(`${selectModels} WHERE id=? AND tenant_id=? AND account_set_id=?`).get(id, context.tenantId, context.accountSetId) as ModelRow | undefined;
+    if (!row) throw new ModelStoreError("模型不存在或无权访问", 403);
+    const access = this.resourcePermissions?.access(context, "model", id, String(row.user_id), String(row.permission) === "tenant" ? "tenant" : "private");
+    if (String(row.user_id) !== context.userId && access !== "edit" && context.role !== "tenant_owner" && context.role !== "tenant_admin" && context.platformAdmin !== true) throw new ModelStoreError("没有模型编辑权限", 403);
     return row;
   }
 
@@ -171,6 +203,7 @@ export class ModelStore {
     if (!columns.some((column) => column.name === "embedding_dimension")) this.database.exec("ALTER TABLE model_configs ADD COLUMN embedding_dimension INTEGER");
     if (!columns.some((column) => column.name === "max_input_tokens")) this.database.exec("ALTER TABLE model_configs ADD COLUMN max_input_tokens INTEGER");
     if (!columns.some((column) => column.name === "top_n")) this.database.exec("ALTER TABLE model_configs ADD COLUMN top_n INTEGER");
+    if (!columns.some((column) => column.name === "permission")) this.database.exec("ALTER TABLE model_configs ADD COLUMN permission TEXT NOT NULL DEFAULT 'private'");
     this.database.exec("UPDATE model_configs SET model_type = 'llm' WHERE model_type = 'chat'");
   }
 }
@@ -201,7 +234,7 @@ function publicModel(row: ModelRow, key: Buffer): ModelConfig {
   const capabilities = normalizeCapabilities(parseCapabilities(row.capabilities_json), modelType, {
     supportsTools: Boolean(row.supports_tools), supportsStructuredOutput: Boolean(row.supports_structured_output), supportsVision: Boolean(row.supports_vision),
   });
-  return { id: String(row.id), name: String(row.name), modelType, capabilities, provider: String(row.provider) as ModelConfig["provider"], modelId: String(row.model_id), baseUrl: String(row.base_url),
+  return { id: String(row.id), name: String(row.name), modelType, capabilities, provider: String(row.provider) as ModelConfig["provider"], modelId: String(row.model_id), baseUrl: String(row.base_url), permission: row.permission === "tenant" ? "tenant" : "private",
     apiKeyMasked: maskSecret(apiKey), apiKeyConfigured: Boolean(apiKey),
     contextWindow: Number(row.context_window), embeddingDimension: nullableNumber(row.embedding_dimension), maxInputTokens: nullableNumber(row.max_input_tokens), topN: nullableNumber(row.top_n),
     timeout: Number(row.timeout), maxRetries: Number(row.max_retries), temperature: Number(row.temperature),

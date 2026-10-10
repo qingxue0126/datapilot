@@ -1,4 +1,5 @@
 import type { RequestContext } from "../core/types.js";
+import type { ResourceAccess } from "../auth/resource-permission-store.js";
 import { ModelProviderRegistry } from "./model-provider.js";
 import type { ModelRouter } from "./model-router.js";
 import type { ModelStore } from "./model-store.js";
@@ -17,6 +18,8 @@ export class ModelService implements StructuredModelClient {
   create(context: RequestContext, input: ModelConfigInput) { return this.store.create(context, input); }
   update(context: RequestContext, id: string, input: Partial<ModelConfigInput> & { clearApiKey?: boolean }) { return this.store.update(context, id, input); }
   delete(context: RequestContext, id: string) { this.store.delete(context, id); }
+  listPermissions(context: RequestContext, id: string) { return this.store.listPermissions(context, id); }
+  setPermission(context: RequestContext, id: string, userId: string, access: ResourceAccess | null) { return this.store.setPermission(context, id, userId, access); }
   routes(context: RequestContext) { return this.store.listRoutes(context); }
   saveRoute(context: RequestContext, task: ModelTask, input: Parameters<ModelStore["saveRoute"]>[2]) { return this.store.saveRoute(context, task, input); }
   embeddingModels(context: RequestContext) { return this.store.list(context).filter((model) => model.enabled && isTextEmbeddingModel(model)); }

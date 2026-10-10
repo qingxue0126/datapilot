@@ -2,13 +2,13 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import bcrypt from "bcryptjs";
-import type { RequestContext, Role } from "../core/types.js";
+import type { PlatformRole, RequestContext, Role } from "../core/types.js";
 
 export type Account = {
   id: string; username: string; email?: string; displayName: string; passwordHash: string;
   phone?: string; unit?: string; remark?: string; avatar?: string;
   /** Retained for backward-compatible account files; memberships are authoritative. */
-  tenantId: string; accountSetId: string; role: Role; activeTenantId?: string;
+  tenantId: string; accountSetId: string; role: Role; activeTenantId?: string; platformRoles?: PlatformRole[];
   status: "active" | "deleted"; createdAt: string; updatedAt: string; deletedAt?: string;
 };
 export type Tenant = { id: string; name: string; accountSetId: string; createdBy: string; createdAt: string };
@@ -22,7 +22,7 @@ export type PublicApiKey = Pick<StoredApiKey, "id" | "name" | "tenantId" | "enab
 export type PublicAccount = {
   id: string; username: string; email?: string; displayName: string; tenantId: string; accountSetId: string; role: Role;
   phone?: string; unit?: string; remark?: string; avatar?: string;
-  isBootstrapAdmin: boolean; isRoot: boolean; canManageTenant: boolean; createdAt: string; updatedAt: string;
+  isBootstrapAdmin: boolean; isRoot: boolean; isPlatformAdmin: boolean; canManageTenant: boolean; createdAt: string; updatedAt: string;
 };
 export type TeamSummary = { id: string; name: string; accountSetId: string; role: Role; active: boolean; memberCount: number };
 
@@ -51,11 +51,11 @@ export class AccountStore {
     const bootstrapAccount = this.state.accounts.length === 0;
     const tenantId = bootstrapAccount ? (process.env.DEFAULT_TENANT_ID || "demo-tenant") : `tenant-${randomUUID()}`;
     const accountSetId = bootstrapAccount ? (process.env.DEFAULT_ACCOUNT_SET_ID || "default-account-set") : `account-set-${randomUUID()}`;
-    const role: Role = bootstrapAccount ? "tenant_admin" : "tenant_owner";
+    const role: Role = bootstrapAccount ? "tenant_owner" : "tenant_owner";
     const account: Account = {
       id: userId, username: identifier, email: isEmail ? identifier : undefined,
       displayName: isEmail ? identifier.split("@")[0] : identifier, passwordHash,
-      tenantId, accountSetId, role, activeTenantId: tenantId, status: "active", createdAt: timestamp, updatedAt: timestamp,
+      tenantId, accountSetId, role, activeTenantId: tenantId, platformRoles: bootstrapAccount ? ["platform_admin"] : [], status: "active", createdAt: timestamp, updatedAt: timestamp,
     };
     this.state.accounts.push(account);
     this.state.tenants.push({ id: tenantId, name: bootstrapAccount ? "默认团队" : `${account.displayName}的团队`, accountSetId, createdBy: userId, createdAt: timestamp });
@@ -78,7 +78,7 @@ export class AccountStore {
     const account = this.authenticatedAccount(token);
     const session = this.sessionForToken(token)!;
     const membership = this.activeMembership(account);
-    return { user: this.toPublicAccount(account), context: { userId: account.id, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: membership.role, sessionId: session.id } };
+    return { user: this.toPublicAccount(account), context: { userId: account.id, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: normalizeRole(membership.role), platformAdmin: this.isPlatformAdmin(account), sessionId: session.id } };
   }
 
   authenticateApiKey(key?: string): RequestContext {
@@ -90,7 +90,7 @@ export class AccountStore {
     if (!account || !membership) throw new AuthError("API Key 所属账户或团队已失效", 401);
     record.lastUsedAt = this.now().toISOString();
     this.persist();
-    return { userId: account.id, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: membership.role, sessionId: `api-key:${record.id}` };
+    return { userId: account.id, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: normalizeRole(membership.role), platformAdmin: false, sessionId: `api-key:${record.id}` };
   }
 
   createApiKey(token: string | undefined, nameInput: unknown) {
@@ -124,10 +124,11 @@ export class AccountStore {
     this.persist();
   }
 
-  accountCenter(token?: string) {
+  accountCenter(token?: string, scope?: "platform" | "tenant") {
     const account = this.authenticatedAccount(token);
     const user = this.toPublicAccount(account);
-    return { user, teams: this.teamsFor(account), invitations: this.incomingInvitations(account), admin: user.canManageTenant ? this.adminSnapshot(account) : undefined };
+    const effectiveScope = scope || (this.isPlatformAdmin(account) ? "platform" : "tenant");
+    return { user, teams: this.teamsFor(account), invitations: this.incomingInvitations(account), admin: effectiveScope === "platform" && this.isPlatformAdmin(account) ? this.adminSnapshot(account, true) : user.canManageTenant ? this.adminSnapshot(account, false) : undefined };
   }
 
   updateProfile(token: string | undefined, input: { displayName?: unknown; email?: unknown; phone?: unknown; unit?: unknown; remark?: unknown; avatar?: unknown }) {
@@ -207,6 +208,8 @@ export class AccountStore {
   deleteTeam(token: string | undefined, teamIdInput: string) {
     const manager = this.requireManager(token);
     const tenantId = this.managedTenantId(manager, teamIdInput);
+    const membership = this.state.memberships.find((item) => item.userId === manager.id && item.tenantId === tenantId);
+    if (!this.isPlatformAdmin(manager) && membership?.role !== "tenant_owner") throw new AuthError("Only the organization owner can delete an organization", 403);
     const nextMembership = this.state.memberships.find((item) => item.userId === manager.id && item.tenantId !== tenantId);
     manager.activeTenantId = nextMembership?.tenantId || "";
     this.state.tenants = this.state.tenants.filter((item) => item.id !== tenantId);
@@ -267,8 +270,19 @@ export class AccountStore {
     const userId = String(userIdInput || "").trim();
     const membership = this.state.memberships.find((item) => item.tenantId === tenantId && item.userId === userId);
     if (!membership) throw new AuthError("成员不存在或不属于可管理团队", 404);
-    if (membership.role === "tenant_owner" && !this.isRoot(manager)) throw new AuthError("团队 Owner 角色只能由平台管理员调整", 403);
-    membership.role = memberRole(input.role);
+    const nextRole = String(input.role || "finance_viewer");
+    if (membership.role === "tenant_owner" || nextRole === "tenant_owner") {
+      if (!this.isPlatformAdmin(manager) && this.activeMembership(manager).role !== "tenant_owner") throw new AuthError("Only the organization owner can transfer ownership", 403);
+      if (nextRole === "tenant_owner") {
+        const existingOwner = this.state.memberships.find((item) => item.tenantId === tenantId && item.role === "tenant_owner" && item.userId !== userId);
+        if (existingOwner) {
+          existingOwner.role = "tenant_admin";
+          const previousOwner = this.state.accounts.find((item) => item.id === existingOwner.userId);
+          if (previousOwner?.activeTenantId === tenantId) previousOwner.role = "tenant_admin";
+        }
+      }
+    }
+    membership.role = nextRole === "tenant_owner" ? "tenant_owner" : memberRole(nextRole);
     const account = this.state.accounts.find((item) => item.id === userId);
     if (account?.activeTenantId === tenantId) { account.role = membership.role; account.updatedAt = this.now().toISOString(); }
     this.persist();
@@ -308,7 +322,7 @@ export class AccountStore {
     const membership = this.state.memberships.find((item) => item.tenantId === tenantId && item.userId === userId);
     const account = this.state.accounts.find((item) => item.id === userId);
     if (!membership || !account) throw new AuthError("Member not found", 404);
-    if (membership.role === "tenant_owner" && !this.isRoot(manager)) throw new AuthError("Owner cannot be removed", 403);
+    if (membership.role === "tenant_owner") throw new AuthError("Transfer ownership before removing the owner", 403);
     this.state.memberships = this.state.memberships.filter((item) => !(item.userId === userId && item.tenantId === tenantId));
     if (!this.state.memberships.some((item) => item.userId === userId)) {
       account.status = "deleted";
@@ -344,6 +358,9 @@ export class AccountStore {
 
   deleteAccount(token?: string) {
     const account = this.authenticatedAccount(token);
+    const ownedTeams = this.state.memberships.filter((item) => item.userId === account.id && item.role === "tenant_owner");
+    if (ownedTeams.length) throw new AuthError("Transfer organization ownership before deleting the account", 400);
+    if (this.isPlatformAdmin(account) && this.state.accounts.filter((item) => item.status === "active" && this.isPlatformAdmin(item)).length <= 1) throw new AuthError("At least one platform administrator is required", 400);
     const timestamp = this.now().toISOString();
     account.status = "deleted"; account.deletedAt = timestamp; account.updatedAt = timestamp;
     this.state.sessions = this.state.sessions.filter((item) => item.userId !== account.id);
@@ -375,7 +392,7 @@ export class AccountStore {
   private sessionForToken(token?: string) { return token ? this.state.sessions.find((item) => item.tokenHash === hashToken(token)) : undefined; }
   private requireManager(token?: string) {
     const account = this.authenticatedAccount(token);
-    if (!this.isRoot(account) && !ADMIN_ROLES.includes(this.activeMembership(account).role)) throw new AuthError("仅团队管理员可执行此操作", 403);
+    if (!this.isPlatformAdmin(account) && !ADMIN_ROLES.includes(normalizeRole(this.activeMembership(account).role) as Role)) throw new AuthError("Only organization managers can perform this operation", 403);
     return account;
   }
   private managedTenantId(account: Account, requested: unknown) {
@@ -406,26 +423,32 @@ export class AccountStore {
       return { id: item.id, tenantId: item.tenantId, tenantName: tenant?.name || item.tenantId, role: item.role, invitedBy: inviter?.displayName || inviter?.username || item.invitedBy, createdAt: item.createdAt };
     });
   }
-  private adminSnapshot(account: Account) {
+  private adminSnapshot(account: Account, platform = this.isPlatformAdmin(account)) {
     const activeTenantId = this.activeMembership(account).tenantId;
-    const tenantIds = this.isRoot(account) ? this.state.tenants.map((tenant) => tenant.id) : [activeTenantId];
+    const tenantIds = platform ? this.state.tenants.map((tenant) => tenant.id) : [activeTenantId];
     return {
-      scope: this.isRoot(account) ? "platform" as const : "tenant" as const,
+      scope: platform ? "platform" as const : "tenant" as const,
       teams: this.state.tenants.filter((tenant) => tenantIds.includes(tenant.id)).map((tenant) => ({ ...tenant, memberCount: this.state.memberships.filter((item) => item.tenantId === tenant.id).length, administrators: this.state.memberships.filter((item) => item.tenantId === tenant.id && ADMIN_ROLES.includes(item.role)).map((item) => this.state.accounts.find((account) => account.id === item.userId)?.displayName).filter(Boolean) })),
       members: this.state.memberships.filter((item) => tenantIds.includes(item.tenantId)).map((membership) => {
         const member = this.state.accounts.find((item) => item.id === membership.userId);
         return { ...membership, username: member?.username || "已删除账户", displayName: member?.displayName || "已删除账户", email: member?.email, phone: member?.phone, status: member?.status || "deleted", createdAt: member?.createdAt || membership.joinedAt };
       }),
       invitations: this.state.invitations.filter((item) => tenantIds.includes(item.tenantId) && item.status === "pending"),
-      platform: this.isRoot(account) ? { tenantCount: this.state.tenants.length, userCount: this.state.accounts.filter((item) => item.status === "active").length } : undefined,
+      platform: platform ? { tenantCount: this.state.tenants.length, userCount: this.state.accounts.filter((item) => item.status === "active").length } : undefined,
     };
   }
   private toPublicAccount(account: Account): PublicAccount {
     const membership = this.activeMembership(account);
-    const isRoot = this.isRoot(account);
-    return { id: account.id, username: account.username, email: account.email, displayName: account.displayName, phone: account.phone, unit: account.unit, remark: account.remark, avatar: account.avatar, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: membership.role, isBootstrapAdmin: isRoot, isRoot, canManageTenant: isRoot || ADMIN_ROLES.includes(membership.role), createdAt: account.createdAt, updatedAt: account.updatedAt };
+    const isPlatformAdmin = this.isPlatformAdmin(account);
+    return { id: account.id, username: account.username, email: account.email, displayName: account.displayName, phone: account.phone, unit: account.unit, remark: account.remark, avatar: account.avatar, tenantId: membership.tenantId, accountSetId: membership.accountSetId, role: normalizeRole(membership.role), isBootstrapAdmin: isPlatformAdmin, isRoot: isPlatformAdmin, isPlatformAdmin, canManageTenant: ADMIN_ROLES.includes(normalizeRole(membership.role) as Role), createdAt: account.createdAt, updatedAt: account.updatedAt };
   }
   private isRoot(account: Account) {
+    return this.isPlatformAdmin(account);
+  }
+  private isPlatformAdmin(account: Account) {
+    return account.platformRoles?.includes("platform_admin") === true || this.legacyPlatformAdmin(account);
+  }
+  private legacyPlatformAdmin(account: Account) {
     const first = [...this.state.accounts].sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0];
     const membership = this.state.memberships.find((item) => item.userId === account.id && item.tenantId === (process.env.DEFAULT_TENANT_ID || "demo-tenant"));
     return first?.id === account.id && membership?.role === "tenant_admin" && membership.accountSetId === (process.env.DEFAULT_ACCOUNT_SET_ID || "default-account-set");
@@ -452,10 +475,19 @@ export class AccountStore {
   }
   private migrateLegacyState() {
     let changed = false;
+    const first = [...this.state.accounts].sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))[0];
+    if (first && !(first.platformRoles || []).includes("platform_admin")) { first.platformRoles = [...(first.platformRoles || []), "platform_admin"]; changed = true; }
     for (const account of this.state.accounts) {
+      if (account.role === "finance_analyst") { account.role = "finance_viewer"; changed = true; }
       if (!account.activeTenantId) { account.activeTenantId = account.tenantId; changed = true; }
       if (!this.state.tenants.some((tenant) => tenant.id === account.tenantId)) { this.state.tenants.push({ id: account.tenantId, name: account.tenantId === (process.env.DEFAULT_TENANT_ID || "demo-tenant") ? "默认团队" : `${account.displayName}的团队`, accountSetId: account.accountSetId, createdBy: account.id, createdAt: account.createdAt }); changed = true; }
-      if (!this.state.memberships.some((membership) => membership.userId === account.id && membership.tenantId === account.tenantId)) { this.state.memberships.push({ userId: account.id, tenantId: account.tenantId, accountSetId: account.accountSetId, role: account.role, joinedAt: account.createdAt }); changed = true; }
+      const membership = this.state.memberships.find((item) => item.userId === account.id && item.tenantId === account.tenantId);
+      if (!membership) { this.state.memberships.push({ userId: account.id, tenantId: account.tenantId, accountSetId: account.accountSetId, role: normalizeRole(account.role), joinedAt: account.createdAt }); changed = true; }
+      else if (membership.role === "finance_analyst") { membership.role = "finance_viewer"; changed = true; }
+    }
+    for (const tenant of this.state.tenants) {
+      const owners = this.state.memberships.filter((item) => item.tenantId === tenant.id && item.role === "tenant_owner").sort((left, right) => left.joinedAt.localeCompare(right.joinedAt) || left.userId.localeCompare(right.userId));
+      for (const duplicate of owners.slice(1)) { duplicate.role = "tenant_admin"; changed = true; }
     }
     if (changed) this.persist();
   }
@@ -483,7 +515,8 @@ function validatePassword(password: string, confirmation: string) {
 function memberRole(value: unknown): Role {
   const role = String(value || "finance_viewer") as Role;
   if (!["tenant_admin", "finance_analyst", "finance_viewer"].includes(role)) throw new AuthError("成员角色无效", 400);
-  return role;
+  return normalizeRole(role);
 }
+function normalizeRole(role: Role): Exclude<Role, "finance_analyst"> { return role === "finance_analyst" ? "finance_viewer" : role; }
 function matchesIdentifier(account: Account, identifier: string) { return account.username.toLowerCase() === identifier || account.email?.toLowerCase() === identifier; }
 function hashToken(token: string) { return createHash("sha256").update(token).digest("hex"); }

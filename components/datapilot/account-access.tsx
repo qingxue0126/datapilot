@@ -4,11 +4,11 @@ import Image from "next/image";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { apiUrl } from "./api-base";
 
-type AccountRole = "tenant_owner" | "tenant_admin" | "finance_analyst" | "finance_viewer";
+type AccountRole = "tenant_owner" | "tenant_admin" | "finance_viewer";
 export type AuthUser = {
   id: string; username: string; email?: string; displayName: string; tenantId: string; accountSetId: string;
   phone?: string; unit?: string; remark?: string; avatar?: string;
-  role: AccountRole; isBootstrapAdmin: boolean; isRoot: boolean; canManageTenant: boolean; createdAt: string; updatedAt: string;
+  role: AccountRole; isBootstrapAdmin: boolean; isRoot: boolean; isPlatformAdmin: boolean; canManageTenant: boolean; createdAt: string; updatedAt: string;
 };
 type Team = { id: string; name: string; accountSetId: string; role: AccountRole; active: boolean; memberCount: number };
 type AdminTeam = { id: string; name: string; accountSetId: string; createdBy: string; createdAt: string; memberCount: number; administrators: string[] };
@@ -20,7 +20,7 @@ type AccountCenter = {
   invitations: IncomingInvitation[];
   admin?: { scope: "platform" | "tenant"; teams: AdminTeam[]; members: AdminMember[]; invitations: { id: string; identifier: string; role: AccountRole; tenantId: string }[]; platform?: { tenantCount: number; userCount: number } };
 };
-type CenterKind = "personal" | "admin";
+type CenterKind = "personal" | "admin" | "platform";
 type AdminSection = "organizations" | "users";
 
 export function AuthScreen({ mode, setMode, submitting, error, submit }: {
@@ -68,13 +68,13 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
     if (!response.ok) throw new Error(data?.error || "操作失败");
     return data as T;
   }
-  async function loadCenter() {
-    const data = await request<AccountCenter>("/api/auth/account-center");
+  async function loadCenter(scope: "platform" | "tenant" = "tenant") {
+    const data = await request<AccountCenter>(`/api/auth/account-center?scope=${scope}`);
     setCenter(data); return data;
   }
   async function openCenter(kind: CenterKind) {
     setMenuOpen(false); setDialog(kind); setError(""); setNotice(""); setWorking(true);
-    try { await loadCenter(); } catch (caught) { setError(errorMessage(caught)); } finally { setWorking(false); }
+    try { await loadCenter(kind === "platform" ? "platform" : "tenant"); } catch (caught) { setError(errorMessage(caught)); } finally { setWorking(false); }
   }
   async function action(work: () => Promise<void>, success: string) {
     setWorking(true); setError(""); setNotice("");
@@ -138,7 +138,8 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
   return <div className="account-entry" ref={root}>
     {menuOpen && <div className="account-menu" role="menu">
       <button role="menuitem" onClick={() => void openCenter("personal")}>个人中心</button>
-      <button role="menuitem" onClick={() => void openCenter("admin")}>管理员中心</button>
+      {user.isPlatformAdmin && <button role="menuitem" onClick={() => void openCenter("platform")}>平台管理中心</button>}
+      {user.canManageTenant && <button role="menuitem" onClick={() => void openCenter("admin")}>组织管理中心</button>}
       <button role="menuitem" disabled={working} onClick={() => void logout()}>退出登录</button>
       <button role="menuitem" className="danger" onClick={() => { setDialog("delete"); setMenuOpen(false); setConfirmation(""); setError(""); }}>注销账户</button>
     </div>}
@@ -146,8 +147,8 @@ export function UserAccountMenu({ user, onLogout, onDelete, onContextChanged }: 
       <span className="avatar">{user.displayName.slice(0, 1).toUpperCase()}</span><span><strong>{user.displayName}</strong><small>{user.isRoot ? "平台管理员" : roleLabel(user.role)}</small></span><span className="more">•••</span>
     </button>
     {dialog && <div className={`modal-backdrop account-dialog-backdrop ${dialog === "personal" ? "personal-center-backdrop" : ""}`} onMouseDown={() => !working && setDialog(null)}>
-      <section className={`account-dialog ${dialog === "personal" ? "personal-center-dialog" : dialog === "admin" ? "account-center-dialog" : ""}`} role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><h2 id="account-dialog-title">{dialog === "personal" ? "个人信息" : dialog === "admin" ? "管理员中心" : "注销账户"}</h2>{dialog !== "personal" && <p>{dialog === "admin" ? "管理团队、成员及角色权限" : "此操作会立即使当前账户和全部会话失效。"}</p>}</div><button aria-label={dialog === "personal" ? "返回" : "关闭"} disabled={working} onClick={() => setDialog(null)}>{dialog === "personal" ? "←" : "×"}</button></header>
+      <section className={`account-dialog ${dialog === "personal" ? "personal-center-dialog" : dialog === "admin" || dialog === "platform" ? "account-center-dialog" : ""}`} role="dialog" aria-modal="true" aria-labelledby="account-dialog-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header><div><h2 id="account-dialog-title">{dialog === "personal" ? "个人信息" : dialog === "platform" ? "平台管理中心" : dialog === "admin" ? "组织管理中心" : "注销账户"}</h2>{dialog !== "personal" && <p>{dialog === "platform" ? "管理全平台组织、用户与平台配置" : dialog === "admin" ? "管理本组织成员与业务资源" : "此操作会立即使当前账户和全部会话失效。"}</p>}</div><button aria-label={dialog === "personal" ? "返回" : "关闭"} disabled={working} onClick={() => setDialog(null)}>{dialog === "personal" ? "←" : "×"}</button></header>
         {dialog === "delete" ? <DeletePanel confirmation={confirmation} setConfirmation={setConfirmation} error={error} working={working} cancel={() => setDialog(null)} confirm={() => void removeAccount()} />
           : dialog === "personal" ? <div className="personal-center-content">
             {working && !center ? <p className="center-empty">正在加载…</p> : center && <PersonalProfile center={center} updateProfile={updateProfile} openPassword={() => { setError(""); setNotice(""); setPasswordOpen(true); }} working={working} />}
@@ -240,5 +241,5 @@ function UserManagement({ admin, activeTeam, query, setQuery, switchTeam, create
 
 function CenterSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) { return <section className="center-section"><header><h3>{title}</h3><p>{description}</p></header>{children}</section>; }
 function DeletePanel({ confirmation, setConfirmation, error, working, cancel, confirm }: { confirmation: string; setConfirmation: (value: string) => void; error: string; working: boolean; cancel: () => void; confirm: () => void }) { return <div className="delete-account-confirm"><p>数据源和 Mapping 不会被跨租户误删；账户将被软删除且不能再次登录。请输入 <strong>DELETE</strong> 确认。</p><input aria-label="输入 DELETE 确认注销" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} placeholder="DELETE" autoFocus />{error && <div className="auth-error" role="alert">{error}</div>}<div><button onClick={cancel} disabled={working}>取消</button><button className="delete-account-button" onClick={confirm} disabled={working || confirmation !== "DELETE"}>{working ? "正在注销…" : "永久注销账户"}</button></div></div>; }
-function roleLabel(role: AccountRole) { return role === "tenant_owner" ? "团队 Owner" : role === "tenant_admin" ? "租户管理员" : role === "finance_analyst" ? "财务分析师" : "财务查看者"; }
+function roleLabel(role: AccountRole) { return role === "tenant_owner" ? "团队 Owner" : role === "tenant_admin" ? "租户管理员" : "普通成员"; }
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : "操作失败"; }

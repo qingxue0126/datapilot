@@ -16,6 +16,14 @@ export function installModelRoutes(app: Express, service: ModelService, permissi
   app.get("/api/models/:id", (request, response) => handle(response, () => {
     const context = identity(request); permissions.require(context, "model:read"); return service.get(context, request.params.id);
   }));
+  app.get("/api/models/:id/permissions", (request, response) => handle(response, () => {
+    const context = identity(request); permissions.require(context, "model:read"); return { items: service.listPermissions(context, request.params.id) };
+  }));
+  app.put("/api/models/:id/permissions/:userId", (request, response) => handle(response, () => {
+    const context = identity(request); permissions.require(context, "model:manage");
+    const access = request.body?.access === null ? null : request.body?.access as "edit" | "use";
+    return { items: service.setPermission(context, request.params.id, request.params.userId, access) };
+  }));
   app.patch("/api/models/:id", (request, response) => handle(response, () => {
     const context = identity(request); permissions.require(context, "model:manage"); return service.update(context, request.params.id, request.body);
   }));

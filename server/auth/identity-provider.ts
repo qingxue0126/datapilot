@@ -33,14 +33,15 @@ export class EnvironmentIdentityProvider implements IdentityProvider {
       tenantId: safeId(claims.tenant_id, "租户"),
       accountSetId: safeId(claims.account_set_id, "账套"),
       userId: safeId(claims.sub, "用户"),
-      role,
+      role: role === "finance_analyst" ? "finance_viewer" : role,
+      platformAdmin: claims.platform_admin === true,
       sessionId: safeId(request.header("x-session-id")?.trim() || randomUUID(), "会话"),
     });
   }
   private remember(request: Request, context: RequestContext) { this.resolved.set(request, context); return context; }
 }
 
-type Claims = { sub: string; tenant_id: string; account_set_id: string; role: string; exp?: number };
+type Claims = { sub: string; tenant_id: string; account_set_id: string; role: string; platform_admin?: boolean; exp?: number };
 
 function verifyJwt(request: Request, secret: string): Claims {
   const authorization = request.header("authorization") || "";

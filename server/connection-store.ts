@@ -6,6 +6,8 @@ import type { DatabaseConfig } from "./database.js";
 export type StoredConnection = {
   tenantId: string;
   accountSetId: string;
+  ownerId?: string;
+  permission?: "private" | "tenant";
   config: DatabaseConfig;
   createdAt: number;
   details: { version: string; tables: number; latencyMs?: number };
@@ -27,6 +29,7 @@ export function loadConnections() {
         ...item.value,
         tenantId: item.value.tenantId || "demo-tenant",
         accountSetId: item.value.accountSetId || "default-account-set",
+        permission: item.value.permission === "tenant" ? "tenant" : item.value.ownerId ? "private" : undefined,
       });
     }
   } catch (error) {

@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { RequestContext } from "../core/types.js";
+import type { ResourceAccess, ResourcePermissionStore } from "../auth/resource-permission-store.js";
 import type { Metadata } from "./vector-store.js";
 
 export type ParserType = "general" | "table" | "qa";
@@ -13,7 +14,7 @@ export type ColumnMode = "auto" | "manual";
 export type ChunkStrategy = "fixed" | "paragraph" | "heading" | "table-row" | "qa-pair";
 export type VectorIndexType = "HNSW";
 export type VectorMetricType = "COSINE" | "IP" | "L2";
-export type KnowledgePermission = "private" | "team";
+export type KnowledgePermission = "private" | "tenant" | "team";
 
 export type RetrievalConfig = {
   language: "zh-CN" | "en";
@@ -103,10 +104,12 @@ export class KnowledgeStoreError extends Error {
 
 export class KnowledgeStore {
   private readonly database: DatabaseSync;
+  private readonly resourcePermissions?: ResourcePermissionStore;
 
-  constructor(path = process.env.KNOWLEDGE_DB_PATH || resolve(".data", "knowledge.sqlite")) {
+  constructor(path = process.env.KNOWLEDGE_DB_PATH || resolve(".data", "knowledge.sqlite"), resourcePermissions?: ResourcePermissionStore) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     this.database = new DatabaseSync(path);
+    this.resourcePermissions = resourcePermissions;
     this.database.exec("PRAGMA foreign_keys = ON");
     if (path !== ":memory:") this.database.exec("PRAGMA journal_mode = WAL");
     this.database.exec(`
@@ -182,10 +185,10 @@ export class KnowledgeStore {
       FROM knowledge_bases kb
       LEFT JOIN knowledge_documents d ON d.knowledge_base_id = kb.id
       LEFT JOIN knowledge_chunks c ON c.document_id = d.id
-      WHERE kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+      WHERE kb.tenant_id = ?
       GROUP BY kb.id ORDER BY kb.updated_at DESC, kb.id DESC
-    `).all(context.tenantId, context.userId) as unknown as KnowledgeBaseRow[];
-    return rows.map((row) => toKnowledgeBase(row, context.userId));
+    `).all(context.tenantId) as unknown as KnowledgeBaseRow[];
+    return rows.filter((row) => row.user_id === context.userId || row.permission === "tenant" || row.permission === "team" || Boolean(this.resourcePermissions?.access(context, "knowledge_base", row.id, row.user_id, "private"))).map((row) => toKnowledgeBase(row, context.userId));
   }
 
   create(context: RequestContext, input: { name: string; description?: string; permission?: KnowledgePermission; config?: Partial<RetrievalConfig> }) {
@@ -219,7 +222,7 @@ export class KnowledgeStore {
   }
 
   update(context: RequestContext, id: string, input: { name?: string; description?: string; permission?: KnowledgePermission; config?: Partial<RetrievalConfig> }) {
-    const current = this.ownedBase(context, id); const now = new Date().toISOString();
+    const current = this.editableBase(context, id); const now = new Date().toISOString();
     const name = input.name === undefined ? current.name : cleanName(input.name);
     if (!name) throw new KnowledgeStoreError("知识库名称不能为空");
     const description = input.description === undefined ? current.description : String(input.description).trim().slice(0, 500);
@@ -321,7 +324,7 @@ export class KnowledgeStore {
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_documents d ON d.id = c.document_id
       JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-      WHERE c.document_id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+      WHERE c.document_id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission IN ('tenant','team'))
       ORDER BY c.chunk_index ASC
     `).all(documentId, context.tenantId, context.userId) as unknown as ChunkRow[];
     return rows.map(toChunk);
@@ -422,9 +425,29 @@ export class KnowledgeStore {
     const row = this.database.prepare(`
       SELECT id, tenant_id, account_set_id, user_id, name, description, permission, config_json, requires_reindex, created_at, updated_at
       FROM knowledge_bases
-      WHERE id = ? AND tenant_id = ? AND (user_id = ? OR permission = 'team')
-    `).get(id, context.tenantId, context.userId) as unknown as KnowledgeBaseRow | undefined;
+      WHERE id = ? AND tenant_id = ?
+    `).get(id, context.tenantId) as unknown as KnowledgeBaseRow | undefined;
     if (!row) throw new KnowledgeStoreError("知识库不存在或无权访问", 404);
+    if (row.user_id !== context.userId && row.permission !== "tenant" && row.permission !== "team" && !this.resourcePermissions?.access(context, "knowledge_base", id, row.user_id, "private")) throw new KnowledgeStoreError("知识库不存在或无权访问", 404);
+    return row;
+  }
+
+  listPermissions(context: RequestContext, id: string) {
+    const row = this.ownedBase(context, id);
+    return this.resourcePermissions?.list(context, "knowledge_base", id, row.user_id) || [];
+  }
+
+  setPermission(context: RequestContext, id: string, userId: string, access: ResourceAccess | null) {
+    const row = this.ownedBase(context, id);
+    if (!this.resourcePermissions) throw new KnowledgeStoreError("资源成员权限未配置", 500);
+    return this.resourcePermissions.set(context, "knowledge_base", id, row.user_id, userId, access);
+  }
+
+  private editableBase(context: RequestContext, id: string) {
+    const row = this.readableBase(context, id);
+    const access = this.resourcePermissions?.access(context, "knowledge_base", id, row.user_id, row.permission);
+    if (row.user_id !== context.userId && row.permission === "team") throw new KnowledgeStoreError("知识库仅支持读取", 404);
+    if (row.user_id !== context.userId && access !== "edit" && context.role !== "tenant_owner" && context.role !== "tenant_admin" && context.platformAdmin !== true) throw new KnowledgeStoreError("没有知识库编辑权限", 403);
     return row;
   }
 
@@ -446,7 +469,7 @@ export class KnowledgeStore {
       SELECT d.id, d.knowledge_base_id, d.filename, d.file_type, d.size, d.parser_type, d.columns_json,
         d.status, d.error, d.chunk_count, d.created_at, d.updated_at ${source}
       FROM knowledge_documents d JOIN knowledge_bases kb ON kb.id = d.knowledge_base_id
-      WHERE d.id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+      WHERE d.id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission IN ('tenant','team'))
     `).get(id, context.tenantId, context.userId) as unknown as DocumentRow | undefined;
     if (!row) throw new KnowledgeStoreError("文档不存在或无权访问", 404);
     return row;
@@ -468,7 +491,7 @@ export class KnowledgeStore {
       SELECT c.id, c.knowledge_base_id, c.document_id, c.chunk_index, c.content, c.embedding_content, c.metadata_json,
         c.enabled, c.created_at, c.updated_at
       FROM knowledge_chunks c JOIN knowledge_bases kb ON kb.id = c.knowledge_base_id
-      WHERE c.id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission = 'team')
+      WHERE c.id = ? AND kb.tenant_id = ? AND (kb.user_id = ? OR kb.permission IN ('tenant','team'))
     `).get(id, context.tenantId, context.userId) as unknown as ChunkRow | undefined;
     if (!row) throw new KnowledgeStoreError("Chunk 不存在或无权访问", 404);
     return row;
@@ -581,6 +604,7 @@ function normalizeMetadata(value: unknown): Metadata {
 function cleanName(value: unknown) { return String(value || "").replace(/\s+/g, " ").trim().slice(0, 80); }
 function normalizePermission(value: unknown): KnowledgePermission {
   if (value === undefined || value === null || value === "" || value === "private") return "private";
+  if (value === "tenant") return "tenant";
   if (value === "team") return "team";
   throw new KnowledgeStoreError("权限仅支持 private 或 team");
 }

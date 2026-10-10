@@ -34,24 +34,26 @@ export class WorkflowEngine {
   constructor(private readonly dependencies: EngineDependencies) {}
 
   async run(context: RequestContext, agentId: string, input: Record<string, unknown> = {}, stream?: WorkflowStreamListener): Promise<WorkflowRun> {
+    this.dependencies.store.assertRunnable(context, agentId);
     const workflow = this.dependencies.store.getWorkflow(context, agentId);
     const ordered = validateAndSort(workflow.definition);
     const run = this.dependencies.store.createRun(context, agentId, workflow.version, input);
     stream?.onStart?.(run);
-    return this.execute(context, workflow.definition, ordered, run, input, stream);
+    return this.execute(context, workflow.definition, ordered, run, input, stream, agentId);
   }
 
   start(context: RequestContext, agentId: string, input: Record<string, unknown> = {}): WorkflowRun {
+    this.dependencies.store.assertRunnable(context, agentId);
     const workflow = this.dependencies.store.getWorkflow(context, agentId);
     const ordered = validateAndSort(workflow.definition);
     const run = this.dependencies.store.createRun(context, agentId, workflow.version, input);
-    void this.execute(context, workflow.definition, ordered, run, input).catch((error) => {
+    void this.execute(context, workflow.definition, ordered, run, input, undefined, agentId).catch((error) => {
       this.dependencies.store.finishRun(context, run.id, "failed", null, safeError(error), 0);
     });
     return run;
   }
 
-  private async execute(context: RequestContext, definition: WorkflowDefinition, ordered: WorkflowNode[], run: WorkflowRun, input: Record<string, unknown>, stream?: WorkflowStreamListener): Promise<WorkflowRun> {
+  private async execute(context: RequestContext, definition: WorkflowDefinition, ordered: WorkflowNode[], run: WorkflowRun, input: Record<string, unknown>, stream?: WorkflowStreamListener, agentId?: string): Promise<WorkflowRun> {
     const started = Date.now();
     const scope: Scope = { input, variables: definition.variables };
     const boundKnowledgeBaseIds = collectBoundKnowledgeBaseIds(definition);
@@ -88,7 +90,7 @@ export class WorkflowEngine {
           this.dependencies.store.finishNodeRun(context, run.id, runningNode.id, { status: "running", input: resolvedInput, output: partial, error: null, durationMs: Date.now() - nodeStarted, finishedAt: new Date().toISOString() });
           const progress = object(partial);
           if (typeof progress.delta === "string") stream?.onDelta?.({ runId: run.id, nodeId: node.id, delta: progress.delta, text: String(progress.text || "") });
-        }, stream?.signal);
+        }, stream?.signal, agentId || run.agentId);
         nodeExecutionFinished = true;
         scope[node.id] = { output };
         // Imported workflow formats commonly use `begin` (RAGFlow) or another
@@ -110,7 +112,7 @@ export class WorkflowEngine {
     return this.dependencies.store.finishRun(context, run.id, failed ? "failed" : "success", finalOutput, runError, Date.now() - started);
   }
 
-  private async executeNode(context: RequestContext, node: WorkflowNode, config: Record<string, unknown>, scope: Scope, boundKnowledgeBaseIds: BoundKnowledgeAccess, onProgress?: (output: unknown) => void, signal?: AbortSignal): Promise<unknown> {
+  private async executeNode(context: RequestContext, node: WorkflowNode, config: Record<string, unknown>, scope: Scope, boundKnowledgeBaseIds: BoundKnowledgeAccess, onProgress?: (output: unknown) => void, signal?: AbortSignal, agentId?: string): Promise<unknown> {
     switch (node.type) {
       case "start": return validateStartInput(config, object(scope.input));
       case "end": return config.output ?? lastOutput(scope);
@@ -122,16 +124,17 @@ export class WorkflowEngine {
         if (String(config.systemPrompt || "").trim()) messages.push({ role: "system", content: String(config.systemPrompt) });
         messages.push({ role: "user", content: required(config.userPrompt, "请输入 User Prompt") });
         let text = "";
-        const response = await this.dependencies.models.chat(context, modelId, messages, { signal, onToken: onProgress ? (delta) => {
+        const response = await this.dependencies.models.chat(agentId ? this.dependencies.store.executionContext(context, agentId, "llm") : context, modelId, messages, { signal, onToken: onProgress ? (delta) => {
           text += delta;
           onProgress({ text, delta, streaming: true });
         } : undefined });
         return { text: response.content };
       }
-      case "agent": return this.executeAgent(context, config, boundKnowledgeBaseIds, onProgress, object(scope.input).__conversationHistory, signal);
+      case "agent": return this.executeAgent(agentId ? this.dependencies.store.executionContext(context, agentId, "llm") : context, config, boundKnowledgeBaseIds, onProgress, object(scope.input).__conversationHistory, signal, agentId);
       case "knowledge_retrieval": {
         if (!this.dependencies.knowledgeRetrieval) throw new Error("知识库检索服务未配置");
-        const result = await this.dependencies.knowledgeRetrieval.retrieve(context, {
+        const accessContext = agentId ? this.dependencies.store.executionContext(context, agentId, "knowledge_base") : context;
+        const result = await this.dependencies.knowledgeRetrieval.retrieve(accessContext, {
           knowledgeBaseId: required(config.knowledgeBaseId, "请选择知识库"),
           query: required(config.query, "请输入检索问题"),
           filters: validateMetadata(config.filters),
@@ -164,7 +167,7 @@ export class WorkflowEngine {
     }
   }
 
-  private async executeAgent(context: RequestContext, config: Record<string, unknown>, boundKnowledgeBaseIds: BoundKnowledgeAccess, onProgress?: (output: unknown) => void, conversationHistory?: unknown, signal?: AbortSignal) {
+  private async executeAgent(context: RequestContext, config: Record<string, unknown>, boundKnowledgeBaseIds: BoundKnowledgeAccess, onProgress?: (output: unknown) => void, conversationHistory?: unknown, signal?: AbortSignal, _agentId?: string) {
     const trace: AgentTraceEntry[] = [];
     const modelId = required(config.modelId, "请选择 Agent LLM 模型");
     const maxIterations = boundedInteger(config.maxIterations, 5, 1, 20, "最大迭代次数");

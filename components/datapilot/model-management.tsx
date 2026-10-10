@@ -7,7 +7,7 @@ import { apiUrl } from "./api-base";
 type ModelType = "llm" | "embedding" | "rerank" | "vision" | "multimodal_llm" | "multimodal_embedding" | "multimodal_rerank";
 type ModelCapability = "chat" | "reasoning" | "tool_calling" | "structured_output" | "text2sql" | "long_context" | "text_embedding" | "multilingual" | "text_rerank" | "vision" | "ocr" | "image_understanding" | "chart_understanding" | "document_understanding" | "image_embedding" | "multimodal_embedding" | "multimodal_rerank";
 export type ModelOption = {
-  id: string; name: string; modelType: ModelType; capabilities: ModelCapability[]; provider: string; modelId: string; baseUrl: string; apiKeyMasked: string; apiKeyConfigured: boolean;
+  id: string; name: string; modelType: ModelType; permission: "private" | "tenant"; capabilities: ModelCapability[]; provider: string; modelId: string; baseUrl: string; apiKeyMasked: string; apiKeyConfigured: boolean;
   contextWindow: number; embeddingDimension: number | null; maxInputTokens: number | null; topN: number | null; timeout: number; maxRetries: number; temperature: number; supportsTools: boolean;
   supportsStructuredOutput: boolean; supportsVision: boolean; enabled: boolean; lastTestStatus: "success" | "failed" | null;
   lastTestLatencyMs: number | null; lastTestError: string | null; lastTestedAt: string | null;
@@ -66,7 +66,7 @@ export function ModelManagement({ models, selectedModel, onSelect, onRefresh }: 
       const capabilities = data.getAll("capabilities").map(String) as ModelCapability[];
       const payload = { name: value(data, "name"), modelType: value(data, "modelType"), capabilities, provider: value(data, "provider"), modelId: value(data, "modelId"), baseUrl: value(data, "baseUrl"), apiKey: value(data, "apiKey"),
         contextWindow: optionalNumber(data, "contextWindow"), embeddingDimension: optionalNumber(data, "embeddingDimension"), maxInputTokens: optionalNumber(data, "maxInputTokens"), topN: optionalNumber(data, "topN"),
-        timeout: number(data, "timeout"), maxRetries: number(data, "maxRetries"), temperature: optionalNumber(data, "temperature"),
+        timeout: number(data, "timeout"), maxRetries: number(data, "maxRetries"), temperature: optionalNumber(data, "temperature"), permission: value(data, "permission") || (editing !== "new" && editing ? editing.permission : "private"),
         supportsTools: capabilities.includes("tool_calling"), supportsStructuredOutput: capabilities.includes("structured_output"),
         supportsVision: capabilities.some((item) => ["vision", "ocr", "image_understanding", "chart_understanding", "document_understanding"].includes(item)), enabled: data.has("enabled") };
       const path = editing === "new" ? "/api/models" : `/api/models/${editing?.id}`;

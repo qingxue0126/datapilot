@@ -741,7 +741,7 @@ function AgentMemberPermissions({ agent, close, notify }: { agent: AgentItem; cl
     void Promise.all([api("/api/auth/account-center"), api(`/api/agents/${agent.id}/member-permissions`)]).then(async ([centerResponse, grantsResponse]) => {
       const center = await readJson(centerResponse); const permissionData = await readJson(grantsResponse);
       if (!centerResponse.ok || !grantsResponse.ok) throw new Error(center.error || permissionData.error || "无法读取成员权限");
-      const teamMembers = (center.admin?.members || []).filter((item: { tenantId: string; userId: string; role: string }) => item.tenantId === center.user.tenantId && item.userId !== agent.ownerId && ["finance_analyst", "finance_viewer"].includes(item.role));
+      const teamMembers = (center.admin?.members || []).filter((item: { tenantId: string; userId: string; role: string }) => item.tenantId === center.user.tenantId && item.userId !== agent.ownerId && item.role === "finance_viewer");
       setMembers(teamMembers);
       setGrants(Object.fromEntries((permissionData.items || []).map((item: { userId: string; access: "use" | "edit" }) => [item.userId, item.access])));
     }).catch((error) => notify(message(error))).finally(() => setLoading(false));

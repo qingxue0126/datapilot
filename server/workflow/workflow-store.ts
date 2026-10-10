@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { RequestContext } from "../core/types.js";
-import { initialWorkflow, type AgentAccess, type AgentPermission, type AgentRecord, type WorkflowDefinition, type WorkflowNodeRun, type WorkflowNodeRunStatus, type WorkflowRecord, type WorkflowRun, type WorkflowRunStatus, type WorkflowStatus, type WorkflowVersionRecord } from "./workflow-types.js";
+import { initialWorkflow, type AgentAccess, type AgentDependency, type AgentDependencyType, type AgentPermission, type AgentRecord, type WorkflowDefinition, type WorkflowNodeRun, type WorkflowNodeRunStatus, type WorkflowRecord, type WorkflowRun, type WorkflowRunStatus, type WorkflowStatus, type WorkflowVersionRecord } from "./workflow-types.js";
 
 type Row = Record<string, unknown>;
 
@@ -76,6 +76,12 @@ export class WorkflowStore {
     return workflowFromRow(row);
   }
 
+  assertRunnable(context: RequestContext, agentId: string) {
+    this.readableAgentRow(context, agentId);
+    const inactive = (this.database.prepare("SELECT 1 FROM agent_dependencies WHERE agent_id=? AND active=0 LIMIT 1").get(agentId) as Row | undefined);
+    if (inactive) throw new WorkflowStoreError("Agent dependency is disabled or unavailable", 409);
+  }
+
   saveWorkflow(context: RequestContext, agentId: string, definition: WorkflowDefinition): WorkflowRecord {
     this.editableAgentRow(context, agentId);
     const now = new Date().toISOString();
@@ -93,10 +99,12 @@ export class WorkflowStore {
     const nextPermission = permission === undefined ? agent.permission : validatePermission(permission);
     const now = new Date().toISOString();
     if (!enabled) {
+      this.replaceDependencies(context, agentId, workflow.definition, false);
       this.database.prepare("UPDATE agents SET status=?,permission=?,updated_at=? WHERE id=? AND tenant_id=?")
         .run(status, nextPermission, now, agentId, context.tenantId);
       return { agent: { ...agent, status, permission: nextPermission, updatedAt: now }, version: null };
     }
+    this.replaceDependencies(context, agentId, workflow.definition, true);
     const row = this.database.prepare("SELECT COALESCE(MAX(version),0) AS version FROM workflow_versions WHERE agent_id=? AND status='published'").get(agentId) as Row;
     const version = Number(row.version) + 1;
     this.database.prepare("UPDATE workflows SET version=?,updated_at=? WHERE agent_id=?").run(version, now, agentId);
@@ -182,6 +190,16 @@ export class WorkflowStore {
 
   requireEdit(context: RequestContext, id: string) { this.editableAgentRow(context, id); }
 
+  listDependencies(context: RequestContext, agentId: string): AgentDependency[] {
+    this.readableAgentRow(context, agentId);
+    return (this.database.prepare("SELECT * FROM agent_dependencies WHERE agent_id=? AND tenant_id=? AND account_set_id=? ORDER BY type, resource_id").all(agentId, context.tenantId, context.accountSetId) as Row[]).map(dependencyFromRow);
+  }
+
+  executionContext(context: RequestContext, agentId: string, type: AgentDependencyType): RequestContext {
+    const agent = this.readableAgentRow(context, agentId);
+    return type === "datasource" ? context : { ...context, userId: String(agent.user_id) };
+  }
+
   listMemberPermissions(context: RequestContext, agentId: string) {
     this.manageableAgentRow(context, agentId);
     return (this.database.prepare("SELECT user_id,access_level,created_at,updated_at FROM agent_member_permissions WHERE agent_id=? ORDER BY updated_at DESC").all(agentId) as Row[])
@@ -266,9 +284,22 @@ export class WorkflowStore {
     CREATE TABLE IF NOT EXISTS agent_member_permissions (
       agent_id TEXT NOT NULL, user_id TEXT NOT NULL, access_level TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       PRIMARY KEY(agent_id,user_id), FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS agent_dependencies (
+      id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, tenant_id TEXT NOT NULL, account_set_id TEXT NOT NULL,
+      type TEXT NOT NULL, resource_id TEXT NOT NULL, owner_id TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(agent_id,type,resource_id), FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE
     );`);
     const columns = this.database.prepare("PRAGMA table_info(agents)").all() as Row[];
     if (!columns.some((column) => String(column.name) === "permission")) this.database.exec("ALTER TABLE agents ADD COLUMN permission TEXT NOT NULL DEFAULT 'private'");
+  }
+
+  private replaceDependencies(context: RequestContext, agentId: string, definition: WorkflowDefinition, active: boolean) {
+    this.editableAgentRow(context, agentId);
+    const now = new Date().toISOString();
+    this.database.prepare("DELETE FROM agent_dependencies WHERE agent_id=?").run(agentId);
+    for (const dependency of collectDependencies(definition)) this.database.prepare("INSERT INTO agent_dependencies (id,agent_id,tenant_id,account_set_id,type,resource_id,owner_id,active,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)").run(randomUUID(), agentId, context.tenantId, context.accountSetId, dependency.type, dependency.resourceId, context.userId, active ? 1 : 0, now, now);
   }
 }
 
@@ -277,7 +308,20 @@ function cleanName(value: unknown) { const name = String(value || "").trim(); if
 function validateStatus(value: unknown): WorkflowStatus { if (!['draft', 'published', 'disabled'].includes(String(value))) throw new WorkflowStoreError("无效的智能体状态"); return value as WorkflowStatus; }
 function validatePermission(value: unknown): AgentPermission { if (!['private', 'tenant'].includes(String(value))) throw new WorkflowStoreError("无效的智能体权限"); return value as AgentPermission; }
 function validateAccess(value: unknown): AgentAccess { if (!['use', 'edit'].includes(String(value))) throw new WorkflowStoreError("无效的成员权限"); return value as AgentAccess; }
-function isManager(context: RequestContext) { return context.role === "tenant_owner" || context.role === "tenant_admin"; }
+function isManager(context: RequestContext) { return context.platformAdmin === true || context.role === "tenant_owner" || context.role === "tenant_admin"; }
+export function collectDependencies(definition: WorkflowDefinition): { type: AgentDependencyType; resourceId: string }[] {
+  const values: { type: AgentDependencyType; resourceId: string }[] = [];
+  const add = (type: AgentDependencyType, value: unknown) => { const resourceId = String(value || "").trim(); if (resourceId && !resourceId.includes("{{") && !values.some((item) => item.type === type && item.resourceId === resourceId)) values.push({ type, resourceId }); };
+  for (const node of definition.nodes) {
+    const config = node.data.config;
+    if (node.type === "llm" || node.type === "agent") add("llm", config.modelId);
+    if (node.type === "knowledge_retrieval") { add("knowledge_base", config.knowledgeBaseId); add("rerank", config.rerankModel); add("embedding", config.embeddingModel); }
+    if (node.type === "sql") add("datasource", config.datasourceId);
+    if (node.type === "agent" && Array.isArray(config.tools)) for (const tool of config.tools) { const item = tool as Record<string, unknown>; add("knowledge_base", item.knowledgeBaseId); add("rerank", item.rerankModel); }
+  }
+  return values;
+}
+function dependencyFromRow(row: Row): AgentDependency { return { id: String(row.id), agentId: String(row.agent_id), type: String(row.type) as AgentDependencyType, resourceId: String(row.resource_id), tenantId: String(row.tenant_id), accountSetId: String(row.account_set_id), ownerId: String(row.owner_id), active: Boolean(row.active), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
 function json(value: unknown) { return JSON.stringify(value ?? null); }
 function parse(value: unknown) { if (value === null || value === undefined || value === "") return null; try { return JSON.parse(String(value)); } catch { return null; } }
 function agentFromRow(row: Row): Omit<AgentRecord, "ownerId" | "accessLevel"> { return { id: String(row.id), name: String(row.name), description: String(row.description || ""), status: validateStatus(row.status), permission: validatePermission(row.permission || "private"), currentVersion: Number(row.current_version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }

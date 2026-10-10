@@ -9,6 +9,7 @@ export type ModelCapability = typeof modelCapabilities[number];
 
 export const modelTasks = ["intent", "text2sql", "sqlRepair", "agent", "answer", "schemaMapping"] as const;
 export type ModelTask = typeof modelTasks[number];
+export type ResourcePermission = "private" | "tenant";
 
 export type ModelConfigInput = {
   name: string;
@@ -29,6 +30,7 @@ export type ModelConfigInput = {
   supportsStructuredOutput: boolean;
   supportsVision: boolean;
   enabled: boolean;
+  permission?: ResourcePermission;
 };
 
 export type ModelConfig = Omit<ModelConfigInput, "apiKey" | "modelType" | "contextWindow" | "temperature" | "capabilities"> & {
@@ -45,6 +47,7 @@ export type ModelConfig = Omit<ModelConfigInput, "apiKey" | "modelType" | "conte
   lastTestedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  permission: ResourcePermission;
 };
 
 export type RuntimeModelConfig = ModelConfig & { apiKey: string };

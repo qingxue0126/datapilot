@@ -36,6 +36,16 @@ export function installKnowledgeRoutes(
     try { response.json(store.get(resolveIdentity(request), request.params.id)); }
     catch (error) { knowledgeError(response, error); }
   });
+  app.get("/api/knowledge-bases/:id/permissions", (request, response) => {
+    try { response.json({ items: store.listPermissions(resolveIdentity(request), request.params.id) }); }
+    catch (error) { knowledgeError(response, error); }
+  });
+  app.put("/api/knowledge-bases/:id/permissions/:userId", (request, response) => {
+    try {
+      const access = request.body?.access === null ? null : request.body?.access as "edit" | "use";
+      response.json({ items: store.setPermission(resolveIdentity(request), request.params.id, request.params.userId, access) });
+    } catch (error) { knowledgeError(response, error); }
+  });
 
   app.get("/api/knowledge-bases/:id/metadata-schema", (request, response) => {
     try { response.json({ items: store.metadataFacets(resolveIdentity(request), request.params.id) }); }

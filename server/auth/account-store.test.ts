@@ -85,13 +85,19 @@ test("unauthenticated identity resolution is rejected", () => {
 test("deleted account is soft-deleted, sessions are revoked, and login is refused", async () => {
   const item = fixture();
   try {
+    await item.store.register("platform-root", "Secure123", "Secure123");
     const registered = await item.store.register("departing", "Secure123", "Secure123");
+    const successor = await item.store.register("successor", "Secure123", "Secure123");
+    const invitation = item.store.inviteMember(registered.token, { identifier: "successor", role: "finance_viewer" });
+    item.store.respondToInvitation(successor.token, invitation.invitation.id, true);
+    item.store.updateMemberRole(registered.token, successor.user.id, { tenantId: registered.user.tenantId, role: "tenant_owner" });
     item.store.deleteAccount(registered.token);
     assert.throws(() => item.store.authenticate(registered.token), (error: AuthError) => error.status === 401);
     await assert.rejects(() => item.store.login("departing", "Secure123"), (error: AuthError) => error.status === 401);
     const persisted = JSON.parse(readFileSync(item.path, "utf8"));
-    assert.equal(persisted.accounts[0].status, "deleted");
-    assert.ok(persisted.accounts[0].deletedAt);
+    const departingAccount = persisted.accounts.find((account: { username: string }) => account.username === "departing");
+    assert.equal(departingAccount.status, "deleted");
+    assert.ok(departingAccount.deletedAt);
   } finally { item.cleanup(); }
 });
 

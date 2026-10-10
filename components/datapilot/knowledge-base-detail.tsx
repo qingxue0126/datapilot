@@ -17,7 +17,7 @@ export type RetrievalConfig = {
 };
 export type KnowledgeBaseData = {
   id: string; name: string; description: string; documentCount: number; chunkCount: number; requiresReindex: boolean;
-  permission: "private" | "team"; isOwner: boolean; config: RetrievalConfig; createdAt: string; updatedAt: string;
+  permission: "private" | "tenant" | "team"; isOwner: boolean; config: RetrievalConfig; createdAt: string; updatedAt: string;
 };
 export type KnowledgeDocumentData = {
   id: string; knowledgeBaseId: string; filename: string; fileType: string; size: number; parserType: ParserType; columns: string[];
@@ -392,7 +392,7 @@ function ConfigPanel({ kb, columns, models, busy, save, revectorize }: {
       <label><span><b>*</b> 名称</span><input name="name" required maxLength={80} defaultValue={kb.name} /></label>
       <label><span>语言</span><select name="language" defaultValue={config.language}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label>
       <label><span>描述</span><textarea name="description" rows={3} maxLength={500} defaultValue={kb.description} placeholder="请输入知识库描述" /></label>
-      <label><span>权限</span><select name="permission" defaultValue={kb.permission}><option value="private">仅自己</option><option value="team">团队</option></select></label>
+      <label><span>共享范围</span><select name="permission" defaultValue={kb.permission}><option value="private">仅自己</option><option value="tenant">组织内</option></select></label>
     </div></section>
 
     <section className="knowledge-settings-block"><header><h3>解析</h3><p>选择文档解析器。Table 和 QA 会自动识别工作表表头与业务行。</p></header><div className="knowledge-settings-fields">

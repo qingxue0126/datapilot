@@ -8,7 +8,7 @@ import express from "express";
 import { AccountStore } from "./account-store.js";
 import { installAuthRoutes } from "./auth-routes.js";
 
-test("auth API persists a cookie session, logs out, and deletes an account", async () => {
+test("auth API persists a cookie session, logs out, and protects an owner account", async () => {
   const directory = mkdtempSync(join(tmpdir(), "datapilot-auth-api-"));
   const app = express();
   app.use(express.json());
@@ -39,7 +39,7 @@ test("auth API persists a cookie session, logs out, and deletes an account", asy
     assert.ok(identity.context.userId);
     assert.ok(identity.context.tenantId);
     assert.ok(identity.context.accountSetId);
-    assert.equal(identity.context.role, "tenant_admin");
+    assert.equal(identity.context.role, "tenant_owner");
 
     const logout = await fetch(`${base}/api/auth/logout`, { method: "POST", headers: { Cookie: cookie } });
     assert.equal(logout.status, 204);
@@ -56,9 +56,9 @@ test("auth API persists a cookie session, logs out, and deletes an account", asy
     const rejectedDelete = await fetch(`${base}/api/auth/account`, { method: "DELETE", headers: { Cookie: loginCookie, "Content-Type": "application/json" }, body: JSON.stringify({ confirmation: "wrong" }) });
     assert.equal(rejectedDelete.status, 400);
     const deleted = await fetch(`${base}/api/auth/account`, { method: "DELETE", headers: { Cookie: loginCookie, "Content-Type": "application/json" }, body: JSON.stringify({ confirmation: "DELETE" }) });
-    assert.equal(deleted.status, 204);
+    assert.equal(deleted.status, 400);
     const refusedLogin = await fetch(`${base}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ identifier: "api-user", password: "Secure123" }) });
-    assert.equal(refusedLogin.status, 401);
+    assert.equal(refusedLogin.status, 200);
   } finally {
     server.close();
     await once(server, "close");

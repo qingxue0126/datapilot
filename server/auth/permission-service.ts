@@ -2,10 +2,10 @@ import type { PermissionPolicy, RequestContext, Role } from "../core/types.js";
 import type { SchemaTable } from "../database.js";
 
 const policies: Record<Role, PermissionPolicy> = {
-  tenant_owner: { capabilities: ["database:read", "database:write", "connection:manage", "agent:query", "model:read", "model:manage", "schema_mapping:read", "schema_mapping:write", "schema_mapping:publish"], allowedTables: "*", deniedColumns: ["password", "passwd", "secret", "token", "private_key"], rowScopes: [] },
-  tenant_admin: { capabilities: ["database:read", "database:write", "connection:manage", "agent:query", "model:read", "model:manage", "schema_mapping:read", "schema_mapping:write", "schema_mapping:publish"], allowedTables: "*", deniedColumns: ["password", "passwd", "secret", "token", "private_key"], rowScopes: [] },
-  finance_analyst: { capabilities: ["database:read", "agent:query", "model:read", "schema_mapping:read", "schema_mapping:write"], allowedTables: "*", deniedColumns: ["password", "passwd", "secret", "token", "private_key", "id_card", "bank_account"], rowScopes: [] },
-  finance_viewer: { capabilities: ["database:read", "agent:query", "model:read", "schema_mapping:read"], allowedTables: "*", deniedColumns: ["password", "passwd", "secret", "token", "private_key", "id_card", "bank_account"], rowScopes: [] },
+  tenant_owner: { capabilities: ["database:read", "database:write", "connection:manage", "agent:query", "agent:use", "model:read", "model:manage", "schema_mapping:read", "schema_mapping:write", "schema_mapping:publish"], allowedTables: "*", deniedColumns: ["password", "passwd", "secret", "token", "private_key"], rowScopes: [] },
+  tenant_admin: { capabilities: ["database:read", "database:write", "connection:manage", "agent:query", "agent:use", "model:read", "model:manage", "schema_mapping:read", "schema_mapping:write", "schema_mapping:publish"], allowedTables: "*", deniedColumns: ["password", "passwd", "secret", "token", "private_key"], rowScopes: [] },
+  finance_analyst: { capabilities: ["database:read", "agent:query", "agent:use", "model:read", "schema_mapping:read"], allowedTables: "*", deniedColumns: ["password", "passwd", "secret", "token", "private_key", "id_card", "bank_account"], rowScopes: [] },
+  finance_viewer: { capabilities: ["database:read", "agent:query", "agent:use", "model:read", "schema_mapping:read"], allowedTables: "*", deniedColumns: ["password", "passwd", "secret", "token", "private_key", "id_card", "bank_account"], rowScopes: [] },
 };
 
 type PolicyRule = { tenantId: string; accountSetId: string; role: Role; policy: Partial<PermissionPolicy> };
@@ -13,6 +13,7 @@ type PolicyRule = { tenantId: string; accountSetId: string; role: Role; policy: 
 export class PermissionService {
   private readonly rules = loadRules();
   policy(context: RequestContext) {
+    if (context.platformAdmin) return policies.tenant_owner;
     const base = policies[context.role];
     const override = this.rules.find((rule) => rule.tenantId === context.tenantId && rule.accountSetId === context.accountSetId && rule.role === context.role)?.policy;
     return override ? { ...base, ...override } : base;

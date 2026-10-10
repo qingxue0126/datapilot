@@ -3,11 +3,12 @@ import type { RequestContext } from "../core/types.js";
 import type { WorkflowEngine } from "./workflow-engine.js";
 import { validateAndSort } from "./workflow-engine.js";
 import { importRagflowWorkflow } from "./ragflow-importer.js";
-import { WorkflowStore, WorkflowStoreError } from "./workflow-store.js";
-import type { WorkflowDefinition } from "./workflow-types.js";
+import { collectDependencies, WorkflowStore, WorkflowStoreError } from "./workflow-store.js";
+import type { AgentDependencyType, WorkflowDefinition } from "./workflow-types.js";
 import { closeSse, openSse, sseAbortSignal, writeSse } from "../http/sse.js";
 
-export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine: WorkflowEngine, identity: (request: Request) => RequestContext) {
+export type AgentDependencyResolver = (context: RequestContext, agentId: string, type: AgentDependencyType, resourceId: string) => void;
+export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine: WorkflowEngine, identity: (request: Request) => RequestContext, resolveDependency?: AgentDependencyResolver) {
   app.get("/api/agents", (request, response) => handle(response, () => ({ items: store.listAgents(identity(request)) })));
   app.post("/api/agents", (request, response) => handle(response, () => store.createAgent(identity(request), { name: String(request.body?.name || ""), description: request.body?.description }), 201));
   app.post("/api/agents/import", (request, response) => handle(response, () => {
@@ -30,7 +31,15 @@ export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine
   app.patch("/api/agents/:id", (request, response) => handle(response, () => ({ agent: store.updateAgent(identity(request), request.params.id, request.body || {}) })));
   app.delete("/api/agents/:id", (request, response) => handle(response, () => { store.deleteAgent(identity(request), request.params.id); return undefined; }, 204));
   app.post("/api/agents/:id/copy", (request, response) => handle(response, () => store.copyAgent(identity(request), request.params.id), 201));
-  app.post("/api/agents/:id/publish", (request, response) => handle(response, () => store.publish(identity(request), request.params.id, request.body?.enabled !== false, request.body?.permission)));
+  app.post("/api/agents/:id/publish", (request, response) => handle(response, () => {
+    const context = identity(request);
+    if (request.body?.enabled !== false && resolveDependency) {
+      const definition = store.getWorkflow(context, request.params.id).definition;
+      for (const dependency of collectDependencies(definition)) resolveDependency(context, request.params.id, dependency.type, dependency.resourceId);
+    }
+    return store.publish(context, request.params.id, request.body?.enabled !== false, request.body?.permission);
+  }));
+  app.get("/api/agents/:id/dependencies", (request, response) => handle(response, () => ({ items: store.listDependencies(identity(request), request.params.id) })));
   app.get("/api/agents/:id/member-permissions", (request, response) => handle(response, () => ({ items: store.listMemberPermissions(identity(request), request.params.id) })));
   app.put("/api/agents/:id/member-permissions/:userId", (request, response) => handle(response, () => ({ items: store.setMemberPermission(identity(request), request.params.id, request.params.userId, request.body?.access === null ? null : request.body?.access) })));
   app.get("/api/agents/:id/versions", (request, response) => handle(response, () => ({ items: store.listVersions(identity(request), request.params.id) })));

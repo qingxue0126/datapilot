@@ -3,6 +3,8 @@ export type WorkflowNodeType = typeof workflowNodeTypes[number];
 export type WorkflowStatus = "draft" | "published" | "disabled";
 export type AgentPermission = "private" | "tenant";
 export type AgentAccess = "use" | "edit";
+export type AgentDependencyType = "llm" | "embedding" | "rerank" | "knowledge_base" | "datasource";
+export type AgentDependency = { id: string; agentId: string; type: AgentDependencyType; resourceId: string; tenantId: string; accountSetId: string; ownerId: string; active: boolean; createdAt: string; updatedAt: string };
 export type WorkflowRunStatus = "pending" | "running" | "success" | "failed";
 export type WorkflowNodeRunStatus = "pending" | "running" | "success" | "failed" | "skipped";
 

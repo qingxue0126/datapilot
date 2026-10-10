@@ -32,7 +32,7 @@ export function installAuthRoutes(app: Express, accounts: AccountStore) {
   });
 
   app.get("/api/auth/account-center", (request, response) => {
-    try { response.json(accounts.accountCenter(sessionToken(request))); }
+    try { response.json(accounts.accountCenter(sessionToken(request), request.query.scope === "platform" ? "platform" : "tenant")); }
     catch (error) { authFailure(response, error); }
   });
 
