@@ -7,6 +7,7 @@ import { assertAgentSql } from "../security/sql-policy.js";
 import type { ModelService } from "../llm/model-service.js";
 import { validateMetadata, type KnowledgeRetrievalService } from "../knowledge/retrieval-service.js";
 import type { WorkflowStore } from "./workflow-store.js";
+import type { PhoneSupportHarness } from "../agent/phone-support.js";
 import { workflowNodeTypes, type WorkflowDefinition, type WorkflowEdge, type WorkflowNode, type WorkflowNodeRun, type WorkflowNodeRunStatus, type WorkflowRun } from "./workflow-types.js";
 
 type Scope = Record<string, unknown>;
@@ -28,6 +29,7 @@ type EngineDependencies = {
   permissions: PermissionService;
   connection: (context: RequestContext, id: string) => DatabaseConfig;
   fetch?: typeof fetch;
+  phoneSupport?: PhoneSupportHarness;
 };
 
 export class WorkflowEngine {
@@ -36,21 +38,38 @@ export class WorkflowEngine {
   async run(context: RequestContext, agentId: string, input: Record<string, unknown> = {}, stream?: WorkflowStreamListener): Promise<WorkflowRun> {
     this.dependencies.store.assertRunnable(context, agentId);
     const workflow = this.dependencies.store.getWorkflow(context, agentId);
-    const ordered = validateAndSort(workflow.definition);
     const run = this.dependencies.store.createRun(context, agentId, workflow.version, input);
     stream?.onStart?.(run);
+    if (this.dependencies.store.isPreset(agentId) && this.dependencies.phoneSupport) return this.executePhone(context, run, input, stream);
+    const ordered = validateAndSort(workflow.definition);
     return this.execute(context, workflow.definition, ordered, run, input, stream, agentId);
   }
 
   start(context: RequestContext, agentId: string, input: Record<string, unknown> = {}): WorkflowRun {
     this.dependencies.store.assertRunnable(context, agentId);
     const workflow = this.dependencies.store.getWorkflow(context, agentId);
-    const ordered = validateAndSort(workflow.definition);
     const run = this.dependencies.store.createRun(context, agentId, workflow.version, input);
+    if (this.dependencies.store.isPreset(agentId) && this.dependencies.phoneSupport) {
+      void this.executePhone(context, run, input, undefined).catch((error) => this.dependencies.store.finishRun(context, run.id, "failed", null, safeError(error), 0));
+      return run;
+    }
+    const ordered = validateAndSort(workflow.definition);
     void this.execute(context, workflow.definition, ordered, run, input, undefined, agentId).catch((error) => {
       this.dependencies.store.finishRun(context, run.id, "failed", null, safeError(error), 0);
     });
     return run;
+  }
+
+  private async executePhone(context: RequestContext, run: WorkflowRun, input: Record<string, unknown>, stream?: WorkflowStreamListener) {
+    const started = Date.now();
+    try {
+      const result = await this.dependencies.phoneSupport!.run(context, input, stream?.signal, (delta) => stream?.onDelta?.({ runId: run.id, nodeId: "phone-support", delta, text: delta }));
+      this.dependencies.store.addNodeRun(context, run.id, { nodeId: "phone-support", nodeType: "agent", status: "success", input, output: result, error: null, durationMs: Date.now() - started, startedAt: new Date(started).toISOString(), finishedAt: new Date().toISOString() });
+      return this.dependencies.store.finishRun(context, run.id, "success", result, null, Date.now() - started);
+    } catch (error) {
+      this.dependencies.store.addNodeRun(context, run.id, { nodeId: "phone-support", nodeType: "agent", status: "failed", input, output: null, error: safeError(error), durationMs: Date.now() - started, startedAt: new Date(started).toISOString(), finishedAt: new Date().toISOString() });
+      return this.dependencies.store.finishRun(context, run.id, "failed", null, safeError(error), Date.now() - started);
+    }
   }
 
   private async execute(context: RequestContext, definition: WorkflowDefinition, ordered: WorkflowNode[], run: WorkflowRun, input: Record<string, unknown>, stream?: WorkflowStreamListener, agentId?: string): Promise<WorkflowRun> {

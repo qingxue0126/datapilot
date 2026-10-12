@@ -71,6 +71,7 @@ export type ChatRequest = {
   structured?: boolean;
   onToken?: (token: string) => void;
   signal?: AbortSignal;
+  disableThinking?: boolean;
 };
 export type ChatResponse = { content: string; latencyMs: number };
 

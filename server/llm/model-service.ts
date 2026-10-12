@@ -65,7 +65,7 @@ export class ModelService implements StructuredModelClient {
     }
   }
 
-  async chat(context: RequestContext, modelId: string, messages: ChatMessage[], options: { temperature?: number; timeout?: number; maxTokens?: number; structured?: boolean; onToken?: (token: string) => void; signal?: AbortSignal } = {}) {
+  async chat(context: RequestContext, modelId: string, messages: ChatMessage[], options: { temperature?: number; timeout?: number; maxTokens?: number; structured?: boolean; onToken?: (token: string) => void; signal?: AbortSignal; disableThinking?: boolean } = {}) {
     const model = this.store.runtime(context, modelId);
     if (!model.enabled || !isChatCapableModel(model)) throw new Error("所选模型不是已启用的 LLM 模型");
     return this.providers.get(model.provider).chat(model, {
@@ -76,10 +76,11 @@ export class ModelService implements StructuredModelClient {
       structured: options.structured,
       onToken: options.onToken,
       signal: options.signal,
+      disableThinking: options.disableThinking,
     });
   }
 
-  async text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal }) {
+  async text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal; temperature?: number; maxTokens?: number; disableThinking?: boolean }) {
     const resolved = this.router.getModel(options.context, options.task, options.preferredModelId);
     const candidates = [resolved.primary, resolved.fallback].filter(Boolean) as RuntimeModelConfig[];
     let lastError: unknown;
@@ -89,8 +90,8 @@ export class ModelService implements StructuredModelClient {
       const attempts = Math.max(1, resolved.route.maxRetries + 1);
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         try {
-          const result = await this.providers.get(model.provider).chat(model, { messages, temperature: resolved.route.temperature,
-            timeout: resolved.route.timeout, maxTokens: Math.min(4000, model.contextWindow), onToken, signal: options.signal });
+          const result = await this.providers.get(model.provider).chat(model, { messages, temperature: options.temperature ?? resolved.route.temperature,
+            timeout: resolved.route.timeout, maxTokens: Math.min(options.maxTokens ?? 4000, model.contextWindow), onToken, signal: options.signal, disableThinking: options.disableThinking });
           return result.content;
         } catch (error) {
           lastError = error;

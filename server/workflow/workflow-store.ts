@@ -6,6 +6,8 @@ import type { RequestContext } from "../core/types.js";
 import { initialWorkflow, type AgentAccess, type AgentDependency, type AgentDependencyType, type AgentPermission, type AgentRecord, type WorkflowDefinition, type WorkflowNodeRun, type WorkflowNodeRunStatus, type WorkflowRecord, type WorkflowRun, type WorkflowRunStatus, type WorkflowStatus, type WorkflowVersionRecord } from "./workflow-types.js";
 
 type Row = Record<string, unknown>;
+export const PHONE_SUPPORT_AGENT_ID = "builtin.phone-support";
+export const PHONE_SUPPORT_KNOWLEDGE_BASE_ID = "baec59c9-5b4d-4a10-84f4-4b896bfedcd1";
 
 export class WorkflowStoreError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -22,13 +24,15 @@ export class WorkflowStore {
     this.migrate();
   }
 
-  listAgents(context: RequestContext): AgentRecord[] {
+  listAgents(context: RequestContext, includePresets = false): AgentRecord[] {
+    if (includePresets) this.ensurePresetPhoneAgent(context);
     const admin = isManager(context);
     return (this.database.prepare(`${agentSelect} WHERE tenant_id=? AND (user_id=? OR (?=1 AND permission='tenant') OR (permission='tenant' AND EXISTS (SELECT 1 FROM agent_member_permissions p WHERE p.agent_id=agents.id AND p.user_id=? AND (agents.status='published' OR p.access_level='edit')))) ORDER BY updated_at DESC`)
       .all(context.tenantId, context.userId, admin ? 1 : 0, context.userId) as Row[]).map((row) => this.toAgent(context, row));
   }
 
   getAgent(context: RequestContext, id: string): AgentRecord {
+    if (id === PHONE_SUPPORT_AGENT_ID) this.ensurePresetPhoneAgent(context);
     return this.toAgent(context, this.readableAgentRow(context, id));
   }
 
@@ -45,6 +49,7 @@ export class WorkflowStore {
   }
 
   updateAgent(context: RequestContext, id: string, input: { name?: string; description?: string; status?: WorkflowStatus; permission?: AgentPermission }): AgentRecord {
+    this.assertNotPreset(id);
     const current = this.toAgent(context, this.editableAgentRow(context, id));
     const name = input.name === undefined ? current.name : cleanName(input.name);
     const description = input.description === undefined ? current.description : String(input.description).trim().slice(0, 500);
@@ -64,6 +69,7 @@ export class WorkflowStore {
   }
 
   deleteAgent(context: RequestContext, id: string) {
+    this.assertNotPreset(id);
     this.ownedAgentRow(context, id);
     this.database.prepare("DELETE FROM agents WHERE id=? AND tenant_id=? AND user_id=?")
       .run(id, context.tenantId, context.userId);
@@ -83,6 +89,7 @@ export class WorkflowStore {
   }
 
   saveWorkflow(context: RequestContext, agentId: string, definition: WorkflowDefinition): WorkflowRecord {
+    this.assertNotPreset(agentId);
     this.editableAgentRow(context, agentId);
     const now = new Date().toISOString();
     this.database.prepare("UPDATE workflows SET definition_json=?,updated_at=? WHERE agent_id=?")
@@ -93,6 +100,7 @@ export class WorkflowStore {
   }
 
   publish(context: RequestContext, agentId: string, enabled = true, permission?: AgentPermission): { agent: AgentRecord; version: WorkflowVersionRecord | null } {
+    this.assertNotPreset(agentId);
     const agent = this.toAgent(context, this.editableAgentRow(context, agentId));
     const workflow = this.getWorkflow(context, agentId);
     const status: WorkflowStatus = enabled ? "published" : "disabled";
@@ -128,6 +136,34 @@ export class WorkflowStore {
 
   restoreVersion(context: RequestContext, agentId: string, version: number): WorkflowRecord {
     return this.saveWorkflow(context, agentId, this.getVersion(context, agentId, version).definition);
+  }
+
+  isPreset(id: string) { return id === PHONE_SUPPORT_AGENT_ID; }
+
+  getPresetConfig(context: RequestContext, agentId: string) {
+    if (agentId === PHONE_SUPPORT_AGENT_ID) this.ensurePresetPhoneAgent(context);
+    this.readableAgentRow(context, agentId);
+    const row = this.database.prepare("SELECT config_json FROM preset_agent_configs WHERE agent_id=? AND tenant_id=?").get(agentId, context.tenantId) as Row | undefined;
+    const configured = (parse(row?.config_json) || {}) as Record<string, unknown>;
+    return {
+      scoreThreshold: 0.2,
+      topK: 3,
+      transferMessage: "当前问题暂未在知识库中找到可靠答案，我为您转接人工客服。",
+      ...configured,
+      knowledgeBaseId: String(configured.knowledgeBaseId || PHONE_SUPPORT_KNOWLEDGE_BASE_ID),
+      productMetadataField: configured.productMetadataField === "product" || !configured.productMetadataField ? "适用产品" : configured.productMetadataField,
+    };
+  }
+
+  updatePresetConfig(context: RequestContext, agentId: string, config: Record<string, unknown>) {
+    if (!this.isPreset(agentId)) throw new WorkflowStoreError("仅预置智能体支持预置配置", 400);
+    if (!isManager(context)) throw new WorkflowStoreError("仅团队管理员可以修改预置智能体配置", 403);
+    this.ensurePresetPhoneAgent(context);
+    this.readableAgentRow(context, agentId);
+    const now = new Date().toISOString();
+    this.database.prepare("INSERT INTO preset_agent_configs (agent_id,tenant_id,config_json,updated_at) VALUES (?,?,?,?) ON CONFLICT(agent_id,tenant_id) DO UPDATE SET config_json=excluded.config_json,updated_at=excluded.updated_at")
+      .run(agentId, context.tenantId, JSON.stringify(config), now);
+    return config;
   }
 
   createRun(context: RequestContext, agentId: string, version: number, input: unknown): WorkflowRun {
@@ -290,10 +326,32 @@ export class WorkflowStore {
       type TEXT NOT NULL, resource_id TEXT NOT NULL, owner_id TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE(agent_id,type,resource_id), FOREIGN KEY(agent_id) REFERENCES agents(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS preset_agent_configs (
+      agent_id TEXT NOT NULL, tenant_id TEXT NOT NULL, config_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL,
+      PRIMARY KEY(agent_id, tenant_id)
     );`);
     const columns = this.database.prepare("PRAGMA table_info(agents)").all() as Row[];
     if (!columns.some((column) => String(column.name) === "permission")) this.database.exec("ALTER TABLE agents ADD COLUMN permission TEXT NOT NULL DEFAULT 'private'");
+    if (!columns.some((column) => String(column.name) === "is_preset")) this.database.exec("ALTER TABLE agents ADD COLUMN is_preset INTEGER NOT NULL DEFAULT 0");
   }
+
+  private ensurePresetPhoneAgent(context: RequestContext) {
+    const existing = this.database.prepare("SELECT id FROM agents WHERE id=?").get(PHONE_SUPPORT_AGENT_ID) as Row | undefined;
+    if (existing) {
+      this.database.prepare("UPDATE workflows SET definition_json=? WHERE agent_id=?").run(JSON.stringify(phoneInitialWorkflow()), PHONE_SUPPORT_AGENT_ID);
+      return;
+    }
+    const now = new Date().toISOString();
+    this.database.prepare("INSERT INTO agents (id,tenant_id,account_set_id,user_id,name,description,status,permission,current_version,is_preset,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
+      .run(PHONE_SUPPORT_AGENT_ID, context.tenantId, context.accountSetId, context.userId, "电话客服", "代码预置的多轮电话客服智能体", "published", "tenant", 1, 1, now, now);
+    this.database.prepare("INSERT INTO workflows (id,agent_id,definition_json,version,created_at,updated_at) VALUES (?,?,?,?,?,?)")
+      .run(randomUUID(), PHONE_SUPPORT_AGENT_ID, JSON.stringify(phoneInitialWorkflow()), 1, now, now);
+    this.database.prepare("INSERT INTO preset_agent_configs (agent_id,tenant_id,config_json,updated_at) VALUES (?,?,?,?)")
+      .run(PHONE_SUPPORT_AGENT_ID, context.tenantId, JSON.stringify({ knowledgeBaseId: PHONE_SUPPORT_KNOWLEDGE_BASE_ID, productMetadataField: "适用产品", transferMessage: "当前问题暂未在知识库中找到可靠答案，我为您转接人工客服。", scoreThreshold: 0.2, topK: 3 }), now);
+  }
+
+  private assertNotPreset(id: string) { if (this.isPreset(id)) throw new WorkflowStoreError("预置智能体不可编辑、删除或修改工作流", 403); }
 
   private replaceDependencies(context: RequestContext, agentId: string, definition: WorkflowDefinition, active: boolean) {
     this.editableAgentRow(context, agentId);
@@ -304,6 +362,12 @@ export class WorkflowStore {
 }
 
 const agentSelect = "SELECT * FROM agents";
+function phoneInitialWorkflow(): WorkflowDefinition {
+  const definition = initialWorkflow();
+  const start = definition.nodes.find((node) => node.type === "start");
+  if (start) start.data.config.prologue = "您好，欢迎致电客服中心，请问有什么可以帮您？";
+  return definition;
+}
 function cleanName(value: unknown) { const name = String(value || "").trim(); if (!name) throw new WorkflowStoreError("请输入智能体名称"); return name.slice(0, 100); }
 function validateStatus(value: unknown): WorkflowStatus { if (!['draft', 'published', 'disabled'].includes(String(value))) throw new WorkflowStoreError("无效的智能体状态"); return value as WorkflowStatus; }
 function validatePermission(value: unknown): AgentPermission { if (!['private', 'tenant'].includes(String(value))) throw new WorkflowStoreError("无效的智能体权限"); return value as AgentPermission; }
@@ -324,7 +388,7 @@ export function collectDependencies(definition: WorkflowDefinition): { type: Age
 function dependencyFromRow(row: Row): AgentDependency { return { id: String(row.id), agentId: String(row.agent_id), type: String(row.type) as AgentDependencyType, resourceId: String(row.resource_id), tenantId: String(row.tenant_id), accountSetId: String(row.account_set_id), ownerId: String(row.owner_id), active: Boolean(row.active), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
 function json(value: unknown) { return JSON.stringify(value ?? null); }
 function parse(value: unknown) { if (value === null || value === undefined || value === "") return null; try { return JSON.parse(String(value)); } catch { return null; } }
-function agentFromRow(row: Row): Omit<AgentRecord, "ownerId" | "accessLevel"> { return { id: String(row.id), name: String(row.name), description: String(row.description || ""), status: validateStatus(row.status), permission: validatePermission(row.permission || "private"), currentVersion: Number(row.current_version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
+function agentFromRow(row: Row): Omit<AgentRecord, "ownerId" | "accessLevel"> { return { id: String(row.id), name: String(row.name), description: String(row.description || ""), status: validateStatus(row.status), permission: validatePermission(row.permission || "private"), currentVersion: Number(row.current_version), createdAt: String(row.created_at), updatedAt: String(row.updated_at), isPreset: Boolean(row.is_preset) }; }
 function workflowFromRow(row: Row): WorkflowRecord { return { id: String(row.id), agentId: String(row.agent_id), definition: parse(row.definition_json) as WorkflowDefinition, version: Number(row.version), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }; }
 function versionFromRow(row: Row): WorkflowVersionRecord { return { id: String(row.id), agentId: String(row.agent_id), version: Number(row.version), definition: parse(row.definition_json) as WorkflowDefinition, status: validateStatus(row.status), createdAt: String(row.created_at) }; }
 function nodeRunFromRow(row: Row): WorkflowNodeRun { return { id: String(row.id), runId: String(row.run_id), nodeId: String(row.node_id), nodeType: String(row.node_type) as WorkflowNodeRun["nodeType"], status: String(row.status) as WorkflowNodeRunStatus, input: parse(row.input_json), output: parse(row.output_json), error: row.error == null ? null : String(row.error), durationMs: Number(row.duration_ms), startedAt: row.started_at == null ? null : String(row.started_at), finishedAt: row.finished_at == null ? null : String(row.finished_at) }; }

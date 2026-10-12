@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express, { type Request } from "express";
 import { DataAgent } from "./agent/data-agent.js";
+import { PhoneSupportHarness } from "./agent/phone-support.js";
 import { installQueryRoutes } from "./agent/query-routes.js";
 import { AccountStore } from "./auth/account-store.js";
 import { createApiKeyGuard } from "./auth/api-key-guard.js";
@@ -67,6 +68,7 @@ const workflowEngine = new WorkflowEngine({
   knowledgeRetrieval,
   permissions,
   connection: (context, id) => getConnectionItem(id, context).config,
+  phoneSupport: new PhoneSupportHarness({ sessions, models: model, retrieval: knowledgeRetrieval, workflows }),
 });
 
 app.use(cors(createCorsOptions()));

@@ -675,6 +675,7 @@ button:disabled { cursor: not-allowed; }
 .agent-card:hover { border-color: #8ab79f; transform: translateY(-2px); box-shadow: 0 12px 30px rgba(33,66,52,.09); }
 .agent-card-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 10px; color: #287257; background: #e7f2ed; font-size: 22px; }
 .agent-card-title { display: flex; align-items: center; gap: 8px; }.agent-card h3 { margin: 0; color: #2c4438; font-size: 17px; }.agent-card p { min-height: 42px; margin: 8px 0; color: #738279; font-size: 13px; line-height: 1.6; }.agent-card small { color: #8c9891; font-size: 11px; }
+.agent-preset-badge { display: inline-flex; align-items: center; border: 1px solid #b7e1d1; border-radius: 999px; padding: 2px 7px; color: #28765b; background: #eefaf5; font-size: 11px; }
 .agent-status { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 8px; color: #765f2e; background: #f6eedb; font-size: 10px; white-space: nowrap; }.agent-status.published { color: #267154; background: #dff1e8; }.agent-status.disabled { color: #777f7b; background: #edf0ee; }
 .agent-card footer { grid-column: 1 / -1; display: flex; gap: 7px; border-top: 1px solid #e9eeeb; padding-top: 13px; }.agent-card footer button { border: 1px solid #d7e1dc; border-radius: 7px; padding: 6px 9px; color: #37634f; background: white; font-size: 11px; cursor: pointer; }.agent-card footer .danger { margin-left: auto; color: #a65047; }
 .agent-empty { margin-top: 10px; }

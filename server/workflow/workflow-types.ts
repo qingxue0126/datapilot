@@ -40,6 +40,7 @@ export type AgentRecord = {
   currentVersion: number;
   createdAt: string;
   updatedAt: string;
+  isPreset: boolean;
 };
 
 export type WorkflowVersionRecord = {

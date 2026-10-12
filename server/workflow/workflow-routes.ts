@@ -9,7 +9,7 @@ import { closeSse, openSse, sseAbortSignal, writeSse } from "../http/sse.js";
 
 export type AgentDependencyResolver = (context: RequestContext, agentId: string, type: AgentDependencyType, resourceId: string) => void;
 export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine: WorkflowEngine, identity: (request: Request) => RequestContext, resolveDependency?: AgentDependencyResolver) {
-  app.get("/api/agents", (request, response) => handle(response, () => ({ items: store.listAgents(identity(request)) })));
+  app.get("/api/agents", (request, response) => handle(response, () => ({ items: store.listAgents(identity(request), request.query.includePresets === "1") })));
   app.post("/api/agents", (request, response) => handle(response, () => store.createAgent(identity(request), { name: String(request.body?.name || ""), description: request.body?.description }), 201));
   app.post("/api/agents/import", (request, response) => handle(response, () => {
     const context = identity(request);
@@ -27,7 +27,7 @@ export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine
       throw error;
     }
   }, 201));
-  app.get("/api/agents/:id", (request, response) => handle(response, () => { const context = identity(request); store.requireEdit(context, request.params.id); return { agent: store.getAgent(context, request.params.id), workflow: store.getWorkflow(context, request.params.id), runs: store.listRuns(context, request.params.id) }; }));
+  app.get("/api/agents/:id", (request, response) => handle(response, () => { const context = identity(request); const agent = store.getAgent(context, request.params.id); if (!agent.isPreset) store.requireEdit(context, request.params.id); return { agent, workflow: store.getWorkflow(context, request.params.id), runs: store.listRuns(context, request.params.id) }; }));
   app.patch("/api/agents/:id", (request, response) => handle(response, () => ({ agent: store.updateAgent(identity(request), request.params.id, request.body || {}) })));
   app.delete("/api/agents/:id", (request, response) => handle(response, () => { store.deleteAgent(identity(request), request.params.id); return undefined; }, 204));
   app.post("/api/agents/:id/copy", (request, response) => handle(response, () => store.copyAgent(identity(request), request.params.id), 201));
@@ -58,6 +58,8 @@ export function installWorkflowRoutes(app: Express, store: WorkflowStore, engine
     validateAndSort(definition);
     return { workflow: store.saveWorkflow(identity(request), request.params.id, definition) };
   }));
+  app.get("/api/agents/:id/preset-config", (request, response) => handle(response, () => ({ config: store.getPresetConfig(identity(request), request.params.id) })));
+  app.patch("/api/agents/:id/preset-config", (request, response) => handle(response, () => ({ config: store.updatePresetConfig(identity(request), request.params.id, request.body || {}) })));
   app.post("/api/agents/:id/run", (request, response) => {
     try { response.status(202).json({ run: engine.start(identity(request), request.params.id, cleanInput(request.body?.input)) }); }
     catch (error) { workflowError(response, error); }

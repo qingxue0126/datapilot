@@ -24,7 +24,7 @@ export interface ModelProvider {
 export class OpenAICompatibleProvider implements ModelProvider {
   async chat(model: RuntimeModelConfig, request: ChatRequest): Promise<ChatResponse> {
     return this.sendChat(model, request.messages, request.temperature, request.timeout, request.maxTokens,
-      Boolean(request.structured && model.supportsStructuredOutput), false, request.onToken, request.signal);
+      Boolean(request.structured && model.supportsStructuredOutput), request.disableThinking === true, request.onToken, request.signal);
   }
 
   async multimodalChat(model: RuntimeModelConfig, request: MultimodalChatRequest): Promise<ChatResponse> {
