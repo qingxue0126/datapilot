@@ -1,23 +1,24 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { AuthScreen, UserAccountMenu, type AuthUser } from "../components/datapilot/account-access";
-import { AgentTracePanel, AnswerExplanation, BusinessErrorCard } from "../components/datapilot/agent-explanation";
-import { ConfirmDialog } from "../components/datapilot/confirm-dialog";
-import { DatasourceDetail } from "../components/datapilot/datasource-detail";
-import { erpLabel, sourceState } from "../components/datapilot/datasource-status-card";
-import { fallbackDatasourceId } from "../components/datapilot/datasource-selection";
-import { AgentWorkflowIcon, ApiPlugIcon, ConversationLogIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon, SettingsGearIcon, SmartQaIcon } from "../components/datapilot/icons";
-import { AgentStudio } from "../components/datapilot/agent-studio";
-import { ApiManagement } from "../components/datapilot/api-management";
-import { ConversationLogs } from "../components/datapilot/conversation-logs";
-import { KnowledgeBaseView } from "../components/datapilot/knowledge-base";
-import { ModelManagement, type ModelOption } from "../components/datapilot/model-management";
-import { RecentAnalyses } from "../components/datapilot/recent-analyses";
-import type { AnalysisMessage, AnalysisSession, AnalysisSessionDetail, DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/datapilot/types";
-import { apiUrl } from "../components/datapilot/api-base";
-import { streamApi } from "../components/datapilot/sse-client";
-import { generateUUID } from "../components/datapilot/generate-uuid";
+import { AuthScreen, UserAccountMenu, type AuthUser } from "../components/features/admin/account-access.js";
+import { ApiManagement } from "../components/features/admin/api-management.js";
+import { AgentStudio } from "../components/features/agent/agent-studio.js";
+import { AgentTracePanel, AnswerExplanation, BusinessErrorCard } from "../components/features/analysis/agent-explanation.js";
+import { RecentAnalyses } from "../components/features/analysis/recent-analyses.js";
+import { ConversationLogs } from "../components/features/conversation/conversation-logs.js";
+import { DatasourceDetail } from "../components/features/datasource/datasource-detail.js";
+import { fallbackDatasourceId } from "../components/features/datasource/datasource-selection.js";
+import { erpLabel, sourceState } from "../components/features/datasource/datasource-status-card.js";
+import { KnowledgeBaseView } from "../components/features/knowledge/knowledge-base.js";
+import { ModelManagement } from "../components/features/model/model-management.js";
+import { type ModelOption } from "../components/features/model/contracts.js";
+import { apiUrl } from "../components/shared/api-base.js";
+import { generateUUID } from "../components/shared/generate-uuid.js";
+import { streamApi } from "../components/shared/sse-client.js";
+import type { AnalysisMessage, AnalysisSession, AnalysisSessionDetail, DataSource, DetailTab, MappingDraftPayload, MappingVersionResponse, MappingVersionsResponse, QueryResult, SchemaMappingResponse } from "../components/shared/types.js";
+import { ConfirmDialog } from "../components/ui/confirm-dialog.js";
+import { AgentWorkflowIcon, ApiPlugIcon, ConversationLogIcon, KnowledgeDatabaseIcon, ModelCubeIcon, ServerStackIcon, SettingsGearIcon, SmartQaIcon } from "../components/ui/icons.js";
 
 type View = "chat" | "agents" | "sources" | "source-detail" | "database" | "knowledge" | "models" | "api" | "logs";
 type SchemaTable = { name: string; rows: number; columns: { name: string; type: string; nullable: boolean; key: string; comment: string }[] };
@@ -401,6 +402,7 @@ export default function Home() {
     if (!selectedAgentId) { setError("请先在配置中选择一个有使用权限的智能体"); return; }
     if (!query || loading) return;
     const sessionId = await ensureAnalysisSession();
+    const agentPersistsSession = selectedAgentId === "builtin.phone-support";
     const userMessage: AnalysisMessage = { id: `agent-user-${generateUUID()}`, sessionId, role: "user", content: query, createdAt: new Date().toISOString() };
     const answerId = `agent-answer-${generateUUID()}`;
     const controller = new AbortController();
@@ -416,7 +418,7 @@ export default function Home() {
       await streamApi(`/api/agents/${encodeURIComponent(selectedAgentId)}/run/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ input: { query, knowledgeBaseId: selectedKnowledgeBaseId || undefined, __conversationHistory: history } }),
+        body: JSON.stringify({ input: { query, sessionId, knowledgeBaseId: selectedKnowledgeBaseId || undefined, __conversationHistory: history } }),
         signal: controller.signal,
       }, {
         delta: (payload) => {
@@ -434,6 +436,14 @@ export default function Home() {
       const finalText = completed.output === undefined || completed.output === null || completed.output === "" ? streamedText : workflowReply(completed.output);
       const answer = finalText || streamedText;
       setMessages((items) => items.map((item) => item.id === answerId ? { ...item, content: answer } : item));
+      if (agentPersistsSession) {
+        const persistedResponse = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}`);
+        const persisted = await persistedResponse.json() as AnalysisSessionDetail & { error?: string };
+        if (!persistedResponse.ok) throw new Error(persisted.error || "智能体回答已生成，但读取历史失败");
+        setMessages(persisted.messages);
+        setAnalysisSessions((items) => [persisted.session, ...items.filter((item) => item.id !== persisted.session.id)]);
+        return;
+      }
       const savedResponse = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/exchanges`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

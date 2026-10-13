@@ -20,14 +20,20 @@ HTTP/API
 
 ## 模块边界
 
-- `server/agent`：Agent Loop 和可替换 Harness 依赖。
-- `server/auth`：身份解析与数据库、表、字段、数据范围权限。
-- `server/context`：会话接口、SQLite 持久化实现及会话 API；按租户、账套和用户校验归属。
-- `server/domain/erp`：收入、费用、应收、应付、利润、同比、环比指标，以及 ERP SQL 规划规则。
-- `server/llm`：模型适配器；业务代码不依赖具体模型 API。
-- `server/tools`：Tool Registry、Schema 检索、指标检索和只读数据库查询。
-- `server/security`：独立 SQL 安全策略。
-- `server/sandbox`：未来 Python、文件分析的隔离执行接口；当前明确禁用宿主机执行。
+- `server/modules/agent`：runtime、workflow 和 presets；电话客服位于 `presets/phone-support`。
+- `server/modules/datasource`：连接管理、Schema 映射、版本审核和 Schema 检索工具。
+- `server/modules/text2sql`：ERP 指标、SQL 规划及指标/SQL 执行工具。
+- `server/modules/model`：模型配置、权限、任务路由及模型服务。
+- `server/modules/knowledge`：知识库、文档处理、Embedding 编排和检索。
+- `server/modules/conversation`：持久化会话、上下文窗口和会话 API。
+- `server/modules/auth`：身份、RBAC、API Key、资源权限及账户存储。
+- `server/modules/organization`：团队、成员和邀请 API，通过窄接口使用账户聚合。
+- `server/infrastructure`：MySQL/SSH、Milvus/本地向量库、LLM Provider、加密文件存储、SQL 安全和 Sandbox。
+- `server/shared`：实际跨模块使用的身份、权限、模型协议、数据库、对话、追踪及工具契约。
+- `server/http`：SSE 和 CORS 协议；`server/index.ts` 负责装配和启动。
+- `components/features`：按功能组织页面组件；`ui` 为基础组件，`shared` 为跨功能客户端能力。
+
+业务模块通过 `index.ts` 互相引用；前端只能使用服务端 `contracts.ts` 中的浏览器安全契约。模块内部不引用自己的公共入口，以免产生循环。详细迁移决策见 [directory-structure.md](directory-structure.md)。
 
 ## 隔离和权限
 

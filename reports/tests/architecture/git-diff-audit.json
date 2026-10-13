@@ -1,0 +1,35 @@
+{
+  "generatedAt": "2026-10-13T09:20:00+08:00",
+  "diffCheck": "passed",
+  "legacyDirectories": 0,
+  "legacyRuntimeImports": 0,
+  "architectureViolations": 0,
+  "dependencyCycles": 0,
+  "exactDuplicateSourceGroups": 0,
+  "unreferencedCandidates": [
+    { "path": "components/features/analysis/query-history-storage.ts", "reason": "legacy-history compatibility helper covered by a focused unit test" },
+    { "path": "components/features/datasource/current-datasource-shortcut.tsx", "reason": "dormant UI component retained with source-contract tests" },
+    { "path": "components/features/datasource/datasource-switcher.tsx", "reason": "dormant UI component retained with source-contract tests" },
+    { "path": "server/infrastructure/sandbox/sandbox-executor.ts", "reason": "documented disabled sandbox boundary retained by the target architecture" }
+  ],
+  "protectedChanges": {
+    "apiRoutes": 0,
+    "databaseDdl": 0,
+    "deployConfig": 0,
+    "drizzle": 0,
+    "databaseSchema": 0
+  },
+  "secrets": {
+    "addedProviderSecrets": 0,
+    "addedPrivateKeys": 0,
+    "trackedEnvFiles": [".env.example"],
+    "envExampleContainsValues": false,
+    "notes": "Only synthetic passwords in isolated tests and the pre-existing local ERP fixture default were detected; no real account credentials or API keys were added. .env, .data and tmp are ignored."
+  },
+  "temporaryArtifacts": {
+    "tmpIgnored": true,
+    "rawPlaywrightArtifactsIgnored": true,
+    "recursiveCleanup": "blocked by execution policy after absolute workspace-path validation"
+  },
+  "businessLogicAudit": "No business behavior was changed during closeout. Changes were limited to lint-safe lifecycle handling, stale E2E model constants, acceptance evidence, and removal of a one-time tmp-dependent comparison command."
+}

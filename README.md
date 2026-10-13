@@ -93,19 +93,21 @@ flowchart LR
 ## 系统架构
 
 ```text
-app/                         React / vinext 用户界面
+app/                         React / vinext
+components/
+├── features/                agent, knowledge, datasource, model, analysis, conversation, admin
+├── ui/                      Reusable UI
+└── shared/                  Browser utilities and shared contracts
 server/
-├── agent/                   Agent Loop 与 Harness
-├── auth/                    身份、角色及细粒度权限
-├── context/                 Session / Context 接口
-├── domain/erp/              财务指标和 ERP Text2SQL 规则
-├── llm/                     可替换的模型适配器
-├── security/                SQL 解析与安全策略
-├── tools/                   Tool Registry 和数据库工具
-├── sandbox/                 Python / 文件分析预留接口
-├── connection-store.ts      加密的数据源持久化
-├── database.ts              MySQL / SSH 数据库访问层
-└── index.ts                 HTTP API 与依赖装配
+├── modules/                 agent, knowledge, datasource, model, text2sql, conversation, auth, organization
+├── infrastructure/          database, vector-store, llm, storage, sandbox, security
+├── shared/                  Cross-module types
+├── http/                    SSE / CORS
+└── index.ts                 Composition and startup
+tests/                       unit / integration / api / e2e
+reports/tests/               Formal test reports
+config/ db/ drizzle/          Existing configuration and schemas
+scripts/ docs/ examples/      Tooling, documentation and examples
 ```
 
 更详细的设计说明见 [docs/architecture.md](docs/architecture.md)。

@@ -10,7 +10,14 @@
     "app/**/*.tsx",
     "components/**/*.ts",
     "components/**/*.tsx",
-    "server/**/*.ts"
+    "server/**/*.ts",
+    "tests/**/*.ts",
+    "scripts/**/*.ts",
+    "playwright*.config.ts"
   ],
-  "exclude": ["node_modules", "db", "worker", "tests/erp-mock"]
+  "exclude": [
+    "node_modules",
+    "db",
+    "worker"
+  ]
 }

@@ -1,0 +1,58 @@
+{
+  "generatedAt": "2026-10-13T09:20:00+08:00",
+  "mode": "real local and configured provider services; no mocks",
+  "mysql": {
+    "status": "passed",
+    "serverVersion": "5.7.24",
+    "port": 3306,
+    "connections": [
+      { "database": "finance_db", "httpStatus": 200, "latencyMs": 24 },
+      { "database": "datapilot_mock", "httpStatus": 200, "latencyMs": 13 }
+    ]
+  },
+  "milvus": {
+    "status": "passed",
+    "containerHealth": "healthy",
+    "port": 19530,
+    "collectionCount": 3
+  },
+  "embedding": {
+    "status": "passed",
+    "provider": "qwen",
+    "model": "text-embedding-v2",
+    "dimensions": 1536,
+    "finite": true,
+    "latencyMs": 355
+  },
+  "llmProviders": [
+    { "provider": "qwen", "model": "qwen3.5-flash", "status": "passed", "latencyMs": 2023 },
+    { "provider": "deepseek", "model": "deepseek-v4-flash", "status": "blocked", "latencyMs": 529, "reason": "HTTP 402 Insufficient Balance" }
+  ],
+  "knowledgeRetrieval": {
+    "status": "passed",
+    "httpStatus": 200,
+    "vectorStore": "milvus",
+    "resultCount": 3,
+    "latencyMs": 29
+  },
+  "text2sql": {
+    "status": "blocked",
+    "databaseStage": "passed",
+    "httpStatus": 400,
+    "latencyMs": 4494,
+    "reason": "Configured DeepSeek route returned HTTP 402 before SQL generation"
+  },
+  "agentPhoneSupport": {
+    "status": "passed",
+    "passed": 8,
+    "total": 8,
+    "sse": "passed"
+  },
+  "dialogueSemantics": {
+    "passed": 10,
+    "blocked": 11,
+    "failed": 0,
+    "total": 21,
+    "blockedReason": "deepseek-v4-flash returned HTTP 402 Insufficient Balance"
+  }
+}

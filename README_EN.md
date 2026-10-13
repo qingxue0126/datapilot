@@ -93,19 +93,21 @@ An agent run can make up to three SQL correction attempts. Every step records it
 ## Architecture
 
 ```text
-app/                         React / vinext user interface
+app/                         React / vinext
+components/
+├── features/                agent, knowledge, datasource, model, analysis, conversation, admin
+├── ui/                      Reusable UI
+└── shared/                  Browser utilities and shared contracts
 server/
-├── agent/                   Agent Loop and Harness
-├── auth/                    Identity, roles, and fine-grained permissions
-├── context/                 Session / Context interfaces
-├── domain/erp/              Finance metrics and ERP Text2SQL rules
-├── llm/                     Replaceable model adapters
-├── security/                SQL parsing and safety policies
-├── tools/                   Tool Registry and database tools
-├── sandbox/                 Reserved Python / file-analysis interface
-├── connection-store.ts      Encrypted data-source persistence
-├── database.ts              MySQL / SSH access layer
-└── index.ts                 HTTP API and dependency assembly
+├── modules/                 agent, knowledge, datasource, model, text2sql, conversation, auth, organization
+├── infrastructure/          database, vector-store, llm, storage, sandbox, security
+├── shared/                  Cross-module types
+├── http/                    SSE / CORS
+└── index.ts                 Composition and startup
+tests/                       unit / integration / api / e2e
+reports/tests/               Formal test reports
+config/ db/ drizzle/          Existing configuration and schemas
+scripts/ docs/ examples/      Tooling, documentation and examples
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the current detailed design.

@@ -1,0 +1,226 @@
+{
+  "generatedAt": "2026-10-13T09:25:40+08:00",
+  "status": "conditionally_ready",
+  "typecheck": "passed",
+  "lint": {
+    "errors": 0,
+    "warnings": 0
+  },
+  "unit": {
+    "tests": 146,
+    "pass": 146,
+    "fail": 0,
+    "skipped": 0
+  },
+  "integration": {
+    "tests": 105,
+    "pass": 105,
+    "fail": 0,
+    "skipped": 0
+  },
+  "api": {
+    "tests": 14,
+    "pass": 14,
+    "fail": 0,
+    "skipped": 0
+  },
+  "rendered": {
+    "tests": 2,
+    "pass": 2,
+    "fail": 0,
+    "skipped": 0
+  },
+  "build": "passed",
+  "e2e": {
+    "total": 29,
+    "passed": 18,
+    "blocked": 11,
+    "failed": 0
+  },
+  "phoneSupport": {
+    "total": 8,
+    "passed": 8,
+    "blocked": 0,
+    "failed": 0
+  },
+  "dialogueSemantics": {
+    "passed": 10,
+    "blocked": 11,
+    "failed": 0,
+    "total": 21,
+    "blockedReason": "deepseek-v4-flash returned HTTP 402 Insufficient Balance"
+  },
+  "architecture": {
+    "checkedFiles": 105,
+    "violations": [],
+    "runtimeCycles": [],
+    "allCycles": [],
+    "moduleCycles": [],
+    "modules": {
+      "server/modules/agent": [
+        "server/modules/auth",
+        "server/modules/conversation",
+        "server/modules/datasource",
+        "server/modules/knowledge",
+        "server/modules/model",
+        "server/modules/text2sql"
+      ],
+      "server/modules/datasource": [
+        "server/modules/auth"
+      ],
+      "server/modules/knowledge": [
+        "server/modules/auth",
+        "server/modules/model"
+      ],
+      "server/modules/model": [
+        "server/modules/auth"
+      ],
+      "server/modules/organization": [
+        "server/modules/auth"
+      ],
+      "server/modules/text2sql": [
+        "server/modules/auth",
+        "server/modules/datasource",
+        "server/modules/model"
+      ]
+    }
+  },
+  "compatibility": {
+    "routeCount": 99,
+    "schemaStatements": 15,
+    "protectedFiles": 8,
+    "differences": []
+  },
+  "apiDifferential": {
+    "total": 27,
+    "passed": 27,
+    "failed": 0
+  },
+  "externalIntegrations": {
+    "generatedAt": "2026-10-13T09:20:00+08:00",
+    "mode": "real local and configured provider services; no mocks",
+    "mysql": {
+      "status": "passed",
+      "serverVersion": "5.7.24",
+      "port": 3306,
+      "connections": [
+        {
+          "database": "finance_db",
+          "httpStatus": 200,
+          "latencyMs": 24
+        },
+        {
+          "database": "datapilot_mock",
+          "httpStatus": 200,
+          "latencyMs": 13
+        }
+      ]
+    },
+    "milvus": {
+      "status": "passed",
+      "containerHealth": "healthy",
+      "port": 19530,
+      "collectionCount": 3
+    },
+    "embedding": {
+      "status": "passed",
+      "provider": "qwen",
+      "model": "text-embedding-v2",
+      "dimensions": 1536,
+      "finite": true,
+      "latencyMs": 355
+    },
+    "llmProviders": [
+      {
+        "provider": "qwen",
+        "model": "qwen3.5-flash",
+        "status": "passed",
+        "latencyMs": 2023
+      },
+      {
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "status": "blocked",
+        "latencyMs": 529,
+        "reason": "HTTP 402 Insufficient Balance"
+      }
+    ],
+    "knowledgeRetrieval": {
+      "status": "passed",
+      "httpStatus": 200,
+      "vectorStore": "milvus",
+      "resultCount": 3,
+      "latencyMs": 29
+    },
+    "text2sql": {
+      "status": "blocked",
+      "databaseStage": "passed",
+      "httpStatus": 400,
+      "latencyMs": 4494,
+      "reason": "Configured DeepSeek route returned HTTP 402 before SQL generation"
+    },
+    "agentPhoneSupport": {
+      "status": "passed",
+      "passed": 8,
+      "total": 8,
+      "sse": "passed"
+    },
+    "dialogueSemantics": {
+      "passed": 10,
+      "blocked": 11,
+      "failed": 0,
+      "total": 21,
+      "blockedReason": "deepseek-v4-flash returned HTTP 402 Insufficient Balance"
+    }
+  },
+  "gitAudit": {
+    "generatedAt": "2026-10-13T09:20:00+08:00",
+    "diffCheck": "passed",
+    "legacyDirectories": 0,
+    "legacyRuntimeImports": 0,
+    "architectureViolations": 0,
+    "dependencyCycles": 0,
+    "exactDuplicateSourceGroups": 0,
+    "unreferencedCandidates": [
+      {
+        "path": "components/features/analysis/query-history-storage.ts",
+        "reason": "legacy-history compatibility helper covered by a focused unit test"
+      },
+      {
+        "path": "components/features/datasource/current-datasource-shortcut.tsx",
+        "reason": "dormant UI component retained with source-contract tests"
+      },
+      {
+        "path": "components/features/datasource/datasource-switcher.tsx",
+        "reason": "dormant UI component retained with source-contract tests"
+      },
+      {
+        "path": "server/infrastructure/sandbox/sandbox-executor.ts",
+        "reason": "documented disabled sandbox boundary retained by the target architecture"
+      }
+    ],
+    "protectedChanges": {
+      "apiRoutes": 0,
+      "databaseDdl": 0,
+      "deployConfig": 0,
+      "drizzle": 0,
+      "databaseSchema": 0
+    },
+    "secrets": {
+      "addedProviderSecrets": 0,
+      "addedPrivateKeys": 0,
+      "trackedEnvFiles": [
+        ".env.example"
+      ],
+      "envExampleContainsValues": false,
+      "notes": "Only synthetic passwords in isolated tests and the pre-existing local ERP fixture default were detected; no real account credentials or API keys were added. .env, .data and tmp are ignored."
+    },
+    "temporaryArtifacts": {
+      "tmpIgnored": true,
+      "rawPlaywrightArtifactsIgnored": true,
+      "recursiveCleanup": "blocked by execution policy after absolute workspace-path validation"
+    },
+    "businessLogicAudit": "No business behavior was changed during closeout. Changes were limited to lint-safe lifecycle handling, stale E2E model constants, acceptance evidence, and removal of a one-time tmp-dependent comparison command."
+  },
+  "releaseDecision": "Code and local infrastructure are ready for commit and rollback verification. Online validation remains blocked for DeepSeek-dependent dialogue cases and Text2SQL until provider balance is restored."
+}

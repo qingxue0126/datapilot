@@ -1,0 +1,143 @@
+{
+  "total": 27,
+  "passed": 27,
+  "failed": 0,
+  "normalization": "Random UUIDs, API-key secret and timestamps only. HTTP status, response shape/body, content type and cookie flags are compared.",
+  "cases": [
+    {
+      "name": "health",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "anonymous identity",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "anonymous organization",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "register",
+      "status": 201,
+      "passed": true
+    },
+    {
+      "name": "cookie identity",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "account center",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "create team",
+      "status": 201,
+      "passed": true
+    },
+    {
+      "name": "switch team",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "forbidden team",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "name": "models",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "knowledge bases",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "connections",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "invalid connection",
+      "status": 400,
+      "passed": true
+    },
+    {
+      "name": "missing schema",
+      "status": 400,
+      "passed": true
+    },
+    {
+      "name": "datasource permission",
+      "status": 403,
+      "passed": true
+    },
+    {
+      "name": "invalid query",
+      "status": 400,
+      "passed": true
+    },
+    {
+      "name": "create session",
+      "status": 201,
+      "passed": true
+    },
+    {
+      "name": "session exchange",
+      "status": 201,
+      "passed": true
+    },
+    {
+      "name": "session detail",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "delete session",
+      "status": 204,
+      "passed": true
+    },
+    {
+      "name": "create API key",
+      "status": 201,
+      "passed": true
+    },
+    {
+      "name": "list API keys",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "API key identity",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "disable API key",
+      "status": 200,
+      "passed": true
+    },
+    {
+      "name": "disabled API key",
+      "status": 401,
+      "passed": true
+    },
+    {
+      "name": "logout",
+      "status": 204,
+      "passed": true
+    },
+    {
+      "name": "logged out",
+      "status": 401,
+      "passed": true
+    }
+  ]
+}

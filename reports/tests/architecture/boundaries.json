@@ -1,0 +1,35 @@
+{
+  "checkedFiles": 105,
+  "violations": [],
+  "runtimeCycles": [],
+  "allCycles": [],
+  "moduleCycles": [],
+  "modules": {
+    "server/modules/agent": [
+      "server/modules/auth",
+      "server/modules/conversation",
+      "server/modules/datasource",
+      "server/modules/knowledge",
+      "server/modules/model",
+      "server/modules/text2sql"
+    ],
+    "server/modules/datasource": [
+      "server/modules/auth"
+    ],
+    "server/modules/knowledge": [
+      "server/modules/auth",
+      "server/modules/model"
+    ],
+    "server/modules/model": [
+      "server/modules/auth"
+    ],
+    "server/modules/organization": [
+      "server/modules/auth"
+    ],
+    "server/modules/text2sql": [
+      "server/modules/auth",
+      "server/modules/datasource",
+      "server/modules/model"
+    ]
+  }
+}
