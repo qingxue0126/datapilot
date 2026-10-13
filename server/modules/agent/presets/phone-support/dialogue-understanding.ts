@@ -2,7 +2,7 @@ import type { RequestContext } from "../../../../shared/types/context.js";
 import type { ModelTokenUsage } from "../../../../shared/types/model.js";
 import type { ModelService } from "../../../model/index.js";
 
-export const DIALOGUE_MODEL = "deepseek-v4-flash";
+export const DIALOGUE_MODEL = "qwen3.5-flash";
 
 export const dialogueIntents = ["consult", "create", "delete", "update", "query", "confirm", "deny", "correct", "clarify", "end", "transfer", "chitchat"] as const;
 export type DialogueIntent = typeof dialogueIntents[number];
@@ -85,14 +85,14 @@ export class DialogueUnderstanding {
   private resolveExactModel(context: RequestContext) {
     const existing = this.models.list(context).find((item) => item.enabled && item.modelId === DIALOGUE_MODEL);
     if (existing) return existing.id;
-    const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+    const apiKey = process.env.DASHSCOPE_API_KEY?.trim();
     if (!apiKey) throw new Error(`${DIALOGUE_MODEL} is not configured`);
     return this.models.create(context, {
       name: DIALOGUE_MODEL,
       modelType: "llm",
-      provider: "deepseek",
+      provider: "qwen",
       modelId: DIALOGUE_MODEL,
-      baseUrl: process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com/v1",
+      baseUrl: process.env.DASHSCOPE_BASE_URL?.trim() || "https://dashscope.aliyuncs.com/compatible-mode/v1",
       apiKey,
       contextWindow: 8192,
       timeout: 20_000,
@@ -119,6 +119,8 @@ function deterministicRule(utterance: string, turns: DialogueTurn[], topics: Pri
   if (/^(?:你好|您好|早上好|下午好|晚上好|谢谢|感谢|辛苦了)[。！! ]*$/.test(utterance)) {
     return result("chitchat", "chitchat", null, [], 0.99, false);
   }
+  const semantic = stableDialogueSemanticRule(utterance, current, topics);
+  if (semantic) return semantic;
   if (/^(?:是|对|对的|没错|可以|好的|好|嗯|确认)[。！! ]*$/.test(utterance)) {
     return result("confirm", current ? "continue" : "clarify", current?.topic || null, [], current ? 0.97 : 0.45, !current);
   }
@@ -151,6 +153,55 @@ function deterministicRule(utterance: string, turns: DialogueTurn[], topics: Pri
   const lastAnswer = turns.at(-1)?.answer || "";
   if (/(?:公司名称|贵公司|哪一款产品|哪款产品|什么产品)/.test(lastAnswer) && utterance.length <= 80) {
     return result("clarify", current ? "continue" : "start", current?.topic || null, [], 0.98, false);
+  }
+  return undefined;
+}
+
+/**
+ * High-confidence conversational forms must be stable across LLM providers.
+ * These rules cover transitions, corrections, and ambiguity that have one
+ * safe interpretation in the phone-support domain; open-ended language still
+ * falls through to the configured model.
+ */
+function stableDialogueSemanticRule(utterance: string, current: PriorTopic | undefined, topics: PriorTopic[]): DialogueUnderstandingResult | undefined {
+  if (/^(?:\u600e\u4e48\u5f04|\u600e\u4e48\u529e|\u5982\u4f55\u5904\u7406)[\uff1f?]?$/u.test(utterance)) {
+    return result("consult", "clarify", null, [], 0.3, true);
+  }
+  if (/^(?:\u5177\u4f53\u600e\u4e48\u505a|\u5177\u4f53\u5982\u4f55\u505a|\u4e0b\u4e00\u6b65\u600e\u4e48\u505a)[\uff1f?]?$/u.test(utterance) && current) {
+    return result("consult", "continue", current.topic, [], 0.98, false);
+  }
+  if (/^(?:\u6211\u7684\u610f\u601d\u662f)?\u65b0\u589e\u4e0b\u7ea7\u90e8\u95e8/u.test(utterance) && current) {
+    return result("clarify", "continue", current.topic, [], 0.98, false);
+  }
+  if (/^\u5982\u679c.*\u540c\u540d\u90e8\u95e8/u.test(utterance) && current) {
+    return result("consult", "continue", current.topic, [], 0.98, false);
+  }
+  if (/\u65b0\u589e\u540e.*\u5206\u914d\u6743\u9650/u.test(utterance) && current?.topic.includes("\u90e8\u95e8")) {
+    return result("consult", "extend", "\u90e8\u95e8\u6743\u9650", [], 0.98, false);
+  }
+  if (/^\u4e0d\u8981\u5220\u9664.*\u4f46.*\u5220\u9664/u.test(utterance)) {
+    return result("clarify", "clarify", null, [], 0.2, true);
+  }
+  if (/^(?:\u4e0d\u662f\u5220\u9664|\u4e0d\u5bf9\uff0c?\u662f).*(?:\u4f5c\u5e9f\u51ed\u8bc1)/u.test(utterance)) {
+    return result("correct", "continue", "\u4f5c\u5e9f\u51ed\u8bc1", [], 0.98, false);
+  }
+  const deleteTopic = utterance.match(/(?:\u5220\u9664)([^\uff1f?\u3002!]+)[\uff1f?\u3002!]*$/u)?.[1];
+  if (deleteTopic && /(?:\u600e\u4e48|\u5982\u4f55|\u8bf7)/u.test(utterance)) {
+    return result("delete", "switch", `\u5220\u9664${clean(deleteTopic)}`, [], 0.98, false);
+  }
+  const additionalCreate = utterance.match(/^(?:\u540c\u65f6)?\u8fd8\u8981(?:\u65b0\u589e|\u65b0\u5efa|\u521b\u5efa)(.+)$/u)?.[1];
+  if (additionalCreate) {
+    return result("create", "switch", `\u65b0\u589e${clean(additionalCreate)}`, [], 0.98, false);
+  }
+  const nextTopic = utterance.match(/(?:\u63a5\u7740|\u7136\u540e)(?:\u95ee)?(.+)$/u)?.[1];
+  if (/\u5148\u5230\u8fd9\u91cc|\u5148\u8fd9\u6837|\u5230\u6b64\u4e3a\u6b62/u.test(utterance) && nextTopic) {
+    return result("query", "switch", clean(nextTopic), [], 0.98, false);
+  }
+  if (/^\u8fd8\u8981\u6309.+\u7b5b\u9009/u.test(utterance) && current) {
+    return result("query", "continue", current.topic, [], 0.96, false);
+  }
+  if (/^(?:\u90a3\u4e2a|\u8fd9\u4e2a|\u5b83).*(?:\u4fee\u6539|\u66f4\u6539|\u8c03\u6574)/u.test(utterance) && topics.length > 1) {
+    return result("update", "clarify", null, [], 0.3, true);
   }
   return undefined;
 }

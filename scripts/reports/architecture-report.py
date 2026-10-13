@@ -192,7 +192,7 @@ sections = [
         ("table", [["检查", "结果"], ["旧目录 / 旧运行时 import", "0 / 0"], ["完全重复源码", "0 组"], ["循环依赖", "0"], ["API / DDL / deploy / drizzle 意外变更", "0"], ["新增真实密钥 / 私钥 / .env", "0"], ["tmp 进入 Git", "否；/tmp/ 已忽略"], ["git diff --check", "PASS"]]),
     ] + [("p", f"{index + 1}. {risk}") for index, risk in enumerate(RISKS)]),
     ("07", "报告与证据", [
-        ("table", [["路径", "内容"], ["refactor-report.html / .pdf", "本验收报告"], ["verification-summary.json", "机器可读最终结论"], ["external-integration-results.json", "真实依赖验证"], ["git-diff-audit.json", "残留、敏感信息与差异审计"], ["boundaries.json / compatibility.json", "边界、循环、API、DDL 与受保护文件"], ["../e2e/phone-dialogue/report.html / .pdf", "29 项完整电话客服与语义 E2E"], ["../unit|integration|api/results.tap", "分类测试原始结果"]]),
+        ("table", [["路径", "内容"], ["refactor-report.html / .pdf", "本验收报告"], ["verification-summary.json", "机器可读最终结论"], ["external-integration-results.json", "真实依赖验证"], ["git-diff-audit.json", "残留、敏感信息与差异审计"], ["boundaries.json / compatibility.json", "边界、循环、API、DDL 与受保护文件"], ["../e2e/phone-dialogue-e2e-<timestamp>.html / .pdf", "电话客服与语义 E2E 正式报告；文件名带执行时间戳"], ["../unit|integration|api/results.tap", "分类测试原始结果"]]),
     ]),
 ]
 

@@ -6,8 +6,8 @@ export default defineConfig({
   timeout: 90_000,
   fullyParallel: false,
   workers: 1,
-  outputDir: "reports/tests/e2e/artifacts",
-  reporter: [["list"], ["./tests/e2e/phone-dialogue-reporter.ts"], ["html", { outputFolder: "reports/tests/e2e/playwright", open: "never" }]],
+  outputDir: "tmp/e2e-artifacts",
+  reporter: [["list"], ["./tests/e2e/phone-dialogue-reporter.ts"], ["html", { outputFolder: "tmp/e2e-playwright", open: "never" }]],
   use: {
     baseURL: process.env.DATAPILOT_E2E_WEB_URL || "http://localhost:3000",
     storageState: "tmp/playwright-phone-auth.json",

@@ -4,7 +4,7 @@ import { ContextManager } from "../../../conversation/index.js";
 import type { KnowledgeRetrievalService } from "../../../knowledge/index.js";
 import type { ModelService } from "../../../model/index.js";
 import type { WorkflowStore } from "../../workflow/workflow-store.js";
-import { DialogueUnderstanding, type DialogueUnderstandingResult } from "./dialogue-understanding.js";
+import { DIALOGUE_MODEL, DialogueUnderstanding, type DialogueUnderstandingResult } from "./dialogue-understanding.js";
 
 export type PhoneSupportConfig = {
   knowledgeBaseId?: string;
@@ -141,6 +141,7 @@ export class PhoneSupportHarness {
     let answer = fallbackAnswer;
     try {
       const modelContext = this.deps.workflows.executionContext(context, "builtin.phone-support", "llm");
+      const preferredModelId = this.resolveAnswerModelId(modelContext, config.modelId);
       const content = await withTimeout(this.deps.models.text([
         { role: "system", content: [
           "你是企业软件电话热线客服，正在和客户通话。请把唯一依据改写成专业、简洁、自然的口语，不能原样朗读。",
@@ -151,10 +152,10 @@ export class PhoneSupportHarness {
           "只输出本次通话中客服要说的话，不要输出标题、列表或分析过程。",
         ].join("\n") },
         { role: "user", content: `客户公司：${slots.company_name}\n使用产品：${slots.product}\n客户问题：${rewrittenQuery}\n唯一依据：\n${evidence.content}` },
-      ], { context: modelContext, task: "answer", preferredModelId: config.modelId || "qwen3.5-flash", temperature: 0, maxTokens: 220, disableThinking: true, signal, onToken: () => undefined }), 20_000, signal);
+      ], { context: modelContext, task: "answer", preferredModelId, temperature: 0, maxTokens: 220, disableThinking: true, signal, onToken: () => undefined }), 20_000, signal);
       const generated = cleanGeneratedAnswer(content);
       answer = isGroundedRewrite(generated, evidence.content) ? generated : fallbackAnswer;
-      trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: `${config.modelId || "route:answer"}; evidence=${evidence.chunkId}` });
+      trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: `${preferredModelId || "route:answer"}; evidence=${evidence.chunkId}` });
     } catch (error) {
       trace.push({ step: "answer.generate", status: "failed", durationMs: Date.now() - answerStarted, detail: safeError(error) });
       answer = fallbackAnswer;
@@ -167,6 +168,12 @@ export class PhoneSupportHarness {
     const intent = dialogueUnderstanding.intent;
     this.deps.sessions.appendExchange(context, sessionId, { question, answer, result: { channel: "agent", agentId: "builtin.phone-support", runId, status: "success", question, answer, phone: { slots, state, currentTopic: slots.actual_query, rewrittenQuery, intent, dialogueUnderstanding, sources, trace } } });
     return { answer, sessionId, state, slots, currentTopic: slots.actual_query, rewrittenQuery, sources, intent, dialogueUnderstanding, trace };
+  }
+
+  private resolveAnswerModelId(context: RequestContext, configuredModelId?: string) {
+    const explicitModelId = clean(configuredModelId);
+    if (explicitModelId) return explicitModelId;
+    return this.deps.models.list(context).find((model) => model.enabled && model.modelId === DIALOGUE_MODEL)?.id;
   }
 }
 

@@ -45,11 +45,5 @@ next-env.d.ts
 /work/
 /tmp/
 
-# generated browser artifacts (final HTML/PDF reports remain tracked)
-/reports/tests/e2e/artifacts/
-/reports/tests/e2e/playwright/
-/reports/tests/e2e/legacy/
-/reports/tests/e2e/legacy-artifacts/
-/reports/tests/e2e/legacy-playwright/
-/reports/tests/e2e/previous/
+# generated browser artifacts (final timestamped HTML/PDF reports remain tracked)
 /reports/tests/architecture/attempts/

@@ -54,10 +54,11 @@ export default class PhoneDialogueReporter implements Reporter {
 
   async onEnd(result: FullResult) {
     void result;
-    const outputDir = resolve("reports", "tests", "e2e", "phone-dialogue");
+    const outputDir = resolve("reports", "tests", "e2e");
     await mkdir(outputDir, { recursive: true });
-    const htmlPath = resolve(outputDir, "report.html");
-    const pdfPath = resolve(outputDir, "phone-dialogue-phase2-report.pdf");
+    const timestamp = formatReportTimestamp(this.startedAt);
+    const htmlPath = resolve(outputDir, `phone-dialogue-e2e-${timestamp}.html`);
+    const pdfPath = resolve(outputDir, `phone-dialogue-e2e-${timestamp}.pdf`);
     const html = renderReport(this.rows, this.startedAt, new Date(), this.config);
     await writeFile(htmlPath, html, "utf8");
     const browser = await chromium.launch({ channel: "msedge", headless: true });
@@ -68,6 +69,11 @@ export default class PhoneDialogueReporter implements Reporter {
       await page.pdf({ path: pdfPath, format: "A4", printBackground: true, margin: { top: "12mm", right: "10mm", bottom: "14mm", left: "10mm" } });
     } finally { await browser.close(); }
   }
+}
+
+function formatReportTimestamp(value: Date) {
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${value.getFullYear()}${pad(value.getMonth() + 1)}${pad(value.getDate())}-${pad(value.getHours())}${pad(value.getMinutes())}`;
 }
 
 function renderReport(rows: Row[], startedAt: Date, endedAt: Date, config?: FullConfig) {

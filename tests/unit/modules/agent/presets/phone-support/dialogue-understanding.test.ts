@@ -63,6 +63,44 @@ test("ordinal reference is resolved by rules only when the candidate exists", as
   assert.equal(calls.length, 0);
 });
 
+test("stabilizes known multi-turn bad cases before provider-specific interpretation", async () => {
+  const { models, calls } = fakeModels(new Error("unused"));
+  const understanding = new DialogueUnderstanding(models as never);
+  const cases = [
+    { utterance: "具体怎么做？", expected: { intent: "consult", topicAction: "continue", targetTopic: "删除科目", needsClarification: false } },
+    { utterance: "我的意思是新增下级部门", expected: { intent: "clarify", topicAction: "continue", targetTopic: "删除科目", needsClarification: false } },
+    { utterance: "如果已经有同名部门呢？", expected: { intent: "consult", topicAction: "continue", targetTopic: "删除科目", needsClarification: false } },
+    { utterance: "怎么删除会计科目？", expected: { intent: "delete", topicAction: "switch", targetTopic: "删除会计科目", needsClarification: false } },
+    { utterance: "同时还要新增客户档案", expected: { intent: "create", topicAction: "switch", targetTopic: "新增客户档案", needsClarification: false } },
+    { utterance: "部门问题先到这里，接着问科目查询", expected: { intent: "query", topicAction: "switch", targetTopic: "科目查询", needsClarification: false } },
+    { utterance: "还要按制单人筛选", expected: { intent: "query", topicAction: "continue", targetTopic: "删除科目", needsClarification: false } },
+    { utterance: "不是删除，是作废凭证", expected: { intent: "correct", topicAction: "continue", targetTopic: "作废凭证", needsClarification: false } },
+    { utterance: "那个怎么修改？", expected: { intent: "update", topicAction: "clarify", targetTopic: null, needsClarification: true } },
+    { utterance: "怎么弄？", expected: { intent: "consult", topicAction: "clarify", targetTopic: null, needsClarification: true } },
+    { utterance: "不要删除，但请删除它", expected: { intent: "clarify", topicAction: "clarify", targetTopic: null, needsClarification: true } },
+  ];
+  for (const item of cases) {
+    const response = await understanding.understand(context, { utterance: item.utterance, turns, priorTopics: topics });
+    assert.deepEqual(response.result, { ...item.expected, resolvedReferences: [], confidence: response.result.confidence });
+    assert.equal(response.diagnostics.source, "rule");
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("normalizes department permission follow-ups to a stable extended topic", async () => {
+  const { models, calls } = fakeModels(new Error("unused"));
+  const response = await new DialogueUnderstanding(models as never).understand(context, {
+    utterance: "新增后怎么分配权限？",
+    turns: [turns[0]],
+    priorTopics: [{ topic: "新增部门", turn: 1 }],
+  });
+  assert.deepEqual(response.result, {
+    intent: "consult", topicAction: "extend", targetTopic: "部门权限", resolvedReferences: [], confidence: 0.98, needsClarification: false,
+  });
+  assert.equal(response.diagnostics.source, "rule");
+  assert.equal(calls.length, 0);
+});
+
 test("model failure is observable and ambiguous references are not guessed", async () => {
   const { models } = fakeModels(new Error("模型请求失败（402）：Insufficient Balance; Bearer secret"));
   const response = await new DialogueUnderstanding(models as never).understand(context, { utterance: "那个怎么改？", turns, priorTopics: topics });
