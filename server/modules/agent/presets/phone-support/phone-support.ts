@@ -4,14 +4,13 @@ import { ContextManager } from "../../../conversation/index.js";
 import type { KnowledgeRetrievalService } from "../../../knowledge/index.js";
 import type { ModelService } from "../../../model/index.js";
 import type { WorkflowStore } from "../../workflow/workflow-store.js";
-import { DIALOGUE_MODEL, DialogueUnderstanding, type DialogueUnderstandingResult } from "./dialogue-understanding.js";
+import { DIALOGUE_FALLBACK_MODEL, DIALOGUE_MODEL, DialogueUnderstanding, type DialogueUnderstandingResult } from "./dialogue-understanding.js";
 import { DialoguePolicy, type DialoguePolicyDecision } from "./dialogue-policy.js";
 import { canonicalTopic, DialogueStateTracker, hasBusinessContent, productMention, restoreDialogueState, type DialogueState, type PhoneSlots } from "./dialogue-state-tracker.js";
 import { QueryRewriter } from "./query-rewriter.js";
 
 export type PhoneSupportConfig = {
   knowledgeBaseId?: string;
-  modelId?: string;
   productMetadataField?: string;
   scoreThreshold?: number;
   topK?: number;
@@ -163,29 +162,49 @@ export class PhoneSupportHarness {
     let answerUsage: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
     let answerModel = "";
     let answerModelLatencyMs = 0;
+    const modelContext = this.deps.workflows.executionContext(context, "builtin.phone-support", "llm");
+    const modelMessages = [
+      { role: "system" as const, content: [
+        "你是企业软件电话热线客服，正在和客户通话。请把唯一依据改写成专业、简洁、自然的口语，不能原样朗读。",
+        "只能改变措辞和语序。回答中的结论、菜单、步骤、条件、限制必须全部来自唯一依据，严禁推测、补充常识、扩展步骤或合并其他问题的答案。",
+        "先直接回答，再用一到两句话说明操作。菜单路径要改成“进入……，找到……”的说法；不要使用书面报告或说明书语气。",
+        "本次通话的开场白已完成首次问候。当前及后续回复都不要使用“您好”“你好”或其他寒暄作为开头，也不要在客户公司名称后补寒暄。",
+        "禁止说“问题描述”“解决方案”“知识库”“检索结果”“根据资料”“请按以下步骤操作”。",
+        "不得补充资料中没有的信息。资料不足时只回答：这个问题我暂时无法确认，我为您转接人工客服。",
+        "只输出本次通话中客服要说的话，不要输出标题、列表或分析过程。",
+      ].join("\n") },
+      { role: "user" as const, content: `客户公司：${slots.company_name}\n使用产品：${slots.product}\n客户问题：${rewrittenQuery}\n唯一依据：\n${evidence.content}` },
+    ];
+    const generateAnswer = (preferredModelId?: string) => withTimeout(this.deps.models.text(modelMessages, {
+      context: modelContext,
+      task: "answer",
+      preferredModelId,
+      temperature: 0,
+      maxTokens: 220,
+      disableThinking: true,
+      signal,
+      onToken: () => undefined,
+      onUsage: (usage, latencyMs, modelId) => { answerUsage = usage; answerModelLatencyMs = latencyMs; answerModel = modelId; },
+    }), 20_000, signal);
+    let primaryModelId: string | undefined;
     try {
-      const modelContext = this.deps.workflows.executionContext(context, "builtin.phone-support", "llm");
-      const preferredModelId = this.resolveAnswerModelId(modelContext, config.modelId);
-      const content = await withTimeout(this.deps.models.text([
-        { role: "system", content: [
-          "你是企业软件电话热线客服，正在和客户通话。请把唯一依据改写成专业、简洁、自然的口语，不能原样朗读。",
-          "只能改变措辞和语序。回答中的结论、菜单、步骤、条件、限制必须全部来自唯一依据，严禁推测、补充常识、扩展步骤或合并其他问题的答案。",
-          "先直接回答，再用一到两句话说明操作。菜单路径要改成“进入……，找到……”的说法；不要使用书面报告或说明书语气。",
-          "本次通话的开场白已完成首次问候。当前及后续回复都不要使用“您好”“你好”或其他寒暄作为开头，也不要在客户公司名称后补寒暄。",
-          "禁止说“问题描述”“解决方案”“知识库”“检索结果”“根据资料”“请按以下步骤操作”。",
-          "不得补充资料中没有的信息。资料不足时只回答：这个问题我暂时无法确认，我为您转接人工客服。",
-          "只输出本次通话中客服要说的话，不要输出标题、列表或分析过程。",
-        ].join("\n") },
-        { role: "user", content: `客户公司：${slots.company_name}\n使用产品：${slots.product}\n客户问题：${rewrittenQuery}\n唯一依据：\n${evidence.content}` },
-      ], { context: modelContext, task: "answer", preferredModelId, temperature: 0, maxTokens: 220, disableThinking: true, signal, onToken: () => undefined,
-        onUsage: (usage, latencyMs, modelId) => { answerUsage = usage; answerModelLatencyMs = latencyMs; answerModel = modelId; },
-      }), 20_000, signal);
+      primaryModelId = this.resolveAnswerModelId(modelContext, DIALOGUE_MODEL);
+      const content = await generateAnswer(primaryModelId);
       const generated = cleanGeneratedAnswer(content);
       answer = isGroundedRewrite(generated, evidence.content) ? generated : fallbackAnswer;
-      trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: JSON.stringify({ model: answerModel || preferredModelId || "route:answer", modelLatencyMs: answerModelLatencyMs, usage: answerUsage, evidence: evidence.chunkId }) });
-    } catch (error) {
-      trace.push({ step: "answer.generate", status: "failed", durationMs: Date.now() - answerStarted, detail: safeError(error) });
-      answer = fallbackAnswer;
+      trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: JSON.stringify({ model: answerModel || primaryModelId || "route:answer", modelLatencyMs: answerModelLatencyMs, usage: answerUsage, evidence: evidence.chunkId }) });
+    } catch (primaryError) {
+      try {
+        const fallbackModelId = this.resolveAnswerModelId(modelContext, DIALOGUE_FALLBACK_MODEL);
+        if (!fallbackModelId || fallbackModelId === primaryModelId || signal?.aborted) throw primaryError;
+        const content = await generateAnswer(fallbackModelId);
+        const generated = cleanGeneratedAnswer(content);
+        answer = isGroundedRewrite(generated, evidence.content) ? generated : fallbackAnswer;
+        trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: JSON.stringify({ model: answerModel || fallbackModelId, fallback: true, modelLatencyMs: answerModelLatencyMs, usage: answerUsage, evidence: evidence.chunkId }) });
+      } catch (fallbackError) {
+        trace.push({ step: "answer.generate", status: "failed", durationMs: Date.now() - answerStarted, detail: `primary=${safeError(primaryError)}; fallback=${safeError(fallbackError)}` });
+        answer = fallbackAnswer;
+      }
     }
     answer = stripOpeningGreeting(answer, slots.company_name);
     onToken?.(answer);
@@ -200,12 +219,33 @@ export class PhoneSupportHarness {
     return { answer, sessionId, state, slots, currentTopic: dialogueState.currentTopic, rewrittenQuery, sources, intent, dialogueUnderstanding, dialogueState, policy, trace };
   }
 
-  private resolveAnswerModelId(context: RequestContext, configuredModelId?: string) {
-    const explicitModelId = clean(configuredModelId);
-    if (explicitModelId) return explicitModelId;
-    return typeof this.deps.models.list === "function"
-      ? this.deps.models.list(context).find((model) => model.enabled && model.modelId === DIALOGUE_MODEL)?.id
-      : undefined;
+  private resolveAnswerModelId(context: RequestContext, model: typeof DIALOGUE_MODEL | typeof DIALOGUE_FALLBACK_MODEL) {
+    if (typeof this.deps.models.list !== "function") return undefined;
+    const existing = this.deps.models.list(context).find((item) => item.enabled && item.modelId === model);
+    if (existing) return existing.id;
+    const isDeepSeek = model === DIALOGUE_MODEL;
+    const apiKey = (isDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.DASHSCOPE_API_KEY)?.trim();
+    if (!apiKey) throw new Error(`${model} is not configured`);
+    return this.deps.models.create(context, {
+      name: model,
+      modelType: "llm",
+      provider: isDeepSeek ? "deepseek" : "qwen",
+      modelId: model,
+      baseUrl: isDeepSeek
+        ? process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com/v1"
+        : process.env.DASHSCOPE_BASE_URL?.trim() || "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      apiKey,
+      contextWindow: 8192,
+      timeout: 20_000,
+      maxRetries: 0,
+      temperature: 0,
+      supportsTools: false,
+      supportsStructuredOutput: true,
+      supportsVision: false,
+      enabled: true,
+      permission: "private",
+      capabilities: ["chat", "structured_output", "multilingual"],
+    }).id;
   }
 }
 

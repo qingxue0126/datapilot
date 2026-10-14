@@ -8,7 +8,7 @@ import { SessionStoreError, SqliteSessionStore } from "../../../../../../server/
 import type { RequestContext } from "../../../../../../server/shared/types/context.js";
 
 const context: RequestContext = { tenantId: "t1", accountSetId: "a1", userId: "u1", role: "tenant_admin", sessionId: "s" };
-function setup(items: { content: string; score: number; metadata?: Record<string, unknown> }[] = [{ content: "账套支持备份和删除，具体步骤是进入系统设置。", score: 0.9 }], options: { modelContent?: string; modelError?: Error; modelId?: string } = {}) {
+function setup(items: { content: string; score: number; metadata?: Record<string, unknown> }[] = [{ content: "账套支持备份和删除，具体步骤是进入系统设置。", score: 0.9 }], options: { modelContent?: string; modelError?: Error } = {}) {
   const exchanges: { question: string; answer: string; result: Record<string, unknown> }[] = [];
   const requests: { knowledgeBaseId: string; query: string; filters?: unknown }[] = [];
   const sessions = {
@@ -21,7 +21,7 @@ function setup(items: { content: string; score: number; metadata?: Record<string
   const modelCalls: { messages: { role: string; content: string }[]; options: Record<string, unknown> }[] = [];
   const models = { text: async (messages: { role: string; content: string }[], modelOptions: Record<string, unknown>) => { modelCalls.push({ messages, options: modelOptions }); if (options.modelError) throw options.modelError; return options.modelContent || "可以的。您可以进入系统设置进行操作。"; } };
   const workflows = {
-    getPresetConfig: () => ({ knowledgeBaseId: "baec59c9-5b4d-4a10-84f4-4b896bfedcd1", productMetadataField: "适用产品", modelId: options.modelId }),
+    getPresetConfig: () => ({ knowledgeBaseId: "baec59c9-5b4d-4a10-84f4-4b896bfedcd1", productMetadataField: "适用产品" }),
     executionContext: (value: RequestContext) => value,
   };
   return { harness: new PhoneSupportHarness({ sessions: sessions as never, retrieval: retrieval as never, models: models as never, workflows: workflows as never }), exchanges, requests, modelCalls };
@@ -128,10 +128,10 @@ test("phone support grounds DeepSeek rewriting in only the best retrieval hit", 
   const { harness, modelCalls } = setup([
     { content: "问题描述：需要增加会计科目，怎么操作\n解决方案：请按以下步骤操作：基础设置-科目期初进行增加就可以了", score: 0.95 },
     { content: "问题描述：会计科目可以删除吗\n解决方案：已经使用的科目只能停用。", score: 0.7 },
-  ], { modelId: "deepseek-v4-flash-id", modelContent: "企通您好，增加会计科目的话，您进入基础设置，找到科目期初，在那里进行增加就可以了。" });
+  ], { modelContent: "企通您好，增加会计科目的话，您进入基础设置，找到科目期初，在那里进行增加就可以了。" });
   const result = await harness.run(context, { query: "怎么加科目", companyName: "企通", product: "好会计" });
   assert.equal(result.answer, "增加会计科目的话，您进入基础设置，找到科目期初，在那里进行增加就可以了。");
-  assert.equal(modelCalls[0].options.preferredModelId, "deepseek-v4-flash-id");
+  assert.equal(modelCalls[0].options.preferredModelId, undefined);
   assert.equal(modelCalls[0].options.temperature, 0);
   assert.equal(modelCalls[0].options.disableThinking, true);
   assert.match(modelCalls[0].messages[1].content, /基础设置-科目期初/);
