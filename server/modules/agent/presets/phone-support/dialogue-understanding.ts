@@ -2,7 +2,12 @@ import type { RequestContext } from "../../../../shared/types/context.js";
 import type { ModelTokenUsage } from "../../../../shared/types/model.js";
 import type { ModelService } from "../../../model/index.js";
 
-export const DIALOGUE_MODEL = "qwen3.5-flash";
+// 对话理解首选模型：负责识别用户意图、话题动作和指代关系，不直接生成客服答案。
+export const DIALOGUE_MODEL = "deepseek-v4-flash";
+
+// 首选模型因额度不足返回 402 时使用的备用模型。
+export const DIALOGUE_FALLBACK_MODEL = "qwen3.5-flash";
+type DialogueModel = typeof DIALOGUE_MODEL | typeof DIALOGUE_FALLBACK_MODEL;
 
 export const dialogueIntents = ["consult", "create", "delete", "update", "query", "confirm", "deny", "correct", "clarify", "end", "transfer", "chitchat"] as const;
 export type DialogueIntent = typeof dialogueIntents[number];
@@ -26,7 +31,7 @@ export type DialogueUnderstandingResult = {
 
 export type DialogueUnderstandingDiagnostics = {
   source: "rule" | "llm" | "safe_fallback";
-  model: typeof DIALOGUE_MODEL;
+  model: DialogueModel;
   durationMs: number;
   usage?: ModelTokenUsage;
   degradationReason?: string;
@@ -56,43 +61,75 @@ export class DialogueUnderstanding {
     if (rule) return { result: rule, diagnostics: { source: "rule", model: DIALOGUE_MODEL, durationMs: Date.now() - started } };
 
     try {
-      const modelId = this.resolveExactModel(context);
-      const response = await this.models.chat(context, modelId, prompt(utterance, input.turns, topics), {
-        temperature: 0,
-        maxTokens: 360,
-        structured: true,
-        disableThinking: true,
-        signal: input.signal,
-      });
+      const response = await this.callModel(context, DIALOGUE_MODEL, utterance, input, topics);
       const result = enforceAmbiguity(utterance, topics, validateResult(parseJson(response.content), topics, input.turns.length));
       return {
         result,
         diagnostics: { source: "llm", model: DIALOGUE_MODEL, durationMs: Date.now() - started, usage: response.usage },
       };
-    } catch (error) {
-      return {
-        result: safeFallback(utterance, input.turns, topics),
-        diagnostics: {
-          source: "safe_fallback",
-          model: DIALOGUE_MODEL,
-          durationMs: Date.now() - started,
-          degradationReason: safeError(error),
-        },
-      };
+    } catch (primaryError) {
+      // 只有额度不足时才切换备用模型，其他错误直接走安全降级，避免无意义地重复请求。
+      if (!isQuotaExceededError(primaryError)) {
+        return this.safeFallbackResponse(utterance, input, topics, DIALOGUE_MODEL, started, primaryError);
+      }
+
+      try {
+        const response = await this.callModel(context, DIALOGUE_FALLBACK_MODEL, utterance, input, topics);
+        const result = enforceAmbiguity(utterance, topics, validateResult(parseJson(response.content), topics, input.turns.length));
+        return {
+          result,
+          diagnostics: { source: "llm", model: DIALOGUE_FALLBACK_MODEL, durationMs: Date.now() - started, usage: response.usage },
+        };
+      } catch (fallbackError) {
+        return this.safeFallbackResponse(
+          utterance,
+          input,
+          topics,
+          DIALOGUE_FALLBACK_MODEL,
+          started,
+          new Error(`首选模型失败：${safeError(primaryError)}；备用模型失败：${safeError(fallbackError)}`),
+        );
+      }
     }
   }
 
-  private resolveExactModel(context: RequestContext) {
-    const existing = this.models.list(context).find((item) => item.enabled && item.modelId === DIALOGUE_MODEL);
+  private async callModel(context: RequestContext, model: DialogueModel, utterance: string, input: { turns: DialogueTurn[]; signal?: AbortSignal }, topics: PriorTopic[]) {
+    const modelId = this.resolveExactModel(context, model);
+    return this.models.chat(context, modelId, prompt(utterance, input.turns, topics), {
+      temperature: 0,
+      maxTokens: 360,
+      structured: true,
+      disableThinking: true,
+      signal: input.signal,
+    });
+  }
+
+  private safeFallbackResponse(utterance: string, input: { turns: DialogueTurn[] }, topics: PriorTopic[], model: DialogueModel, started: number, error: unknown) {
+    return {
+      result: safeFallback(utterance, input.turns, topics),
+      diagnostics: {
+        source: "safe_fallback" as const,
+        model,
+        durationMs: Date.now() - started,
+        degradationReason: safeError(error),
+      },
+    };
+  }
+
+  private resolveExactModel(context: RequestContext, model: DialogueModel) {
+    const existing = this.models.list(context).find((item) => item.enabled && item.modelId === model);
     if (existing) return existing.id;
-    const apiKey = process.env.DASHSCOPE_API_KEY?.trim();
-    if (!apiKey) throw new Error(`${DIALOGUE_MODEL} is not configured`);
+    const isDeepSeek = model === DIALOGUE_MODEL;
+    const apiKey = (isDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.DASHSCOPE_API_KEY)?.trim();
+    if (!apiKey) throw new Error(`${model} is not configured`);
     return this.models.create(context, {
-      name: DIALOGUE_MODEL,
+      name: model,
       modelType: "llm",
-      provider: "qwen",
-      modelId: DIALOGUE_MODEL,
-      baseUrl: process.env.DASHSCOPE_BASE_URL?.trim() || "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      provider: isDeepSeek ? "deepseek" : "qwen",
+      modelId: model,
+      baseUrl: isDeepSeek
+        ? process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com/v1"
+        : process.env.DASHSCOPE_BASE_URL?.trim() || "https://dashscope.aliyuncs.com/compatible-mode/v1",
       apiKey,
       contextWindow: 8192,
       timeout: 20_000,
@@ -106,6 +143,11 @@ export class DialogueUnderstanding {
       capabilities: ["chat", "structured_output", "multilingual"],
     }).id;
   }
+}
+
+function isQuotaExceededError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /\b402\b|insufficient\s+(?:balance|quota)|quota\s+(?:exceeded|insufficient)|余额不足|额度不足/i.test(message);
 }
 
 function deterministicRule(utterance: string, turns: DialogueTurn[], topics: PriorTopic[]): DialogueUnderstandingResult | undefined {
@@ -148,8 +190,8 @@ function deterministicRule(utterance: string, turns: DialogueTurn[], topics: Pri
         [{ expression: resume[0], resolvedTo: selected.topic, sourceTurn: selected.turn }], 0.94, false);
     }
   }
-  // Slot answers and bare identifiers are deterministic continuations of the
-  // service's preceding question and do not justify an LLM call.
+  // 槽位答案和单独出现的标识符可以根据客服上一轮问题确定，
+  // 因此无需调用 LLM，直接作为确定性的对话延续处理。
   const lastAnswer = turns.at(-1)?.answer || "";
   if (/(?:公司名称|贵公司|哪一款产品|哪款产品|什么产品)/.test(lastAnswer) && utterance.length <= 80) {
     return result("clarify", current ? "continue" : "start", current?.topic || null, [], 0.98, false);
@@ -158,10 +200,9 @@ function deterministicRule(utterance: string, turns: DialogueTurn[], topics: Pri
 }
 
 /**
- * High-confidence conversational forms must be stable across LLM providers.
- * These rules cover transitions, corrections, and ambiguity that have one
- * safe interpretation in the phone-support domain; open-ended language still
- * falls through to the configured model.
+ * 高置信度的对话表达需要在不同 LLM Provider 下保持一致。
+ * 这些规则覆盖电话客服领域中可以安全确定的状态转换、纠正和歧义场景；
+ * 开放式表达仍然交由配置的模型处理。
  */
 function stableDialogueSemanticRule(utterance: string, current: PriorTopic | undefined, topics: PriorTopic[]): DialogueUnderstandingResult | undefined {
   if (/^(?:\u600e\u4e48\u5f04|\u600e\u4e48\u529e|\u5982\u4f55\u5904\u7406)[\uff1f?]?$/u.test(utterance)) {
@@ -249,7 +290,7 @@ function businessEntity(value: string) {
 function safeFallback(utterance: string, turns: DialogueTurn[], topics: PriorTopic[]) {
   const current = topics.at(-1);
   const intent = inferIntent(utterance);
-  // “这台电脑”“这个月” are conditions, not references to a prior topic.
+  // “这台电脑”“这个月”表示条件，不是对历史话题的指代。
   const reference = utterance.match(/(?:那个|这个(?!月)|它|刚才那个|上一个|前面那个|这(?=怎么|如何)|这(?!个月)(?=个)|那(?=个|怎么|如何))/)?.[0];
   if (reference && current && topics.length === 1) {
     return result(intent, "continue", current.topic, [{ expression: reference, resolvedTo: current.topic, sourceTurn: current.turn }], 0.72, false);
@@ -259,8 +300,8 @@ function safeFallback(utterance: string, turns: DialogueTurn[], topics: PriorTop
     return result(intent, current ? "continue" : "clarify", current?.topic || null, [], current ? 0.55 : 0.2, true);
   }
   if (!turns.length) return result(intent, "start", businessTopic(utterance), [], 0.7, false);
-  // A full standalone business phrase is safe to label as a switch, but the
-  // model failure is still exposed in diagnostics and never hidden.
+  // 完整且独立的业务短语可以安全标记为话题切换，但模型失败仍会记录在
+  // diagnostics 中，不会被静默隐藏。
   if (isStandaloneBusiness(utterance)) return result(intent, "switch", businessTopic(utterance), [], 0.65, false);
   return result(intent, "clarify", null, [], 0.2, true);
 }
