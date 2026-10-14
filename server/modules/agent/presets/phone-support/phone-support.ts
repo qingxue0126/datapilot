@@ -5,6 +5,9 @@ import type { KnowledgeRetrievalService } from "../../../knowledge/index.js";
 import type { ModelService } from "../../../model/index.js";
 import type { WorkflowStore } from "../../workflow/workflow-store.js";
 import { DIALOGUE_MODEL, DialogueUnderstanding, type DialogueUnderstandingResult } from "./dialogue-understanding.js";
+import { DialoguePolicy, type DialoguePolicyDecision } from "./dialogue-policy.js";
+import { canonicalTopic, DialogueStateTracker, hasBusinessContent, productMention, restoreDialogueState, type DialogueState, type PhoneSlots } from "./dialogue-state-tracker.js";
+import { QueryRewriter } from "./query-rewriter.js";
 
 export type PhoneSupportConfig = {
   knowledgeBaseId?: string;
@@ -19,12 +22,14 @@ export type PhoneSupportResult = {
   answer: string;
   sessionId: string;
   state: "collecting" | "answering" | "transferring";
-  slots: { company_name?: string; product?: string; actual_query?: string };
+  slots: PhoneSlots;
   currentTopic?: string;
   rewrittenQuery: string;
   sources: unknown[];
   intent: string;
   dialogueUnderstanding: DialogueUnderstandingResult;
+  dialogueState: DialogueState;
+  policy: DialoguePolicyDecision;
   trace: { step: string; status: "succeeded" | "failed"; durationMs: number; detail?: string }[];
 };
 
@@ -34,6 +39,9 @@ type Input = Record<string, unknown>;
 export class PhoneSupportHarness {
   private readonly contextManager: ContextManager;
   private readonly dialogueUnderstanding: DialogueUnderstanding;
+  private readonly stateTracker = new DialogueStateTracker();
+  private readonly queryRewriter = new QueryRewriter();
+  private readonly dialoguePolicy = new DialoguePolicy();
 
   constructor(private readonly deps: { sessions: SessionStore; models: ModelService; retrieval: KnowledgeRetrievalService; workflows: WorkflowStore; contextManager?: ContextManager; dialogueUnderstanding?: DialogueUnderstanding }) {
     this.contextManager = deps.contextManager || new ContextManager();
@@ -41,7 +49,6 @@ export class PhoneSupportHarness {
   }
 
   async run(context: RequestContext, input: Input, signal?: AbortSignal, onToken?: (delta: string) => void, execution: { runId?: string } = {}): Promise<PhoneSupportResult> {
-    const started = Date.now();
     const query = String(input.query ?? input.question ?? input.text ?? input.actual_query ?? "").trim().slice(0, 1000);
     if (!query) throw new Error("电话客服需要 query 或 question");
     // A caller-provided id is always verified by ContextManager/store. Only an
@@ -57,17 +64,26 @@ export class PhoneSupportHarness {
       : legacyHistory.length
         ? legacyHistory
         : normalizeInputHistory(input.__conversationHistory);
+    const previousState = readDialogueState(this.deps.sessions, context, sessionId) || bootstrapDialogueState(history);
     const understanding = await this.dialogueUnderstanding.understand(context, {
       utterance: query,
       turns: history,
-      priorTopics: readPriorTopics(this.deps.sessions, context, sessionId),
+      priorTopics: this.stateTracker.priorTopics(previousState),
       signal,
     });
-    const previousState = readPhoneState(this.deps.sessions, context, sessionId);
-    const slots = extractSlots(input, query, history, previousState.slots);
-    const currentTopic = resolveCurrentTopic(query, previousState.currentTopic || slots.actual_query);
-    slots.actual_query = currentTopic;
-    const rewrittenQuery = rewriteQuery(query, currentTopic, slots);
+    const stateStarted = Date.now();
+    const tracked = this.stateTracker.update(previousState, understanding.result, query, input);
+    const stateDuration = Date.now() - stateStarted;
+    const rewriteStarted = Date.now();
+    const rewrite = this.queryRewriter.rewrite(query, understanding.result, tracked.state, tracked.transition);
+    const rewriteDuration = Date.now() - rewriteStarted;
+    const policyStarted = Date.now();
+    const policy = this.dialoguePolicy.decide(understanding.result, tracked.state, rewrite, tracked.transition);
+    if (policy.waitingFor) this.stateTracker.applyWaiting(tracked.state, policy.waitingFor);
+    const policyDuration = Date.now() - policyStarted;
+    const slots = this.stateTracker.toSlots(tracked.state);
+    const currentTopic = tracked.state.currentTopic;
+    const rewrittenQuery = rewrite.query;
     const config = this.deps.workflows.getPresetConfig(context, "builtin.phone-support") as PhoneSupportConfig;
     const trace: PhoneSupportResult["trace"] = [
       { step: "context.prepare", status: "succeeded", durationMs: Date.now() - contextStarted, detail: `turns=${history.length}; truncated=${conversation.truncated}` },
@@ -83,24 +99,21 @@ export class PhoneSupportHarness {
           result: understanding.result,
         }),
       },
-      { step: "state.extract_slots", status: "succeeded", durationMs: Date.now() - started },
+      { step: "dialogue.state", status: "succeeded", durationMs: stateDuration, detail: JSON.stringify({ transition: tracked.transition, state: tracked.state }) },
+      { step: "dialogue.rewrite", status: "succeeded", durationMs: rewriteDuration, detail: JSON.stringify(rewrite) },
+      { step: "dialogue.policy", status: "succeeded", durationMs: policyDuration, detail: JSON.stringify(policy) },
     ];
     if (signal?.aborted) throw abortError();
-
-    if (isClosingMessage(query) && history.length) {
-      const answer = "\u597d\u7684\uff0c\u5982\u679c\u8fd8\u6709\u5176\u4ed6\u95ee\u9898\uff0c\u968f\u65f6\u544a\u8bc9\u6211\u3002";
-      return this.persist(context, sessionId, query, answer, slots, "answering", rewrittenQuery, [], understanding.result, trace, execution.runId);
-    }
-
-    if (!slots.company_name || !slots.product) {
-      const answer = !slots.company_name
-        ? "\u65b9\u4fbf\u544a\u8bc9\u6211\u4e00\u4e0b\u8d35\u516c\u53f8\u7684\u540d\u79f0\u5417\uff1f"
-        : "\u4e3a\u4e86\u66f4\u597d\u5730\u4e3a\u60a8\u670d\u52a1\uff0c\u8bf7\u95ee\u60a8\u73b0\u5728\u4f7f\u7528\u7684\u662f\u54ea\u4e00\u6b3e\u4ea7\u54c1\uff1f";
-      return this.persist(context, sessionId, query, answer, slots, "collecting", rewrittenQuery, [], understanding.result, trace, execution.runId);
+    if (policy.action !== "retrieve") {
+      const answer = policy.answer || "请补充具体问题。";
+      trace.push({ step: "answer", status: "succeeded", durationMs: 0, detail: `policy=${policy.action}; no_retrieval` });
+      return this.persist(context, sessionId, query, answer, tracked.state, policy.action === "transfer" ? "transferring" : "collecting", rewrittenQuery, [], understanding.result, policy, trace, execution.runId);
     }
     if (!config.knowledgeBaseId) {
       const answer = config.transferMessage || "当前客服知识库尚未配置，我为您转接人工客服。";
-      return this.persist(context, sessionId, query, answer, slots, "transferring", rewrittenQuery, [], understanding.result, trace, execution.runId);
+      const transferPolicy = { action: "transfer", reason: "knowledge_base_not_configured", answer } as const;
+      trace.push({ step: "answer", status: "succeeded", durationMs: 0, detail: transferPolicy.reason });
+      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, transferPolicy, trace, execution.runId);
     }
 
     const retrievalStarted = Date.now();
@@ -110,20 +123,28 @@ export class PhoneSupportHarness {
       retrieval = await withTimeout(this.deps.retrieval.retrieve(context, {
         knowledgeBaseId: config.knowledgeBaseId,
         query: rewrittenQuery,
-        topK: config.topK ?? 5,
+        // Keep enough product-filtered candidates for the evidence validator
+        // to distinguish closely related operations such as 结账 and 取消结账.
+        topK: Math.max(config.topK ?? 5, 10),
         scoreThreshold: config.scoreThreshold ?? 0.25,
         retrievalMode: "hybrid",
-        filters: field ? { [field]: { $containsToken: slots.product } } : {},
+        // The vector candidate set can place a related reverse-operation ahead
+        // of the exact hotline question (for example, “取消结账” before
+        // “怎么结账”).  The knowledge base's local keyword reranker keeps the
+        // final evidence aligned with the rewritten, product-specific question.
+        rerank: true,
+        filters: field ? { [field]: { $containsToken: slots.product! } } : {},
         access: { mode: "agent", allowedKnowledgeBaseIds: [config.knowledgeBaseId] },
       }), 20_000, signal);
-      trace.push({ step: "knowledge.retrieve", status: "succeeded", durationMs: Date.now() - retrievalStarted, detail: `${retrieval.items.length} hits` });
+      trace.push({ step: "knowledge.retrieve", status: "succeeded", durationMs: Date.now() - retrievalStarted, detail: JSON.stringify({ query: rewrittenQuery, hits: retrieval.items.length }) });
     } catch (error) {
       trace.push({ step: "knowledge.retrieve", status: "failed", durationMs: Date.now() - retrievalStarted, detail: safeError(error) });
-      return this.persist(context, sessionId, query, config.transferMessage || "知识库暂时不可用，我为您转接人工客服。", slots, "transferring", rewrittenQuery, [], understanding.result, trace, execution.runId);
+      const answer = config.transferMessage || "知识库暂时不可用，我为您转接人工客服。";
+      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "retrieval_failed", answer }, trace, execution.runId);
     }
     if (!retrieval.items.length) {
       const answer = config.transferMessage || "这个问题我暂时无法从知识库确认答案，我为您转接人工客服。";
-      return this.persist(context, sessionId, query, answer, slots, "transferring", rewrittenQuery, [], understanding.result, trace, execution.runId);
+      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "no_retrieval_hits", answer }, trace, execution.runId);
     }
 
     const validationStarted = Date.now();
@@ -132,13 +153,16 @@ export class PhoneSupportHarness {
     if (!evidence) {
       trace.push({ step: "knowledge.validate", status: "failed", durationMs: Date.now() - validationStarted, detail: "No product- and topic-consistent hit" });
       const answer = config.transferMessage || "这个问题我暂时无法从知识库确认答案，我为您转接人工客服。";
-      return this.persist(context, sessionId, query, answer, slots, "transferring", rewrittenQuery, [], understanding.result, trace, execution.runId);
+      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "evidence_mismatch", answer }, trace, execution.runId);
     }
     trace.push({ step: "knowledge.validate", status: "succeeded", durationMs: Date.now() - validationStarted, detail: `evidence=${evidence.chunkId}` });
 
     const answerStarted = Date.now();
     const fallbackAnswer = humanizeKnowledgeAnswer(evidence.content, rewrittenQuery);
     let answer = fallbackAnswer;
+    let answerUsage: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
+    let answerModel = "";
+    let answerModelLatencyMs = 0;
     try {
       const modelContext = this.deps.workflows.executionContext(context, "builtin.phone-support", "llm");
       const preferredModelId = this.resolveAnswerModelId(modelContext, config.modelId);
@@ -147,96 +171,44 @@ export class PhoneSupportHarness {
           "你是企业软件电话热线客服，正在和客户通话。请把唯一依据改写成专业、简洁、自然的口语，不能原样朗读。",
           "只能改变措辞和语序。回答中的结论、菜单、步骤、条件、限制必须全部来自唯一依据，严禁推测、补充常识、扩展步骤或合并其他问题的答案。",
           "先直接回答，再用一到两句话说明操作。菜单路径要改成“进入……，找到……”的说法；不要使用书面报告或说明书语气。",
+          "本次通话的开场白已完成首次问候。当前及后续回复都不要使用“您好”“你好”或其他寒暄作为开头，也不要在客户公司名称后补寒暄。",
           "禁止说“问题描述”“解决方案”“知识库”“检索结果”“根据资料”“请按以下步骤操作”。",
           "不得补充资料中没有的信息。资料不足时只回答：这个问题我暂时无法确认，我为您转接人工客服。",
           "只输出本次通话中客服要说的话，不要输出标题、列表或分析过程。",
         ].join("\n") },
         { role: "user", content: `客户公司：${slots.company_name}\n使用产品：${slots.product}\n客户问题：${rewrittenQuery}\n唯一依据：\n${evidence.content}` },
-      ], { context: modelContext, task: "answer", preferredModelId, temperature: 0, maxTokens: 220, disableThinking: true, signal, onToken: () => undefined }), 20_000, signal);
+      ], { context: modelContext, task: "answer", preferredModelId, temperature: 0, maxTokens: 220, disableThinking: true, signal, onToken: () => undefined,
+        onUsage: (usage, latencyMs, modelId) => { answerUsage = usage; answerModelLatencyMs = latencyMs; answerModel = modelId; },
+      }), 20_000, signal);
       const generated = cleanGeneratedAnswer(content);
       answer = isGroundedRewrite(generated, evidence.content) ? generated : fallbackAnswer;
-      trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: `${preferredModelId || "route:answer"}; evidence=${evidence.chunkId}` });
+      trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: JSON.stringify({ model: answerModel || preferredModelId || "route:answer", modelLatencyMs: answerModelLatencyMs, usage: answerUsage, evidence: evidence.chunkId }) });
     } catch (error) {
       trace.push({ step: "answer.generate", status: "failed", durationMs: Date.now() - answerStarted, detail: safeError(error) });
       answer = fallbackAnswer;
     }
+    answer = stripOpeningGreeting(answer, slots.company_name);
     onToken?.(answer);
-    return this.persist(context, sessionId, query, answer, slots, "answering", rewrittenQuery, retrieval.items, understanding.result, trace, execution.runId);
+    trace.push({ step: "answer", status: "succeeded", durationMs: Date.now() - answerStarted, detail: `grounded=${evidence.chunkId}` });
+    return this.persist(context, sessionId, query, answer, tracked.state, "answering", rewrittenQuery, retrieval.items, understanding.result, policy, trace, execution.runId);
   }
 
-  private persist(context: RequestContext, sessionId: string, question: string, answer: string, slots: PhoneSupportResult["slots"], state: PhoneSupportResult["state"], rewrittenQuery: string, sources: unknown[], dialogueUnderstanding: DialogueUnderstandingResult, trace: PhoneSupportResult["trace"], runId?: string) {
+  private persist(context: RequestContext, sessionId: string, question: string, answer: string, dialogueState: DialogueState, state: PhoneSupportResult["state"], rewrittenQuery: string, sources: unknown[], dialogueUnderstanding: DialogueUnderstandingResult, policy: DialoguePolicyDecision, trace: PhoneSupportResult["trace"], runId?: string) {
     const intent = dialogueUnderstanding.intent;
-    this.deps.sessions.appendExchange(context, sessionId, { question, answer, result: { channel: "agent", agentId: "builtin.phone-support", runId, status: "success", question, answer, phone: { slots, state, currentTopic: slots.actual_query, rewrittenQuery, intent, dialogueUnderstanding, sources, trace } } });
-    return { answer, sessionId, state, slots, currentTopic: slots.actual_query, rewrittenQuery, sources, intent, dialogueUnderstanding, trace };
+    const slots = this.stateTracker.toSlots(dialogueState);
+    this.deps.sessions.appendExchange(context, sessionId, { question, answer, result: { channel: "agent", agentId: "builtin.phone-support", runId, status: "success", question, answer, phone: { slots, state, currentTopic: dialogueState.currentTopic, rewrittenQuery, intent, dialogueUnderstanding, dialogueState, policy, sources, trace } } });
+    return { answer, sessionId, state, slots, currentTopic: dialogueState.currentTopic, rewrittenQuery, sources, intent, dialogueUnderstanding, dialogueState, policy, trace };
   }
 
   private resolveAnswerModelId(context: RequestContext, configuredModelId?: string) {
     const explicitModelId = clean(configuredModelId);
     if (explicitModelId) return explicitModelId;
-    return this.deps.models.list(context).find((model) => model.enabled && model.modelId === DIALOGUE_MODEL)?.id;
+    return typeof this.deps.models.list === "function"
+      ? this.deps.models.list(context).find((model) => model.enabled && model.modelId === DIALOGUE_MODEL)?.id
+      : undefined;
   }
 }
 
-function extractSlots(input: Input, query: string, history: { question: string; answer: string }[], previous: PhoneSupportResult["slots"] = {}) {
-  let company = clean(input.companyName ?? input.company_name) || previous.company_name;
-  let product = clean(input.product) || previous.product;
-  let actual = clean(input.actualQuery ?? input.actual_query) || previous.actual_query;
-  let waitingFor: "company" | "product" | "query" | undefined;
-  for (const item of history) {
-    const answer = item.answer || "";
-    if (waitingFor === "company" && !company) company = clean(item.question);
-    else if (waitingFor === "product" && !product) product = detectProduct(item.question) || clean(item.question);
-    else if (waitingFor === "query" && !actual && !isChitchat(item.question)) actual = clean(item.question);
-    else if (!waitingFor && !isChitchat(item.question) && looksLikeQuestion(item.question)) actual = actual || clean(item.question);
-    if (/公司名称|贵公司/.test(answer)) waitingFor = "company";
-    else if (/哪一款产品|哪款产品|什么产品/.test(answer)) waitingFor = "product";
-    else if (/具体遇到|有什么可以帮您|还有什么问题/.test(answer)) waitingFor = "query";
-    else waitingFor = undefined;
-  }
-  const lastAnswer = history.at(-1)?.answer || "";
-  if (/公司名称|贵公司/.test(lastAnswer)) company = company || query;
-  else if (/哪一款产品|哪款产品|什么产品/.test(lastAnswer)) product = product || detectProduct(query) || clean(query);
-  else if (/具体遇到|有什么可以帮您|还有什么问题/.test(lastAnswer)) actual = actual || query;
-  if (!product) product = detectProduct(query);
-  if (!actual && looksLikeQuestion(query) && !/^(你好|您好|谢谢|感谢|再见|拜拜)$/.test(query)) actual = query;
-  return { company_name: company, product, actual_query: actual };
-}
-function resolveCurrentTopic(query: string, previousTopic?: string) {
-  if (!previousTopic) return isBusinessQuestion(query) ? clean(query) : undefined;
-  if (detectProduct(query) || isClosingMessage(query) || isContextualFollowUp(query) || !isBusinessQuestion(query)) return previousTopic;
-  return clean(query) || previousTopic;
-}
-function rewriteQuery(query: string, currentTopic: string | undefined, slots: { product?: string }) {
-  const product = slots.product ? `${slots.product} 软件` : "";
-  if (!currentTopic) return [product, query].filter(Boolean).join(" ");
-  const topic = normalizeTopic(currentTopic);
-  const topicQuestion = asRetrievalQuestion(topic);
-  if (!looksLikeQuestion(query) || detectProduct(query)) return `${product}${topicQuestion}`.trim();
-  if (isDetailFollowUp(query)) return `${product}${topicQuestion}请提供详细操作步骤。`.trim();
-  if (isContextualFollowUp(query)) return `${product}当前业务问题：${topic}；用户追问：${query}`.trim();
-  return `${product}${query}`.trim();
-}
-function detectProduct(text: string) {
-  const normalized = text.replace(/\s+/g, "").toLowerCase();
-  const products = [["好会计", "好会计"], ["易代账", "易代账"], ["u8", "U8"], ["t+", "T+"], ["t3", "T3"], ["t6", "T6"]] as const;
-  return products.find(([token]) => normalized.includes(token))?.[1];
-}
-function looksLikeQuestion(text: string) { return /[？?]|怎么|如何|为什么|能不能|可以吗|怎么办|新增|新建|创建|修改|删除|查询|查看|设置|配置|导入|导出|凭证|订单|发票|账套|账簿|部门|科目|报表/.test(text); }
-function isBusinessQuestion(text: string) { return looksLikeQuestion(text) && !detectProduct(text) && !isClosingMessage(text); }
-function isDetailFollowUp(text: string) { return /^(?:可以)?(?:再)?(?:具体|详细)(?:怎么做|如何操作|说一下|说下|一点)?[呢吗？?。！!]*$/.test(text.trim()); }
-function isContextualFollowUp(text: string) {
-  const value = text.trim();
-  if (isDetailFollowUp(value)) return true;
-  return /^(那|然后|接着|下一步|再说|那要|那该)/.test(value) || /^(怎么办|怎么操作|如何操作|怎么做)[呢吗？?。！!]*$/.test(value);
-}
-function normalizeTopic(value: string) {
-  return value.replace(/[？?。！!]/g, "").replace(/^(?:我)?(?:想要|需要|请问)/, "").replace(/一(?:个|下)/g, "").replace(/新增加|添加|新建|创建/g, "新增").replace(/^怎么/, "").trim();
-}
-function asRetrievalQuestion(topic: string) {
-  if (/怎么|如何|为什么|吗$|能否|是否|可不可以/.test(topic)) return `${topic}？`;
-  return `如何${topic}？`;
-}
-function isChitchat(text: string) { return /^(你好|您好|谢谢|谢谢你|感谢|再见|拜拜|没事了|没有了|明白了|知道了)[，。！!]?$/i.test(text.trim()); }
 function normalizeInputHistory(value: unknown): { question: string; answer: string }[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -251,34 +223,54 @@ function normalizeInputHistory(value: unknown): { question: string; answer: stri
     return turns;
   }, []).filter((item) => item.question);
 }
-function readPhoneState(store: SessionStore, context: RequestContext, sessionId: string): { slots: PhoneSupportResult["slots"]; currentTopic?: string } {
+function readDialogueState(store: SessionStore, context: RequestContext, sessionId: string): DialogueState | undefined {
   try {
     const messages = store.get(context, sessionId).messages;
     for (let index = messages.length - 1; index >= 0; index--) {
-      const result = messages[index].result;
-      const phone = result?.phone;
+      const phone = messages[index].result?.phone;
       if (!phone || typeof phone !== "object") continue;
-      const state = phone as Record<string, unknown>;
-      const rawSlots = state.slots && typeof state.slots === "object" ? state.slots as Record<string, unknown> : {};
-      const slots = {
-        company_name: clean(rawSlots.company_name),
-        product: clean(rawSlots.product),
-        actual_query: clean(rawSlots.actual_query),
-      };
-      return { slots, currentTopic: clean(state.currentTopic) || slots.actual_query };
+      const raw = phone as Record<string, unknown>;
+      const restored = restoreDialogueState(raw.dialogueState);
+      if (restored) return restored;
+      const slots = raw.slots && typeof raw.slots === "object" ? raw.slots as Record<string, unknown> : {};
+      const topic = canonicalTopic(raw.currentTopic || slots.actual_query);
+      const state = new DialogueStateTracker().empty();
+      state.company_name = clean(slots.company_name);
+      state.product = clean(slots.product);
+      if (topic) {
+        state.currentTopic = topic;
+        state.topicHistory = [topic];
+        state.topics = [{ topic, status: "active", createdTurn: 1, lastTurn: 1, slots: { product: state.product, qualifiers: [] } }];
+      }
+      return state;
     }
-  } catch { /* Input-only conversations do not have persisted phone state yet. */ }
-  return { slots: {} };
+  } catch { /* A newly created session has no phone state. */ }
+  return undefined;
 }
-function readPriorTopics(store: SessionStore, context: RequestContext, sessionId: string) {
-  try {
-    return store.get(context, sessionId).messages.flatMap((message, index) => {
-      if (message.role !== "assistant") return [];
-      const phone = message.result?.phone as { dialogueUnderstanding?: DialogueUnderstandingResult } | undefined;
-      const topic = phone?.dialogueUnderstanding?.targetTopic;
-      return topic ? [{ topic, turn: Math.floor(index / 2) + 1 }] : [];
-    });
-  } catch { return []; }
+function bootstrapDialogueState(history: { question: string; answer: string }[]): DialogueState {
+  const state = new DialogueStateTracker().empty();
+  let waitingFor: DialogueState["waitingFor"];
+  for (let index = 0; index < history.length; index++) {
+    const turn = history[index];
+    state.turn = index + 1;
+    if (waitingFor === "company" && !hasBusinessContent(turn.question)) state.company_name = clean(turn.question);
+    else if (waitingFor === "product" && !hasBusinessContent(turn.question)) state.product = productMention(turn.question) || clean(turn.question);
+    else {
+      const topic = canonicalTopic(turn.question);
+      if (topic && hasBusinessContent(turn.question)) {
+        state.currentTopic = topic;
+        if (!state.topicHistory.includes(topic)) state.topicHistory.push(topic);
+        const qualifiers = [...turn.question.matchAll(/按([^，。！？!?]{1,20})(?:筛选|关闭|查询)/g)].map((match) => `按${match[1]}`);
+        state.topics.push({ topic, status: "active", createdTurn: index + 1, lastTurn: index + 1, slots: { product: state.product, qualifiers } });
+      }
+    }
+    if (/公司名称|贵公司/.test(turn.answer)) { waitingFor = "company"; state.prompted.company = true; }
+    else if (/哪一款产品|哪款产品|什么产品/.test(turn.answer)) { waitingFor = "product"; state.prompted.product = true; }
+    else if (/具体遇到|有什么可以帮您|还有什么问题/.test(turn.answer)) { waitingFor = "query"; state.prompted.query = true; }
+    else waitingFor = undefined;
+  }
+  state.waitingFor = waitingFor;
+  return state;
 }
 function matchesProduct(metadata: unknown, field: string, product?: string) {
   if (!field || !product || !metadata || typeof metadata !== "object") return true;
@@ -287,7 +279,9 @@ function matchesProduct(metadata: unknown, field: string, product?: string) {
   return String(record[field] || "").split(/[\/|,，、;；\s]+/).some((token) => token.toLowerCase() === product.toLowerCase());
 }
 function isRelevantEvidence(topic: string, content: string) {
-  const entities = ["部门", "科目", "账套", "订单", "发票", "凭证", "报表", "客户", "供应商", "存货", "仓库", "人员", "编码"];
+  if (/最新.*报表模板/.test(topic) && !(/最新/.test(content) && /报表模板/.test(content))) return false;
+  if (/结账/.test(topic) && !/取消|反结账/.test(topic) && /取消结账|反结账/.test(content)) return false;
+  const entities = ["部门", "科目", "账套", "订单", "发票", "凭证", "报表", "客户", "供应商", "存货", "库存", "仓库", "操作人员", "人员", "编码"];
   const requiredEntities = entities.filter((entity) => topic.includes(entity));
   if (requiredEntities.some((entity) => !content.includes(entity))) return false;
   const actions = [
@@ -295,14 +289,19 @@ function isRelevantEvidence(topic: string, content: string) {
     /删除|移除|停用/,
     /修改|更改|编辑/,
     /备份|导出|恢复/,
+    /生成/,
+    /关账|结账/,
     /关闭|终止/,
     /查询|查看|搜索/,
   ];
-  return actions.every((action) => !action.test(topic) || action.test(content));
-}
-function isClosingMessage(text: string) {
-  const normalized = text.replace(/[，。！？!?、,.\s]/g, "").trim();
-  return new Set(["\u597d\u7684", "\u597d\u7684\u597d\u7684", "\u6ca1\u4e8b\u4e86", "\u6ca1\u6709\u4e86", "\u77e5\u9053\u4e86", "\u660e\u767d\u4e86", "\u8c22\u8c22", "\u611f\u8c22", "\u518d\u89c1", "\u62dc\u62dc"]).has(normalized);
+  if (!actions.every((action) => !action.test(topic) || action.test(content))) return false;
+  if (requiredEntities.length) return true;
+  const compact = topic.replace(/如何|怎么|为什么|能否|是否|可以|软件|系统|问题|操作|处理|功能|请提供|详细|步骤|[？?。！!，,：:\s]/g, "");
+  const latinAnchors = compact.match(/[A-Za-z0-9_+.]{2,}/g) || [];
+  const chinese = compact.replace(/[A-Za-z0-9_+.]/g, "");
+  const chineseAnchors = Array.from({ length: Math.max(0, chinese.length - 1) }, (_item, index) => chinese.slice(index, index + 2));
+  const anchors = [...latinAnchors, ...chineseAnchors].filter((item) => item.length >= 2);
+  return anchors.length > 0 && anchors.some((anchor) => content.toLowerCase().includes(anchor.toLowerCase()));
 }
 function cleanGeneratedAnswer(value: string) {
   const text = String(value || "").trim();
@@ -325,7 +324,7 @@ function humanizeKnowledgeAnswer(value: string, query = "") {
   const shortPath = answer.match(/^([^，,。；-]+)-([^，,。；-]+?)进行([^，,。；]+?)(?:就可以了)?[。]?$/);
   if (shortPath) {
     const topic = conversationalTopic(problem || query);
-    return `您好，${topic ? `${topic}的话，` : ""}您进入“${shortPath[1]}”，找到“${shortPath[2]}”，在那里进行${shortPath[3]}就可以了。`;
+    return `${topic ? `${topic}的话，` : ""}您进入“${shortPath[1]}”，找到“${shortPath[2]}”，在那里进行${shortPath[3]}就可以了。`;
   }
   const path = answer.match(/^([^，,。；]{2,100}(?:\s*[-—→>]\s*[^，,。；]{2,50})+)[，,]\s*([\s\S]+)$/);
   if (path) {
@@ -357,6 +356,13 @@ function conversationalTopic(value: string) {
     .replace(/怎么操作$/, "")
     .trim();
 }
+function stripOpeningGreeting(value: string, companyName?: string) {
+  let answer = String(value || "").trim();
+  const company = companyName?.trim();
+  if (company) answer = answer.replace(new RegExp(`^${escapeRegExp(company)}\\s*(?:您好|你好)[，,、：:！!。\\s]*`), "");
+  return answer.replace(/^(?:您好|你好|哈喽|早上好|下午好|晚上好)[，,、：:！!。\s]*/, "");
+}
+function escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 function isGroundedRewrite(answer: string, evidence: string) {
   if (!answer || /问题描述|解决方案|知识库|检索结果|请按以下步骤操作/.test(answer)) return false;
   const source = cleanGeneratedAnswer(evidence).replace(/\s/g, "");

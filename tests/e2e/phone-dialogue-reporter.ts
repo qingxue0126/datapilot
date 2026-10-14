@@ -54,11 +54,12 @@ export default class PhoneDialogueReporter implements Reporter {
 
   async onEnd(result: FullResult) {
     void result;
-    const outputDir = resolve("reports", "tests", "e2e");
+    const outputDir = resolve(process.env.DATAPILOT_PHONE_REPORT_DIR || resolve("reports", "tests", "e2e"));
     await mkdir(outputDir, { recursive: true });
     const timestamp = formatReportTimestamp(this.startedAt);
-    const htmlPath = resolve(outputDir, `phone-dialogue-e2e-${timestamp}.html`);
-    const pdfPath = resolve(outputDir, `phone-dialogue-e2e-${timestamp}.pdf`);
+    const prefix = process.env.DATAPILOT_PHONE_REPORT_PREFIX || "phone-dialogue-e2e";
+    const htmlPath = resolve(outputDir, `${prefix}-${timestamp}.html`);
+    const pdfPath = resolve(outputDir, `${prefix}-${timestamp}.pdf`);
     const html = renderReport(this.rows, this.startedAt, new Date(), this.config);
     await writeFile(htmlPath, html, "utf8");
     const browser = await chromium.launch({ channel: "msedge", headless: true });
@@ -77,6 +78,9 @@ function formatReportTimestamp(value: Date) {
 }
 
 function renderReport(rows: Row[], startedAt: Date, endedAt: Date, config?: FullConfig) {
+  const reportTitle = process.env.DATAPILOT_PHONE_REPORT_PREFIX === "phone-full"
+    ? "电话客服多轮对话管理 - 全量 E2E 报告"
+    : "电话客服对话理解 - 第二阶段 E2E 报告";
   const pass = rows.filter((item) => item.status === "PASS").length;
   const fail = rows.filter((item) => item.status === "FAIL").length;
   const blocked = rows.filter((item) => item.status === "BLOCKED").length;
@@ -93,11 +97,11 @@ function renderReport(rows: Row[], startedAt: Date, endedAt: Date, config?: Full
     const suggestion = item.status === "BLOCKED" ? "为当前 API 账户充值或恢复额度后原样复测；禁止切换模型。" : "根据实际结构化输出修复 DialogueUnderstanding，不修改预期标准。";
     return `<tr><td>${h(item.id)}</td><td>${badge(item.status)}</td><td>${h(reason)}</td><td>${h(suggestion)}</td></tr>`;
   }).join("") || '<tr><td colspan="4">无 Bad Case</td></tr>';
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>Phone Dialogue Understanding E2E Report</title><style>
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>${h(reportTitle)}</title><style>
   :root{color-scheme:light;font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}.page{max-width:1180px;margin:0 auto;padding:32px}.hero{background:linear-gradient(135deg,#172554,#1d4ed8);color:#fff;border-radius:18px;padding:30px}.hero h1{margin:0 0 8px;font-size:30px}.hero p{margin:5px 0;color:#dbeafe}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:20px 0}.metric{background:#fff;border:1px solid #dfe7f3;border-radius:12px;padding:16px}.metric strong{display:block;font-size:27px}.metric span{color:#64748b;font-size:13px}.card{background:#fff;border:1px solid #dfe7f3;border-radius:14px;padding:20px;margin:16px 0;break-inside:avoid}.card h2{margin:0 0 14px;font-size:20px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #e5eaf2;padding:9px;text-align:left;vertical-align:top}th{background:#f8fafc;color:#475569}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-weight:700;font-size:11px}.PASS{background:#dcfce7;color:#166534}.FAIL{background:#fee2e2;color:#991b1b}.BLOCKED{background:#fef3c7;color:#92400e}.SKIPPED{background:#e2e8f0;color:#475569}details{margin:12px 0;border-top:1px solid #e5eaf2;padding-top:12px}summary{cursor:pointer;font-weight:700}pre{white-space:pre-wrap;word-break:break-word;background:#0f172a;color:#e2e8f0;border-radius:9px;padding:12px;max-height:440px;overflow:auto;font-size:11px}.shot{max-width:100%;border:1px solid #cbd5e1;border-radius:8px;margin-top:10px}.muted{color:#64748b}.break{break-before:page}@media print{body{background:#fff}.page{max-width:none;padding:0}.card,.hero{box-shadow:none}details{display:block}details>summary{list-style:none}.shot{max-height:155mm;object-fit:contain}pre{max-height:none}.page-break{break-before:page}}
-  </style></head><body><main class="page"><section class="hero"><h1>电话客服对话理解 - 第二阶段 E2E 报告</h1><p>真实 Web / API / Session / Context / RAG · Microsoft Edge · 无业务接口 Mock</p><p>模型固定：${h(DIALOGUE_MODEL)}（禁止静默切换）</p></section>
+  </style></head><body><main class="page"><section class="hero"><h1>${h(reportTitle)}</h1><p>真实 Web / API / Session / Context / RAG · Microsoft Edge · 无业务接口 Mock</p><p>模型固定：${h(DIALOGUE_MODEL)}（禁止静默切换）</p></section>
   <section class="grid"><div class="metric"><strong>${rows.length}</strong><span>总用例</span></div><div class="metric"><strong>${pass}</strong><span>通过</span></div><div class="metric"><strong>${fail}</strong><span>失败</span></div><div class="metric"><strong>${blocked}</strong><span>BLOCKED</span></div><div class="metric"><strong>${rate}</strong><span>可执行通过率</span></div></section>
-  <section class="card"><h2>测试环境与代码版本</h2><table><tbody><tr><th>Web / API</th><td>http://localhost:3000 / http://localhost:3001</td><th>浏览器</th><td>Microsoft Edge, channel=msedge, headless=${h(browserMode)}</td></tr><tr><th>代码版本</th><td>${h(commit + dirty)}</td><th>执行时间</th><td>${h(startedAt.toISOString())} - ${h(endedAt.toISOString())}</td></tr><tr><th>LLM</th><td>${h(DIALOGUE_MODEL)}</td><th>Playwright workers</th><td>${h(String(config?.workers || 1))}</td></tr><tr><th>平均模型耗时</th><td>${metrics.averageLatencyMs.toFixed(1)} ms</td><th>LLM 调用 / Token</th><td>${metrics.calls} 次 / ${metrics.totalTokens === null ? "供应商未返回" : metrics.totalTokens}</td></tr></tbody></table><p class="muted">通过率分母排除 BLOCKED/SKIPPED；模型故障不会归为业务缺陷，也不会伪造 PASS。</p></section>
+  <section class="card"><h2>测试环境与代码版本</h2><table><tbody><tr><th>Web / API</th><td>http://localhost:3000 / http://localhost:3001</td><th>浏览器</th><td>Microsoft Edge, channel=msedge, headless=${h(browserMode)}</td></tr><tr><th>代码版本</th><td>${h(commit + dirty)}</td><th>执行时间</th><td>${h(startedAt.toISOString())} - ${h(endedAt.toISOString())}</td></tr><tr><th>LLM</th><td>${h(DIALOGUE_MODEL)}</td><th>Playwright workers</th><td>${h(String(config?.workers || 1))}</td></tr><tr><th>LLM 平均 / P95</th><td>${metrics.averageLatencyMs.toFixed(1)} / ${metrics.p95LatencyMs.toFixed(1)} ms</td><th>LLM 调用 / Token</th><td>${metrics.calls} 次 / ${metrics.totalTokens === null ? "供应商未返回" : metrics.totalTokens}</td></tr><tr><th>检索平均 / P95</th><td>${metrics.averageRetrievalMs.toFixed(1)} / ${metrics.p95RetrievalMs.toFixed(1)} ms</td><th>检索次数</th><td>${metrics.retrievalCalls}</td></tr></tbody></table><p class="muted">通过率分母排除 BLOCKED/SKIPPED；模型故障不会归为业务缺陷，也不会伪造 PASS。</p></section>
   <section class="card"><h2>测试结论汇总</h2><table><thead><tr><th>测试用例编号</th><th>场景</th><th>结论</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${h(item.id)}</td><td>${h(item.title)}</td><td>${badge(item.status)} ${h(caseConclusion(item))}</td></tr>`).join("")}</tbody></table></section>
   <section class="card page-break"><h2>失败与阻塞说明</h2><table><thead><tr><th>测试用例编号</th><th>状态</th><th>原因</th><th>建议</th></tr></thead><tbody>${badCases}</tbody></table></section>
   <section class="page-break"><h2>逐用例完整对话截图与结论</h2>${detail}</section></main></body></html>`;
@@ -107,7 +111,8 @@ function renderCase(row: Row) {
   const screenshot = row.screenshot
     ? `<img class="shot" src="${row.screenshot}" alt="${h(row.id)} 完整对话截图">`
     : '<p class="muted">未生成对话截图。</p>';
-  return `<article class="card"><h3>测试用例编号：${h(row.id)}</h3><p><strong>场景：</strong>${h(row.title)}</p><h4>完整对话截图</h4>${screenshot}<p><strong>结论：</strong>${badge(row.status)} ${h(caseConclusion(row))}</p></article>`;
+  const structured = row.data ? `<details open><summary>完整对话、状态、改写 Query、证据、回复与 Trace</summary><pre>${h(JSON.stringify(row.data, null, 2))}</pre></details>` : "";
+  return `<article class="card"><h3>测试用例编号：${h(row.id)}</h3><p><strong>场景：</strong>${h(row.title)}</p>${structured}<h4>完整对话截图</h4>${screenshot}<p><strong>结论：</strong>${badge(row.status)} ${h(caseConclusion(row))}</p></article>`;
 }
 
 function caseConclusion(row: Row) {
@@ -130,21 +135,60 @@ function stripAnsi(value: string) {
 }
 
 function collectMetrics(rows: Row[]) {
-  let calls = 0; let latency = 0; let totalTokens = 0; let hasTokens = false;
+  const llmLatencies: number[] = []; const retrievalLatencies: number[] = []; let totalTokens = 0; let hasTokens = false;
   for (const row of rows) {
-    const turns = Array.isArray(row.data?.turns) ? row.data?.turns as Record<string, unknown>[] : [];
-    for (const turn of turns) {
-      const model = turn.model as Record<string, unknown> | undefined;
-      if (!model || (model.source !== "llm" && model.source !== "safe_fallback")) continue;
-      calls += 1;
-      const trace = Array.isArray(turn.trace) ? turn.trace as { step?: string; durationMs?: number }[] : [];
-      latency += Number(trace.find((item) => item.step === "dialogue.understand")?.durationMs || 0);
-      const usage = model.usage as { totalTokens?: number } | undefined;
-      if (Number.isFinite(usage?.totalTokens)) { totalTokens += Number(usage?.totalTokens); hasTokens = true; }
+    for (const trace of primaryTraceCollections(row.data)) {
+      for (const item of trace) {
+        if (item.step === "knowledge.retrieve") retrievalLatencies.push(Number(item.durationMs || 0));
+        if (item.step !== "dialogue.understand" && item.step !== "answer.generate") continue;
+        let detail: Record<string, unknown> = {};
+        try { detail = JSON.parse(String(item.detail || "{}")) as Record<string, unknown>; } catch { /* legacy detail */ }
+        if (item.step === "dialogue.understand" && detail.source === "rule") continue;
+        llmLatencies.push(Number((detail.modelLatencyMs as number | undefined) || item.durationMs || 0));
+        const usage = detail.usage as { totalTokens?: number } | undefined;
+        if (Number.isFinite(usage?.totalTokens)) { totalTokens += Number(usage?.totalTokens); hasTokens = true; }
+      }
     }
   }
-  return { calls, averageLatencyMs: calls ? latency / calls : 0, totalTokens: hasTokens ? totalTokens : null };
+  return { calls: llmLatencies.length, averageLatencyMs: average(llmLatencies), p95LatencyMs: p95(llmLatencies), totalTokens: hasTokens ? totalTokens : null,
+    retrievalCalls: retrievalLatencies.length, averageRetrievalMs: average(retrievalLatencies), p95RetrievalMs: p95(retrievalLatencies) };
 }
+function primaryTraceCollections(value: unknown): { step?: string; durationMs?: number; detail?: string }[][] {
+  if (!value || typeof value !== "object") return [];
+  const data = value as Record<string, unknown>;
+  if (Array.isArray(data.turns)) {
+    return (data.turns as Record<string, unknown>[]).flatMap((turn) => {
+      if (Array.isArray(turn.trace)) return [turn.trace as { step?: string; durationMs?: number; detail?: string }[]];
+      const phone = turn.phone as Record<string, unknown> | undefined;
+      return Array.isArray(phone?.trace) ? [phone.trace as { step?: string; durationMs?: number; detail?: string }[]] : [];
+    });
+  }
+  const response = data.response as Record<string, unknown> | undefined;
+  if (Array.isArray(response?.messages)) {
+    return (response.messages as Record<string, unknown>[]).flatMap((message) => {
+      const result = message.result as Record<string, unknown> | undefined;
+      const phone = result?.phone as Record<string, unknown> | undefined;
+      return Array.isArray(phone?.trace) ? [phone.trace as { step?: string; durationMs?: number; detail?: string }[]] : [];
+    });
+  }
+  return traceCollections(value);
+}
+function traceCollections(value: unknown): { step?: string; durationMs?: number; detail?: string }[][] {
+  const traces: { step?: string; durationMs?: number; detail?: string }[][] = [];
+  const visit = (item: unknown) => {
+    if (!item || typeof item !== "object") return;
+    if (Array.isArray(item)) {
+      if (item.every((entry) => entry && typeof entry === "object" && "step" in entry)) traces.push(item as { step?: string; durationMs?: number; detail?: string }[]);
+      else item.forEach(visit);
+      return;
+    }
+    Object.values(item as Record<string, unknown>).forEach(visit);
+  };
+  visit(value);
+  return traces;
+}
+function average(values: number[]) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0; }
+function p95(values: number[]) { if (!values.length) return 0; const ordered = [...values].sort((a, b) => a - b); return ordered[Math.max(0, Math.ceil(ordered.length * 0.95) - 1)]; }
 function git(args: string[]) { try { return execFileSync("git", args, { encoding: "utf8" }).trim(); } catch { return "unknown"; } }
 function badge(status: Row["status"]) { return `<span class="badge ${status}">${status}</span>`; }
 function h(value: unknown) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]!)); }

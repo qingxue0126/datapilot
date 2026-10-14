@@ -1,0 +1,909 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>电话客服对话理解 - 第二阶段 E2E 报告</title><style>
+  :root{color-scheme:light;font-family:"Microsoft YaHei","Noto Sans CJK SC",Arial,sans-serif;color:#172033;background:#f4f7fb}*{box-sizing:border-box}body{margin:0}.page{max-width:1180px;margin:0 auto;padding:32px}.hero{background:linear-gradient(135deg,#172554,#1d4ed8);color:#fff;border-radius:18px;padding:30px}.hero h1{margin:0 0 8px;font-size:30px}.hero p{margin:5px 0;color:#dbeafe}.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:20px 0}.metric{background:#fff;border:1px solid #dfe7f3;border-radius:12px;padding:16px}.metric strong{display:block;font-size:27px}.metric span{color:#64748b;font-size:13px}.card{background:#fff;border:1px solid #dfe7f3;border-radius:14px;padding:20px;margin:16px 0;break-inside:avoid}.card h2{margin:0 0 14px;font-size:20px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{border-bottom:1px solid #e5eaf2;padding:9px;text-align:left;vertical-align:top}th{background:#f8fafc;color:#475569}.badge{display:inline-block;border-radius:999px;padding:3px 9px;font-weight:700;font-size:11px}.PASS{background:#dcfce7;color:#166534}.FAIL{background:#fee2e2;color:#991b1b}.BLOCKED{background:#fef3c7;color:#92400e}.SKIPPED{background:#e2e8f0;color:#475569}details{margin:12px 0;border-top:1px solid #e5eaf2;padding-top:12px}summary{cursor:pointer;font-weight:700}pre{white-space:pre-wrap;word-break:break-word;background:#0f172a;color:#e2e8f0;border-radius:9px;padding:12px;max-height:440px;overflow:auto;font-size:11px}.shot{max-width:100%;border:1px solid #cbd5e1;border-radius:8px;margin-top:10px}.muted{color:#64748b}.break{break-before:page}@media print{body{background:#fff}.page{max-width:none;padding:0}.card,.hero{box-shadow:none}details{display:block}details>summary{list-style:none}.shot{max-height:155mm;object-fit:contain}pre{max-height:none}.page-break{break-before:page}}
+  </style></head><body><main class="page"><section class="hero"><h1>电话客服对话理解 - 第二阶段 E2E 报告</h1><p>真实 Web / API / Session / Context / RAG · Microsoft Edge · 无业务接口 Mock</p><p>模型固定：qwen3.5-flash（禁止静默切换）</p></section>
+  <section class="grid"><div class="metric"><strong>1</strong><span>总用例</span></div><div class="metric"><strong>1</strong><span>通过</span></div><div class="metric"><strong>0</strong><span>失败</span></div><div class="metric"><strong>0</strong><span>BLOCKED</span></div><div class="metric"><strong>100.0%</strong><span>可执行通过率</span></div></section>
+  <section class="card"><h2>测试环境与代码版本</h2><table><tbody><tr><th>Web / API</th><td>http://localhost:3000 / http://localhost:3001</td><th>浏览器</th><td>Microsoft Edge, channel=msedge, headless=true</td></tr><tr><th>代码版本</th><td>e583a1e + working tree changes</td><th>执行时间</th><td>2026-10-13T08:16:31.534Z - 2026-10-13T08:16:40.013Z</td></tr><tr><th>LLM</th><td>qwen3.5-flash</td><th>Playwright workers</th><td>1</td></tr><tr><th>LLM 平均 / P95</th><td>1123.0 / 1123.0 ms</td><th>LLM 调用 / Token</th><td>1 次 / 307</td></tr><tr><th>检索平均 / P95</th><td>0.0 / 0.0 ms</td><th>检索次数</th><td>0</td></tr></tbody></table><p class="muted">通过率分母排除 BLOCKED/SKIPPED；模型故障不会归为业务缺陷，也不会伪造 PASS。</p></section>
+  <section class="card"><h2>测试结论汇总</h2><table><thead><tr><th>测试用例编号</th><th>场景</th><th>结论</th></tr></thead><tbody><tr><td>FULL-04</td><td>FULL-04 · 缺问题、歧义、转人工、结束与 Session 隔离</td><td><span class="badge PASS">PASS</span> 实际对话理解结果与预期一致。</td></tr></tbody></table></section>
+  <section class="card page-break"><h2>失败与阻塞说明</h2><table><thead><tr><th>测试用例编号</th><th>状态</th><th>原因</th><th>建议</th></tr></thead><tbody><tr><td colspan="4">无 Bad Case</td></tr></tbody></table></section>
+  <section class="page-break"><h2>逐用例完整对话截图与结论</h2><article class="card"><h3>测试用例编号：FULL-04</h3><p><strong>场景：</strong>FULL-04 · 缺问题、歧义、转人工、结束与 Session 隔离</p><details open><summary>完整对话、状态、改写 Query、证据、回复与 Trace</summary><pre>{
+  &quot;id&quot;: &quot;FULL-04&quot;,
+  &quot;category&quot;: &quot;missing question / ambiguity / transfer / end / isolation&quot;,
+  &quot;priority&quot;: &quot;P0&quot;,
+  &quot;result&quot;: &quot;PASS&quot;,
+  &quot;turns&quot;: [
+    {
+      &quot;input&quot;: &quot;U8&quot;,
+      &quot;sessionId&quot;: &quot;c7d6906e-339f-4f42-81d6-1e84edb798f3&quot;,
+      &quot;sse&quot;: &quot;event: start\ndata: {\&quot;runId\&quot;:\&quot;635de7e1-7fc2-4f7c-ba1a-6d034baeaeb6\&quot;}\n\nevent: done\ndata: {\&quot;runId\&quot;:\&quot;635de7e1-7fc2-4f7c-ba1a-6d034baeaeb6\&quot;,\&quot;result\&quot;:{\&quot;id\&quot;:\&quot;635de7e1-7fc2-4f7c-ba1a-6d034baeaeb6\&quot;,\&quot;agentId\&quot;:\&quot;builtin.phone-support\&quot;,\&quot;workflowVersion\&quot;:1,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;U8\&quot;,\&quot;sessionId\&quot;:\&quot;c7d6906e-339f-4f42-81d6-1e84edb798f3\&quot;,\&quot;__conversationHistory\&quot;:[]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;方便告诉我一下贵公司的名称吗？\&quot;,\&quot;sessionId\&quot;:\&quot;c7d6906e-339f-4f42-81d6-1e84edb798f3\&quot;,\&quot;state\&quot;:\&quot;collecting\&quot;,\&quot;slots\&quot;:{\&quot;product\&quot;:\&quot;U8\&quot;},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;query\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;query\&quot;,\&quot;topicAction\&quot;:\&quot;clarify\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.3,\&quot;needsClarification\&quot;:true},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:1,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:true,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:false,\&quot;waitingFor\&quot;:\&quot;company\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;ask_company\&quot;,\&quot;reason\&quot;:\&quot;company_not_recorded\&quot;,\&quot;answer\&quot;:\&quot;方便告诉我一下贵公司的名称吗？\&quot;,\&quot;waitingFor\&quot;:\&quot;company\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1126,\&quot;detail\&quot;:\&quot;turns=0; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1123,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;llm\\\&quot;,\\\&quot;usage\\\&quot;:{\\\&quot;promptTokens\\\&quot;:253,\\\&quot;completionTokens\\\&quot;:54,\\\&quot;totalTokens\\\&quot;:307},\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;query\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.3,\\\&quot;needsClarification\\\&quot;:true}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[\\\&quot;product\\\&quot;],\\\&quot;reason\\\&quot;:\\\&quot;clarify: none -&gt; none; slots=product\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:1,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:true,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:false},\\\&quot;ended\\\&quot;:false,\\\&quot;waitingFor\\\&quot;:\\\&quot;company\\\&quot;,\\\&quot;product\\\&quot;:\\\&quot;U8\\\&quot;}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_topic\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;ask_company\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;company_not_recorded\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;方便告诉我一下贵公司的名称吗？\\\&quot;,\\\&quot;waitingFor\\\&quot;:\\\&quot;company\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=ask_company; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:1132,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:36.715Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:37.868Z\&quot;,\&quot;nodeRuns\&quot;:[{\&quot;id\&quot;:\&quot;0d069f49-90dd-4f36-bb2d-e18f4a420082\&quot;,\&quot;runId\&quot;:\&quot;635de7e1-7fc2-4f7c-ba1a-6d034baeaeb6\&quot;,\&quot;nodeId\&quot;:\&quot;phone-support\&quot;,\&quot;nodeType\&quot;:\&quot;agent\&quot;,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;U8\&quot;,\&quot;sessionId\&quot;:\&quot;c7d6906e-339f-4f42-81d6-1e84edb798f3\&quot;,\&quot;__conversationHistory\&quot;:[]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;方便告诉我一下贵公司的名称吗？\&quot;,\&quot;sessionId\&quot;:\&quot;c7d6906e-339f-4f42-81d6-1e84edb798f3\&quot;,\&quot;state\&quot;:\&quot;collecting\&quot;,\&quot;slots\&quot;:{\&quot;product\&quot;:\&quot;U8\&quot;},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;query\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;query\&quot;,\&quot;topicAction\&quot;:\&quot;clarify\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.3,\&quot;needsClarification\&quot;:true},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:1,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:true,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:false,\&quot;waitingFor\&quot;:\&quot;company\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;ask_company\&quot;,\&quot;reason\&quot;:\&quot;company_not_recorded\&quot;,\&quot;answer\&quot;:\&quot;方便告诉我一下贵公司的名称吗？\&quot;,\&quot;waitingFor\&quot;:\&quot;company\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1126,\&quot;detail\&quot;:\&quot;turns=0; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1123,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;llm\\\&quot;,\\\&quot;usage\\\&quot;:{\\\&quot;promptTokens\\\&quot;:253,\\\&quot;completionTokens\\\&quot;:54,\\\&quot;totalTokens\\\&quot;:307},\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;query\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.3,\\\&quot;needsClarification\\\&quot;:true}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[\\\&quot;product\\\&quot;],\\\&quot;reason\\\&quot;:\\\&quot;clarify: none -&gt; none; slots=product\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:1,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:true,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:false},\\\&quot;ended\\\&quot;:false,\\\&quot;waitingFor\\\&quot;:\\\&quot;company\\\&quot;,\\\&quot;product\\\&quot;:\\\&quot;U8\\\&quot;}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_topic\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;ask_company\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;company_not_recorded\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;方便告诉我一下贵公司的名称吗？\\\&quot;,\\\&quot;waitingFor\\\&quot;:\\\&quot;company\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=ask_company; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:1131,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:36.736Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:37.867Z\&quot;}]}}\n\n&quot;,
+      &quot;phone&quot;: {
+        &quot;slots&quot;: {
+          &quot;product&quot;: &quot;U8&quot;
+        },
+        &quot;state&quot;: &quot;collecting&quot;,
+        &quot;rewrittenQuery&quot;: &quot;&quot;,
+        &quot;intent&quot;: &quot;query&quot;,
+        &quot;dialogueUnderstanding&quot;: {
+          &quot;intent&quot;: &quot;query&quot;,
+          &quot;topicAction&quot;: &quot;clarify&quot;,
+          &quot;targetTopic&quot;: null,
+          &quot;resolvedReferences&quot;: [],
+          &quot;confidence&quot;: 0.3,
+          &quot;needsClarification&quot;: true
+        },
+        &quot;dialogueState&quot;: {
+          &quot;version&quot;: 1,
+          &quot;turn&quot;: 1,
+          &quot;topicHistory&quot;: [],
+          &quot;topics&quot;: [],
+          &quot;prompted&quot;: {
+            &quot;company&quot;: true,
+            &quot;product&quot;: false,
+            &quot;query&quot;: false
+          },
+          &quot;ended&quot;: false,
+          &quot;waitingFor&quot;: &quot;company&quot;,
+          &quot;product&quot;: &quot;U8&quot;
+        },
+        &quot;policy&quot;: {
+          &quot;action&quot;: &quot;ask_company&quot;,
+          &quot;reason&quot;: &quot;company_not_recorded&quot;,
+          &quot;answer&quot;: &quot;方便告诉我一下贵公司的名称吗？&quot;,
+          &quot;waitingFor&quot;: &quot;company&quot;
+        },
+        &quot;sources&quot;: [],
+        &quot;trace&quot;: [
+          {
+            &quot;step&quot;: &quot;context.prepare&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 1126,
+            &quot;detail&quot;: &quot;turns=0; truncated=false&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.understand&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 1123,
+            &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;llm\&quot;,\&quot;usage\&quot;:{\&quot;promptTokens\&quot;:253,\&quot;completionTokens\&quot;:54,\&quot;totalTokens\&quot;:307},\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;query\&quot;,\&quot;topicAction\&quot;:\&quot;clarify\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.3,\&quot;needsClarification\&quot;:true}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.state&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 1,
+            &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;clarify\&quot;,\&quot;slotUpdates\&quot;:[\&quot;product\&quot;],\&quot;reason\&quot;:\&quot;clarify: none -&gt; none; slots=product\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:1,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:true,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:false,\&quot;waitingFor\&quot;:\&quot;company\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_topic\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.policy&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;ask_company\&quot;,\&quot;reason\&quot;:\&quot;company_not_recorded\&quot;,\&quot;answer\&quot;:\&quot;方便告诉我一下贵公司的名称吗？\&quot;,\&quot;waitingFor\&quot;:\&quot;company\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;answer&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;policy=ask_company; no_retrieval&quot;
+          }
+        ]
+      },
+      &quot;answer&quot;: &quot;方便告诉我一下贵公司的名称吗？&quot;
+    },
+    {
+      &quot;input&quot;: &quot;测试公司&quot;,
+      &quot;sessionId&quot;: &quot;c7d6906e-339f-4f42-81d6-1e84edb798f3&quot;,
+      &quot;sse&quot;: &quot;event: start\ndata: {\&quot;runId\&quot;:\&quot;3fa4e125-5323-41e7-907e-051257d45c72\&quot;}\n\nevent: done\ndata: {\&quot;runId\&quot;:\&quot;3fa4e125-5323-41e7-907e-051257d45c72\&quot;,\&quot;result\&quot;:{\&quot;id\&quot;:\&quot;3fa4e125-5323-41e7-907e-051257d45c72\&quot;,\&quot;agentId\&quot;:\&quot;builtin.phone-support\&quot;,\&quot;workflowVersion\&quot;:1,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;测试公司\&quot;,\&quot;sessionId\&quot;:\&quot;c7d6906e-339f-4f42-81d6-1e84edb798f3\&quot;,\&quot;__conversationHistory\&quot;:[{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;content\&quot;:\&quot;U8\&quot;},{\&quot;role\&quot;:\&quot;assistant\&quot;,\&quot;content\&quot;:\&quot;方便告诉我一下贵公司的名称吗？\&quot;}]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;请问您具体遇到了什么问题？\&quot;,\&quot;sessionId\&quot;:\&quot;c7d6906e-339f-4f42-81d6-1e84edb798f3\&quot;,\&quot;state\&quot;:\&quot;collecting\&quot;,\&quot;slots\&quot;:{\&quot;company_name\&quot;:\&quot;测试公司\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;clarify\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;clarify\&quot;,\&quot;topicAction\&quot;:\&quot;start\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.98,\&quot;needsClarification\&quot;:false},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:2,\&quot;company_name\&quot;:\&quot;测试公司\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;waitingFor\&quot;:\&quot;query\&quot;,\&quot;prompted\&quot;:{\&quot;company\&quot;:true,\&quot;product\&quot;:false,\&quot;query\&quot;:true},\&quot;ended\&quot;:false},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;ask_query\&quot;,\&quot;reason\&quot;:\&quot;business_question_missing\&quot;,\&quot;answer\&quot;:\&quot;请问您具体遇到了什么问题？\&quot;,\&quot;waitingFor\&quot;:\&quot;query\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:3,\&quot;detail\&quot;:\&quot;turns=1; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;rule\\\&quot;,\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;start\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.98,\\\&quot;needsClarification\\\&quot;:false}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;start\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[\\\&quot;company_name\\\&quot;],\\\&quot;completedSlot\\\&quot;:\\\&quot;company\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;start: none -&gt; none; slots=company_name\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:2,\\\&quot;company_name\\\&quot;:\\\&quot;测试公司\\\&quot;,\\\&quot;product\\\&quot;:\\\&quot;U8\\\&quot;,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;waitingFor\\\&quot;:\\\&quot;query\\\&quot;,\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:true,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:true},\\\&quot;ended\\\&quot;:false}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_topic\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;ask_query\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;business_question_missing\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;请问您具体遇到了什么问题？\\\&quot;,\\\&quot;waitingFor\\\&quot;:\\\&quot;query\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=ask_query; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:5,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:38.166Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:38.182Z\&quot;,\&quot;nodeRuns\&quot;:[{\&quot;id\&quot;:\&quot;0f5ed317-fed7-48d6-8c3d-57a5e25c76f2\&quot;,\&quot;runId\&quot;:\&quot;3fa4e125-5323-41e7-907e-051257d45c72\&quot;,\&quot;nodeId\&quot;:\&quot;phone-support\&quot;,\&quot;nodeType\&quot;:\&quot;agent\&quot;,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;测试公司\&quot;,\&quot;sessionId\&quot;:\&quot;c7d6906e-339f-4f42-81d6-1e84edb798f3\&quot;,\&quot;__conversationHistory\&quot;:[{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;content\&quot;:\&quot;U8\&quot;},{\&quot;role\&quot;:\&quot;assistant\&quot;,\&quot;content\&quot;:\&quot;方便告诉我一下贵公司的名称吗？\&quot;}]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;请问您具体遇到了什么问题？\&quot;,\&quot;sessionId\&quot;:\&quot;c7d6906e-339f-4f42-81d6-1e84edb798f3\&quot;,\&quot;state\&quot;:\&quot;collecting\&quot;,\&quot;slots\&quot;:{\&quot;company_name\&quot;:\&quot;测试公司\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;clarify\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;clarify\&quot;,\&quot;topicAction\&quot;:\&quot;start\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.98,\&quot;needsClarification\&quot;:false},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:2,\&quot;company_name\&quot;:\&quot;测试公司\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;waitingFor\&quot;:\&quot;query\&quot;,\&quot;prompted\&quot;:{\&quot;company\&quot;:true,\&quot;product\&quot;:false,\&quot;query\&quot;:true},\&quot;ended\&quot;:false},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;ask_query\&quot;,\&quot;reason\&quot;:\&quot;business_question_missing\&quot;,\&quot;answer\&quot;:\&quot;请问您具体遇到了什么问题？\&quot;,\&quot;waitingFor\&quot;:\&quot;query\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:3,\&quot;detail\&quot;:\&quot;turns=1; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;rule\\\&quot;,\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;start\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.98,\\\&quot;needsClarification\\\&quot;:false}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;start\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[\\\&quot;company_name\\\&quot;],\\\&quot;completedSlot\\\&quot;:\\\&quot;company\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;start: none -&gt; none; slots=company_name\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:2,\\\&quot;company_name\\\&quot;:\\\&quot;测试公司\\\&quot;,\\\&quot;product\\\&quot;:\\\&quot;U8\\\&quot;,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;waitingFor\\\&quot;:\\\&quot;query\\\&quot;,\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:true,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:true},\\\&quot;ended\\\&quot;:false}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_topic\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;ask_query\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;business_question_missing\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;请问您具体遇到了什么问题？\\\&quot;,\\\&quot;waitingFor\\\&quot;:\\\&quot;query\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=ask_query; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:4,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:38.177Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:38.181Z\&quot;}]}}\n\n&quot;,
+      &quot;phone&quot;: {
+        &quot;slots&quot;: {
+          &quot;company_name&quot;: &quot;测试公司&quot;,
+          &quot;product&quot;: &quot;U8&quot;
+        },
+        &quot;state&quot;: &quot;collecting&quot;,
+        &quot;rewrittenQuery&quot;: &quot;&quot;,
+        &quot;intent&quot;: &quot;clarify&quot;,
+        &quot;dialogueUnderstanding&quot;: {
+          &quot;intent&quot;: &quot;clarify&quot;,
+          &quot;topicAction&quot;: &quot;start&quot;,
+          &quot;targetTopic&quot;: null,
+          &quot;resolvedReferences&quot;: [],
+          &quot;confidence&quot;: 0.98,
+          &quot;needsClarification&quot;: false
+        },
+        &quot;dialogueState&quot;: {
+          &quot;version&quot;: 1,
+          &quot;turn&quot;: 2,
+          &quot;company_name&quot;: &quot;测试公司&quot;,
+          &quot;product&quot;: &quot;U8&quot;,
+          &quot;topicHistory&quot;: [],
+          &quot;topics&quot;: [],
+          &quot;waitingFor&quot;: &quot;query&quot;,
+          &quot;prompted&quot;: {
+            &quot;company&quot;: true,
+            &quot;product&quot;: false,
+            &quot;query&quot;: true
+          },
+          &quot;ended&quot;: false
+        },
+        &quot;policy&quot;: {
+          &quot;action&quot;: &quot;ask_query&quot;,
+          &quot;reason&quot;: &quot;business_question_missing&quot;,
+          &quot;answer&quot;: &quot;请问您具体遇到了什么问题？&quot;,
+          &quot;waitingFor&quot;: &quot;query&quot;
+        },
+        &quot;sources&quot;: [],
+        &quot;trace&quot;: [
+          {
+            &quot;step&quot;: &quot;context.prepare&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 3,
+            &quot;detail&quot;: &quot;turns=1; truncated=false&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.understand&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 1,
+            &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;rule\&quot;,\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;clarify\&quot;,\&quot;topicAction\&quot;:\&quot;start\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.98,\&quot;needsClarification\&quot;:false}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.state&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;start\&quot;,\&quot;slotUpdates\&quot;:[\&quot;company_name\&quot;],\&quot;completedSlot\&quot;:\&quot;company\&quot;,\&quot;reason\&quot;:\&quot;start: none -&gt; none; slots=company_name\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:2,\&quot;company_name\&quot;:\&quot;测试公司\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;waitingFor\&quot;:\&quot;query\&quot;,\&quot;prompted\&quot;:{\&quot;company\&quot;:true,\&quot;product\&quot;:false,\&quot;query\&quot;:true},\&quot;ended\&quot;:false}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_topic\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.policy&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;ask_query\&quot;,\&quot;reason\&quot;:\&quot;business_question_missing\&quot;,\&quot;answer\&quot;:\&quot;请问您具体遇到了什么问题？\&quot;,\&quot;waitingFor\&quot;:\&quot;query\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;answer&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;policy=ask_query; no_retrieval&quot;
+          }
+        ]
+      },
+      &quot;answer&quot;: &quot;请问您具体遇到了什么问题？&quot;
+    },
+    {
+      &quot;input&quot;: &quot;怎么弄？&quot;,
+      &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+      &quot;sse&quot;: &quot;event: start\ndata: {\&quot;runId\&quot;:\&quot;de0914af-3dc0-444d-988f-ea686533a6ac\&quot;}\n\nevent: done\ndata: {\&quot;runId\&quot;:\&quot;de0914af-3dc0-444d-988f-ea686533a6ac\&quot;,\&quot;result\&quot;:{\&quot;id\&quot;:\&quot;de0914af-3dc0-444d-988f-ea686533a6ac\&quot;,\&quot;agentId\&quot;:\&quot;builtin.phone-support\&quot;,\&quot;workflowVersion\&quot;:1,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;怎么弄？\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;__conversationHistory\&quot;:[]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;state\&quot;:\&quot;collecting\&quot;,\&quot;slots\&quot;:{},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;consult\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;consult\&quot;,\&quot;topicAction\&quot;:\&quot;clarify\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.3,\&quot;needsClarification\&quot;:true},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:1,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:false,\&quot;waitingFor\&quot;:\&quot;clarification\&quot;},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;clarify\&quot;,\&quot;reason\&quot;:\&quot;ambiguous_or_low_confidence\&quot;,\&quot;answer\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;,\&quot;waitingFor\&quot;:\&quot;clarification\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:3,\&quot;detail\&quot;:\&quot;turns=0; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;rule\\\&quot;,\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;consult\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.3,\\\&quot;needsClarification\\\&quot;:true}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[],\\\&quot;reason\\\&quot;:\\\&quot;clarify: none -&gt; none\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:1,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:false,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:false},\\\&quot;ended\\\&quot;:false,\\\&quot;waitingFor\\\&quot;:\\\&quot;clarification\\\&quot;}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_product\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;ambiguous_or_low_confidence\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\\\&quot;,\\\&quot;waitingFor\\\&quot;:\\\&quot;clarification\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=clarify; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:5,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:39.079Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:39.095Z\&quot;,\&quot;nodeRuns\&quot;:[{\&quot;id\&quot;:\&quot;eae9826b-1ebf-4367-a548-274c5f7d0434\&quot;,\&quot;runId\&quot;:\&quot;de0914af-3dc0-444d-988f-ea686533a6ac\&quot;,\&quot;nodeId\&quot;:\&quot;phone-support\&quot;,\&quot;nodeType\&quot;:\&quot;agent\&quot;,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;怎么弄？\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;__conversationHistory\&quot;:[]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;state\&quot;:\&quot;collecting\&quot;,\&quot;slots\&quot;:{},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;consult\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;consult\&quot;,\&quot;topicAction\&quot;:\&quot;clarify\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.3,\&quot;needsClarification\&quot;:true},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:1,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:false,\&quot;waitingFor\&quot;:\&quot;clarification\&quot;},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;clarify\&quot;,\&quot;reason\&quot;:\&quot;ambiguous_or_low_confidence\&quot;,\&quot;answer\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;,\&quot;waitingFor\&quot;:\&quot;clarification\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:3,\&quot;detail\&quot;:\&quot;turns=0; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;rule\\\&quot;,\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;consult\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.3,\\\&quot;needsClarification\\\&quot;:true}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[],\\\&quot;reason\\\&quot;:\\\&quot;clarify: none -&gt; none\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:1,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:false,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:false},\\\&quot;ended\\\&quot;:false,\\\&quot;waitingFor\\\&quot;:\\\&quot;clarification\\\&quot;}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_product\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;clarify\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;ambiguous_or_low_confidence\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\\\&quot;,\\\&quot;waitingFor\\\&quot;:\\\&quot;clarification\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=clarify; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:5,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:39.089Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:39.094Z\&quot;}]}}\n\n&quot;,
+      &quot;phone&quot;: {
+        &quot;slots&quot;: {},
+        &quot;state&quot;: &quot;collecting&quot;,
+        &quot;rewrittenQuery&quot;: &quot;&quot;,
+        &quot;intent&quot;: &quot;consult&quot;,
+        &quot;dialogueUnderstanding&quot;: {
+          &quot;intent&quot;: &quot;consult&quot;,
+          &quot;topicAction&quot;: &quot;clarify&quot;,
+          &quot;targetTopic&quot;: null,
+          &quot;resolvedReferences&quot;: [],
+          &quot;confidence&quot;: 0.3,
+          &quot;needsClarification&quot;: true
+        },
+        &quot;dialogueState&quot;: {
+          &quot;version&quot;: 1,
+          &quot;turn&quot;: 1,
+          &quot;topicHistory&quot;: [],
+          &quot;topics&quot;: [],
+          &quot;prompted&quot;: {
+            &quot;company&quot;: false,
+            &quot;product&quot;: false,
+            &quot;query&quot;: false
+          },
+          &quot;ended&quot;: false,
+          &quot;waitingFor&quot;: &quot;clarification&quot;
+        },
+        &quot;policy&quot;: {
+          &quot;action&quot;: &quot;clarify&quot;,
+          &quot;reason&quot;: &quot;ambiguous_or_low_confidence&quot;,
+          &quot;answer&quot;: &quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。&quot;,
+          &quot;waitingFor&quot;: &quot;clarification&quot;
+        },
+        &quot;sources&quot;: [],
+        &quot;trace&quot;: [
+          {
+            &quot;step&quot;: &quot;context.prepare&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 3,
+            &quot;detail&quot;: &quot;turns=0; truncated=false&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.understand&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 1,
+            &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;rule\&quot;,\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;consult\&quot;,\&quot;topicAction\&quot;:\&quot;clarify\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.3,\&quot;needsClarification\&quot;:true}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.state&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 1,
+            &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;clarify\&quot;,\&quot;slotUpdates\&quot;:[],\&quot;reason\&quot;:\&quot;clarify: none -&gt; none\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:1,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:false,\&quot;waitingFor\&quot;:\&quot;clarification\&quot;}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_product\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.policy&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;clarify\&quot;,\&quot;reason\&quot;:\&quot;ambiguous_or_low_confidence\&quot;,\&quot;answer\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;,\&quot;waitingFor\&quot;:\&quot;clarification\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;answer&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;policy=clarify; no_retrieval&quot;
+          }
+        ]
+      },
+      &quot;answer&quot;: &quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。&quot;
+    },
+    {
+      &quot;input&quot;: &quot;麻烦现在转人工客服&quot;,
+      &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+      &quot;sse&quot;: &quot;event: start\ndata: {\&quot;runId\&quot;:\&quot;12f67f6a-fee4-47d6-be96-8b7943ad21a8\&quot;}\n\nevent: done\ndata: {\&quot;runId\&quot;:\&quot;12f67f6a-fee4-47d6-be96-8b7943ad21a8\&quot;,\&quot;result\&quot;:{\&quot;id\&quot;:\&quot;12f67f6a-fee4-47d6-be96-8b7943ad21a8\&quot;,\&quot;agentId\&quot;:\&quot;builtin.phone-support\&quot;,\&quot;workflowVersion\&quot;:1,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;麻烦现在转人工客服\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;__conversationHistory\&quot;:[{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;content\&quot;:\&quot;怎么弄？\&quot;},{\&quot;role\&quot;:\&quot;assistant\&quot;,\&quot;content\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;}]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;好的，我现在为您转接人工客服。\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;state\&quot;:\&quot;transferring\&quot;,\&quot;slots\&quot;:{},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;transfer\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;transfer\&quot;,\&quot;topicAction\&quot;:\&quot;end\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.99,\&quot;needsClarification\&quot;:false},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:2,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:true},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;transfer\&quot;,\&quot;reason\&quot;:\&quot;explicit_transfer\&quot;,\&quot;answer\&quot;:\&quot;好的，我现在为您转接人工客服。\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;turns=1; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;rule\\\&quot;,\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;transfer\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.99,\\\&quot;needsClarification\\\&quot;:false}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[],\\\&quot;reason\\\&quot;:\\\&quot;end: none -&gt; none\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:2,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:false,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:false},\\\&quot;ended\\\&quot;:true}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_product\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;transfer\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;explicit_transfer\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;好的，我现在为您转接人工客服。\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=transfer; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:3,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:39.253Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:39.270Z\&quot;,\&quot;nodeRuns\&quot;:[{\&quot;id\&quot;:\&quot;97637be9-e9d8-4db2-9e64-28f0007a1eb8\&quot;,\&quot;runId\&quot;:\&quot;12f67f6a-fee4-47d6-be96-8b7943ad21a8\&quot;,\&quot;nodeId\&quot;:\&quot;phone-support\&quot;,\&quot;nodeType\&quot;:\&quot;agent\&quot;,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;麻烦现在转人工客服\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;__conversationHistory\&quot;:[{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;content\&quot;:\&quot;怎么弄？\&quot;},{\&quot;role\&quot;:\&quot;assistant\&quot;,\&quot;content\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;}]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;好的，我现在为您转接人工客服。\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;state\&quot;:\&quot;transferring\&quot;,\&quot;slots\&quot;:{},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;transfer\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;transfer\&quot;,\&quot;topicAction\&quot;:\&quot;end\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.99,\&quot;needsClarification\&quot;:false},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:2,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:true},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;transfer\&quot;,\&quot;reason\&quot;:\&quot;explicit_transfer\&quot;,\&quot;answer\&quot;:\&quot;好的，我现在为您转接人工客服。\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;turns=1; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;rule\\\&quot;,\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;transfer\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.99,\\\&quot;needsClarification\\\&quot;:false}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[],\\\&quot;reason\\\&quot;:\\\&quot;end: none -&gt; none\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:2,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:false,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:false},\\\&quot;ended\\\&quot;:true}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_product\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;transfer\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;explicit_transfer\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;好的，我现在为您转接人工客服。\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=transfer; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:2,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:39.267Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:39.269Z\&quot;}]}}\n\n&quot;,
+      &quot;phone&quot;: {
+        &quot;slots&quot;: {},
+        &quot;state&quot;: &quot;transferring&quot;,
+        &quot;rewrittenQuery&quot;: &quot;&quot;,
+        &quot;intent&quot;: &quot;transfer&quot;,
+        &quot;dialogueUnderstanding&quot;: {
+          &quot;intent&quot;: &quot;transfer&quot;,
+          &quot;topicAction&quot;: &quot;end&quot;,
+          &quot;targetTopic&quot;: null,
+          &quot;resolvedReferences&quot;: [],
+          &quot;confidence&quot;: 0.99,
+          &quot;needsClarification&quot;: false
+        },
+        &quot;dialogueState&quot;: {
+          &quot;version&quot;: 1,
+          &quot;turn&quot;: 2,
+          &quot;topicHistory&quot;: [],
+          &quot;topics&quot;: [],
+          &quot;prompted&quot;: {
+            &quot;company&quot;: false,
+            &quot;product&quot;: false,
+            &quot;query&quot;: false
+          },
+          &quot;ended&quot;: true
+        },
+        &quot;policy&quot;: {
+          &quot;action&quot;: &quot;transfer&quot;,
+          &quot;reason&quot;: &quot;explicit_transfer&quot;,
+          &quot;answer&quot;: &quot;好的，我现在为您转接人工客服。&quot;
+        },
+        &quot;sources&quot;: [],
+        &quot;trace&quot;: [
+          {
+            &quot;step&quot;: &quot;context.prepare&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 1,
+            &quot;detail&quot;: &quot;turns=1; truncated=false&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.understand&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;rule\&quot;,\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;transfer\&quot;,\&quot;topicAction\&quot;:\&quot;end\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.99,\&quot;needsClarification\&quot;:false}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.state&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;end\&quot;,\&quot;slotUpdates\&quot;:[],\&quot;reason\&quot;:\&quot;end: none -&gt; none\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:2,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:true}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_product\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.policy&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;transfer\&quot;,\&quot;reason\&quot;:\&quot;explicit_transfer\&quot;,\&quot;answer\&quot;:\&quot;好的，我现在为您转接人工客服。\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;answer&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;policy=transfer; no_retrieval&quot;
+          }
+        ]
+      },
+      &quot;answer&quot;: &quot;好的，我现在为您转接人工客服。&quot;
+    },
+    {
+      &quot;input&quot;: &quot;不用了，再见&quot;,
+      &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+      &quot;sse&quot;: &quot;event: start\ndata: {\&quot;runId\&quot;:\&quot;b7d6bc1e-4ce9-4b43-90a2-21d37c71d0fa\&quot;}\n\nevent: done\ndata: {\&quot;runId\&quot;:\&quot;b7d6bc1e-4ce9-4b43-90a2-21d37c71d0fa\&quot;,\&quot;result\&quot;:{\&quot;id\&quot;:\&quot;b7d6bc1e-4ce9-4b43-90a2-21d37c71d0fa\&quot;,\&quot;agentId\&quot;:\&quot;builtin.phone-support\&quot;,\&quot;workflowVersion\&quot;:1,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;不用了，再见\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;__conversationHistory\&quot;:[{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;content\&quot;:\&quot;怎么弄？\&quot;},{\&quot;role\&quot;:\&quot;assistant\&quot;,\&quot;content\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;},{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;content\&quot;:\&quot;麻烦现在转人工客服\&quot;},{\&quot;role\&quot;:\&quot;assistant\&quot;,\&quot;content\&quot;:\&quot;好的，我现在为您转接人工客服。\&quot;}]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;好的，如果还有其他问题，随时告诉我。\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;state\&quot;:\&quot;collecting\&quot;,\&quot;slots\&quot;:{},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;end\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;end\&quot;,\&quot;topicAction\&quot;:\&quot;end\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.99,\&quot;needsClarification\&quot;:false},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:3,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:true},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;end\&quot;,\&quot;reason\&quot;:\&quot;explicit_end\&quot;,\&quot;answer\&quot;:\&quot;好的，如果还有其他问题，随时告诉我。\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;turns=2; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;rule\\\&quot;,\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.99,\\\&quot;needsClarification\\\&quot;:false}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[],\\\&quot;reason\\\&quot;:\\\&quot;end: none -&gt; none\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:3,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:false,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:false},\\\&quot;ended\\\&quot;:true}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_product\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;explicit_end\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;好的，如果还有其他问题，随时告诉我。\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=end; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:4,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:39.398Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:39.415Z\&quot;,\&quot;nodeRuns\&quot;:[{\&quot;id\&quot;:\&quot;fb1fc831-5e59-400e-95fb-26bf03c9f05c\&quot;,\&quot;runId\&quot;:\&quot;b7d6bc1e-4ce9-4b43-90a2-21d37c71d0fa\&quot;,\&quot;nodeId\&quot;:\&quot;phone-support\&quot;,\&quot;nodeType\&quot;:\&quot;agent\&quot;,\&quot;status\&quot;:\&quot;success\&quot;,\&quot;input\&quot;:{\&quot;query\&quot;:\&quot;不用了，再见\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;__conversationHistory\&quot;:[{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;content\&quot;:\&quot;怎么弄？\&quot;},{\&quot;role\&quot;:\&quot;assistant\&quot;,\&quot;content\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;},{\&quot;role\&quot;:\&quot;user\&quot;,\&quot;content\&quot;:\&quot;麻烦现在转人工客服\&quot;},{\&quot;role\&quot;:\&quot;assistant\&quot;,\&quot;content\&quot;:\&quot;好的，我现在为您转接人工客服。\&quot;}]},\&quot;output\&quot;:{\&quot;answer\&quot;:\&quot;好的，如果还有其他问题，随时告诉我。\&quot;,\&quot;sessionId\&quot;:\&quot;46d315e4-8030-4810-b70a-2601d91e17e9\&quot;,\&quot;state\&quot;:\&quot;collecting\&quot;,\&quot;slots\&quot;:{},\&quot;rewrittenQuery\&quot;:\&quot;\&quot;,\&quot;sources\&quot;:[],\&quot;intent\&quot;:\&quot;end\&quot;,\&quot;dialogueUnderstanding\&quot;:{\&quot;intent\&quot;:\&quot;end\&quot;,\&quot;topicAction\&quot;:\&quot;end\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.99,\&quot;needsClarification\&quot;:false},\&quot;dialogueState\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:3,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:true},\&quot;policy\&quot;:{\&quot;action\&quot;:\&quot;end\&quot;,\&quot;reason\&quot;:\&quot;explicit_end\&quot;,\&quot;answer\&quot;:\&quot;好的，如果还有其他问题，随时告诉我。\&quot;},\&quot;trace\&quot;:[{\&quot;step\&quot;:\&quot;context.prepare\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:1,\&quot;detail\&quot;:\&quot;turns=2; truncated=false\&quot;},{\&quot;step\&quot;:\&quot;dialogue.understand\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;model\\\&quot;:\\\&quot;qwen3.5-flash\\\&quot;,\\\&quot;source\\\&quot;:\\\&quot;rule\\\&quot;,\\\&quot;result\\\&quot;:{\\\&quot;intent\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;topicAction\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;targetTopic\\\&quot;:null,\\\&quot;resolvedReferences\\\&quot;:[],\\\&quot;confidence\\\&quot;:0.99,\\\&quot;needsClarification\\\&quot;:false}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.state\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;transition\\\&quot;:{\\\&quot;action\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;slotUpdates\\\&quot;:[],\\\&quot;reason\\\&quot;:\\\&quot;end: none -&gt; none\\\&quot;},\\\&quot;state\\\&quot;:{\\\&quot;version\\\&quot;:1,\\\&quot;turn\\\&quot;:3,\\\&quot;topicHistory\\\&quot;:[],\\\&quot;topics\\\&quot;:[],\\\&quot;prompted\\\&quot;:{\\\&quot;company\\\&quot;:false,\\\&quot;product\\\&quot;:false,\\\&quot;query\\\&quot;:false},\\\&quot;ended\\\&quot;:true}}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.rewrite\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;query\\\&quot;:\\\&quot;\\\&quot;,\\\&quot;shouldRetrieve\\\&quot;:false,\\\&quot;reason\\\&quot;:\\\&quot;missing_product\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;dialogue.policy\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;{\\\&quot;action\\\&quot;:\\\&quot;end\\\&quot;,\\\&quot;reason\\\&quot;:\\\&quot;explicit_end\\\&quot;,\\\&quot;answer\\\&quot;:\\\&quot;好的，如果还有其他问题，随时告诉我。\\\&quot;}\&quot;},{\&quot;step\&quot;:\&quot;answer\&quot;,\&quot;status\&quot;:\&quot;succeeded\&quot;,\&quot;durationMs\&quot;:0,\&quot;detail\&quot;:\&quot;policy=end; no_retrieval\&quot;}]},\&quot;error\&quot;:null,\&quot;durationMs\&quot;:3,\&quot;startedAt\&quot;:\&quot;2026-10-13T08:16:39.410Z\&quot;,\&quot;finishedAt\&quot;:\&quot;2026-10-13T08:16:39.413Z\&quot;}]}}\n\n&quot;,
+      &quot;phone&quot;: {
+        &quot;slots&quot;: {},
+        &quot;state&quot;: &quot;collecting&quot;,
+        &quot;rewrittenQuery&quot;: &quot;&quot;,
+        &quot;intent&quot;: &quot;end&quot;,
+        &quot;dialogueUnderstanding&quot;: {
+          &quot;intent&quot;: &quot;end&quot;,
+          &quot;topicAction&quot;: &quot;end&quot;,
+          &quot;targetTopic&quot;: null,
+          &quot;resolvedReferences&quot;: [],
+          &quot;confidence&quot;: 0.99,
+          &quot;needsClarification&quot;: false
+        },
+        &quot;dialogueState&quot;: {
+          &quot;version&quot;: 1,
+          &quot;turn&quot;: 3,
+          &quot;topicHistory&quot;: [],
+          &quot;topics&quot;: [],
+          &quot;prompted&quot;: {
+            &quot;company&quot;: false,
+            &quot;product&quot;: false,
+            &quot;query&quot;: false
+          },
+          &quot;ended&quot;: true
+        },
+        &quot;policy&quot;: {
+          &quot;action&quot;: &quot;end&quot;,
+          &quot;reason&quot;: &quot;explicit_end&quot;,
+          &quot;answer&quot;: &quot;好的，如果还有其他问题，随时告诉我。&quot;
+        },
+        &quot;sources&quot;: [],
+        &quot;trace&quot;: [
+          {
+            &quot;step&quot;: &quot;context.prepare&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 1,
+            &quot;detail&quot;: &quot;turns=2; truncated=false&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.understand&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;rule\&quot;,\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;end\&quot;,\&quot;topicAction\&quot;:\&quot;end\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.99,\&quot;needsClarification\&quot;:false}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.state&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;end\&quot;,\&quot;slotUpdates\&quot;:[],\&quot;reason\&quot;:\&quot;end: none -&gt; none\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:3,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:true}}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_product\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;dialogue.policy&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;end\&quot;,\&quot;reason\&quot;:\&quot;explicit_end\&quot;,\&quot;answer\&quot;:\&quot;好的，如果还有其他问题，随时告诉我。\&quot;}&quot;
+          },
+          {
+            &quot;step&quot;: &quot;answer&quot;,
+            &quot;status&quot;: &quot;succeeded&quot;,
+            &quot;durationMs&quot;: 0,
+            &quot;detail&quot;: &quot;policy=end; no_retrieval&quot;
+          }
+        ]
+      },
+      &quot;answer&quot;: &quot;好的，如果还有其他问题，随时告诉我。&quot;
+    }
+  ],
+  &quot;session&quot;: {
+    &quot;session&quot;: {
+      &quot;id&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+      &quot;title&quot;: &quot;怎么弄&quot;,
+      &quot;pinned&quot;: false,
+      &quot;datasourceId&quot;: &quot;ef7c8707-e219-4469-9a22-290010828cc2&quot;,
+      &quot;createdAt&quot;: &quot;2026-10-13T08:16:39.066Z&quot;,
+      &quot;updatedAt&quot;: &quot;2026-10-13T08:16:39.411Z&quot;,
+      &quot;messageCount&quot;: 6
+    },
+    &quot;messages&quot;: [
+      {
+        &quot;id&quot;: &quot;f2cd00e2-b092-4dca-acba-ae1fede019b5&quot;,
+        &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+        &quot;role&quot;: &quot;user&quot;,
+        &quot;content&quot;: &quot;怎么弄？&quot;,
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:39.092Z&quot;
+      },
+      {
+        &quot;id&quot;: &quot;d6dfd59e-b151-468d-b891-7833ba3c4db6&quot;,
+        &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+        &quot;role&quot;: &quot;assistant&quot;,
+        &quot;content&quot;: &quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。&quot;,
+        &quot;result&quot;: {
+          &quot;channel&quot;: &quot;agent&quot;,
+          &quot;agentId&quot;: &quot;builtin.phone-support&quot;,
+          &quot;runId&quot;: &quot;de0914af-3dc0-444d-988f-ea686533a6ac&quot;,
+          &quot;status&quot;: &quot;success&quot;,
+          &quot;question&quot;: &quot;怎么弄？&quot;,
+          &quot;answer&quot;: &quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。&quot;,
+          &quot;phone&quot;: {
+            &quot;slots&quot;: {},
+            &quot;state&quot;: &quot;collecting&quot;,
+            &quot;rewrittenQuery&quot;: &quot;&quot;,
+            &quot;intent&quot;: &quot;consult&quot;,
+            &quot;dialogueUnderstanding&quot;: {
+              &quot;intent&quot;: &quot;consult&quot;,
+              &quot;topicAction&quot;: &quot;clarify&quot;,
+              &quot;targetTopic&quot;: null,
+              &quot;resolvedReferences&quot;: [],
+              &quot;confidence&quot;: 0.3,
+              &quot;needsClarification&quot;: true
+            },
+            &quot;dialogueState&quot;: {
+              &quot;version&quot;: 1,
+              &quot;turn&quot;: 1,
+              &quot;topicHistory&quot;: [],
+              &quot;topics&quot;: [],
+              &quot;prompted&quot;: {
+                &quot;company&quot;: false,
+                &quot;product&quot;: false,
+                &quot;query&quot;: false
+              },
+              &quot;ended&quot;: false,
+              &quot;waitingFor&quot;: &quot;clarification&quot;
+            },
+            &quot;policy&quot;: {
+              &quot;action&quot;: &quot;clarify&quot;,
+              &quot;reason&quot;: &quot;ambiguous_or_low_confidence&quot;,
+              &quot;answer&quot;: &quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。&quot;,
+              &quot;waitingFor&quot;: &quot;clarification&quot;
+            },
+            &quot;sources&quot;: [],
+            &quot;trace&quot;: [
+              {
+                &quot;step&quot;: &quot;context.prepare&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 3,
+                &quot;detail&quot;: &quot;turns=0; truncated=false&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.understand&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 1,
+                &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;rule\&quot;,\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;consult\&quot;,\&quot;topicAction\&quot;:\&quot;clarify\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.3,\&quot;needsClarification\&quot;:true}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.state&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 1,
+                &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;clarify\&quot;,\&quot;slotUpdates\&quot;:[],\&quot;reason\&quot;:\&quot;clarify: none -&gt; none\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:1,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:false,\&quot;waitingFor\&quot;:\&quot;clarification\&quot;}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_product\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.policy&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;clarify\&quot;,\&quot;reason\&quot;:\&quot;ambiguous_or_low_confidence\&quot;,\&quot;answer\&quot;:\&quot;我还不能确定您指的是哪个问题，请补充具体的业务对象和想进行的操作。\&quot;,\&quot;waitingFor\&quot;:\&quot;clarification\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;answer&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;policy=clarify; no_retrieval&quot;
+              }
+            ]
+          }
+        },
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:39.092Z&quot;
+      },
+      {
+        &quot;id&quot;: &quot;0a215184-14f3-4720-ae98-65b1d2f6525f&quot;,
+        &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+        &quot;role&quot;: &quot;user&quot;,
+        &quot;content&quot;: &quot;麻烦现在转人工客服&quot;,
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:39.268Z&quot;
+      },
+      {
+        &quot;id&quot;: &quot;e1cc70c0-eb12-4e07-9cbe-6e00d153cbea&quot;,
+        &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+        &quot;role&quot;: &quot;assistant&quot;,
+        &quot;content&quot;: &quot;好的，我现在为您转接人工客服。&quot;,
+        &quot;result&quot;: {
+          &quot;channel&quot;: &quot;agent&quot;,
+          &quot;agentId&quot;: &quot;builtin.phone-support&quot;,
+          &quot;runId&quot;: &quot;12f67f6a-fee4-47d6-be96-8b7943ad21a8&quot;,
+          &quot;status&quot;: &quot;success&quot;,
+          &quot;question&quot;: &quot;麻烦现在转人工客服&quot;,
+          &quot;answer&quot;: &quot;好的，我现在为您转接人工客服。&quot;,
+          &quot;phone&quot;: {
+            &quot;slots&quot;: {},
+            &quot;state&quot;: &quot;transferring&quot;,
+            &quot;rewrittenQuery&quot;: &quot;&quot;,
+            &quot;intent&quot;: &quot;transfer&quot;,
+            &quot;dialogueUnderstanding&quot;: {
+              &quot;intent&quot;: &quot;transfer&quot;,
+              &quot;topicAction&quot;: &quot;end&quot;,
+              &quot;targetTopic&quot;: null,
+              &quot;resolvedReferences&quot;: [],
+              &quot;confidence&quot;: 0.99,
+              &quot;needsClarification&quot;: false
+            },
+            &quot;dialogueState&quot;: {
+              &quot;version&quot;: 1,
+              &quot;turn&quot;: 2,
+              &quot;topicHistory&quot;: [],
+              &quot;topics&quot;: [],
+              &quot;prompted&quot;: {
+                &quot;company&quot;: false,
+                &quot;product&quot;: false,
+                &quot;query&quot;: false
+              },
+              &quot;ended&quot;: true
+            },
+            &quot;policy&quot;: {
+              &quot;action&quot;: &quot;transfer&quot;,
+              &quot;reason&quot;: &quot;explicit_transfer&quot;,
+              &quot;answer&quot;: &quot;好的，我现在为您转接人工客服。&quot;
+            },
+            &quot;sources&quot;: [],
+            &quot;trace&quot;: [
+              {
+                &quot;step&quot;: &quot;context.prepare&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 1,
+                &quot;detail&quot;: &quot;turns=1; truncated=false&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.understand&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;rule\&quot;,\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;transfer\&quot;,\&quot;topicAction\&quot;:\&quot;end\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.99,\&quot;needsClarification\&quot;:false}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.state&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;end\&quot;,\&quot;slotUpdates\&quot;:[],\&quot;reason\&quot;:\&quot;end: none -&gt; none\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:2,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:true}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_product\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.policy&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;transfer\&quot;,\&quot;reason\&quot;:\&quot;explicit_transfer\&quot;,\&quot;answer\&quot;:\&quot;好的，我现在为您转接人工客服。\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;answer&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;policy=transfer; no_retrieval&quot;
+              }
+            ]
+          }
+        },
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:39.268Z&quot;
+      },
+      {
+        &quot;id&quot;: &quot;067481ff-9e3e-4871-86ac-bb8e04a49d5b&quot;,
+        &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+        &quot;role&quot;: &quot;user&quot;,
+        &quot;content&quot;: &quot;不用了，再见&quot;,
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:39.411Z&quot;
+      },
+      {
+        &quot;id&quot;: &quot;6694c116-71b4-4491-bcdf-5a4486e86e9b&quot;,
+        &quot;sessionId&quot;: &quot;46d315e4-8030-4810-b70a-2601d91e17e9&quot;,
+        &quot;role&quot;: &quot;assistant&quot;,
+        &quot;content&quot;: &quot;好的，如果还有其他问题，随时告诉我。&quot;,
+        &quot;result&quot;: {
+          &quot;channel&quot;: &quot;agent&quot;,
+          &quot;agentId&quot;: &quot;builtin.phone-support&quot;,
+          &quot;runId&quot;: &quot;b7d6bc1e-4ce9-4b43-90a2-21d37c71d0fa&quot;,
+          &quot;status&quot;: &quot;success&quot;,
+          &quot;question&quot;: &quot;不用了，再见&quot;,
+          &quot;answer&quot;: &quot;好的，如果还有其他问题，随时告诉我。&quot;,
+          &quot;phone&quot;: {
+            &quot;slots&quot;: {},
+            &quot;state&quot;: &quot;collecting&quot;,
+            &quot;rewrittenQuery&quot;: &quot;&quot;,
+            &quot;intent&quot;: &quot;end&quot;,
+            &quot;dialogueUnderstanding&quot;: {
+              &quot;intent&quot;: &quot;end&quot;,
+              &quot;topicAction&quot;: &quot;end&quot;,
+              &quot;targetTopic&quot;: null,
+              &quot;resolvedReferences&quot;: [],
+              &quot;confidence&quot;: 0.99,
+              &quot;needsClarification&quot;: false
+            },
+            &quot;dialogueState&quot;: {
+              &quot;version&quot;: 1,
+              &quot;turn&quot;: 3,
+              &quot;topicHistory&quot;: [],
+              &quot;topics&quot;: [],
+              &quot;prompted&quot;: {
+                &quot;company&quot;: false,
+                &quot;product&quot;: false,
+                &quot;query&quot;: false
+              },
+              &quot;ended&quot;: true
+            },
+            &quot;policy&quot;: {
+              &quot;action&quot;: &quot;end&quot;,
+              &quot;reason&quot;: &quot;explicit_end&quot;,
+              &quot;answer&quot;: &quot;好的，如果还有其他问题，随时告诉我。&quot;
+            },
+            &quot;sources&quot;: [],
+            &quot;trace&quot;: [
+              {
+                &quot;step&quot;: &quot;context.prepare&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 1,
+                &quot;detail&quot;: &quot;turns=2; truncated=false&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.understand&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;rule\&quot;,\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;end\&quot;,\&quot;topicAction\&quot;:\&quot;end\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.99,\&quot;needsClarification\&quot;:false}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.state&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;end\&quot;,\&quot;slotUpdates\&quot;:[],\&quot;reason\&quot;:\&quot;end: none -&gt; none\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:3,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:false,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:true}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_product\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.policy&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;end\&quot;,\&quot;reason\&quot;:\&quot;explicit_end\&quot;,\&quot;answer\&quot;:\&quot;好的，如果还有其他问题，随时告诉我。\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;answer&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;policy=end; no_retrieval&quot;
+              }
+            ]
+          }
+        },
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:39.411Z&quot;
+      }
+    ]
+  },
+  &quot;isolatedSession&quot;: {
+    &quot;session&quot;: {
+      &quot;id&quot;: &quot;c7d6906e-339f-4f42-81d6-1e84edb798f3&quot;,
+      &quot;title&quot;: &quot;U8&quot;,
+      &quot;pinned&quot;: false,
+      &quot;datasourceId&quot;: &quot;ef7c8707-e219-4469-9a22-290010828cc2&quot;,
+      &quot;createdAt&quot;: &quot;2026-10-13T08:16:36.701Z&quot;,
+      &quot;updatedAt&quot;: &quot;2026-10-13T08:16:38.180Z&quot;,
+      &quot;messageCount&quot;: 4
+    },
+    &quot;messages&quot;: [
+      {
+        &quot;id&quot;: &quot;7295c686-ee71-4974-9f03-356623aca8ea&quot;,
+        &quot;sessionId&quot;: &quot;c7d6906e-339f-4f42-81d6-1e84edb798f3&quot;,
+        &quot;role&quot;: &quot;user&quot;,
+        &quot;content&quot;: &quot;U8&quot;,
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:37.863Z&quot;
+      },
+      {
+        &quot;id&quot;: &quot;3a0e39a4-b4dd-487a-881e-1234044f96c8&quot;,
+        &quot;sessionId&quot;: &quot;c7d6906e-339f-4f42-81d6-1e84edb798f3&quot;,
+        &quot;role&quot;: &quot;assistant&quot;,
+        &quot;content&quot;: &quot;方便告诉我一下贵公司的名称吗？&quot;,
+        &quot;result&quot;: {
+          &quot;channel&quot;: &quot;agent&quot;,
+          &quot;agentId&quot;: &quot;builtin.phone-support&quot;,
+          &quot;runId&quot;: &quot;635de7e1-7fc2-4f7c-ba1a-6d034baeaeb6&quot;,
+          &quot;status&quot;: &quot;success&quot;,
+          &quot;question&quot;: &quot;U8&quot;,
+          &quot;answer&quot;: &quot;方便告诉我一下贵公司的名称吗？&quot;,
+          &quot;phone&quot;: {
+            &quot;slots&quot;: {
+              &quot;product&quot;: &quot;U8&quot;
+            },
+            &quot;state&quot;: &quot;collecting&quot;,
+            &quot;rewrittenQuery&quot;: &quot;&quot;,
+            &quot;intent&quot;: &quot;query&quot;,
+            &quot;dialogueUnderstanding&quot;: {
+              &quot;intent&quot;: &quot;query&quot;,
+              &quot;topicAction&quot;: &quot;clarify&quot;,
+              &quot;targetTopic&quot;: null,
+              &quot;resolvedReferences&quot;: [],
+              &quot;confidence&quot;: 0.3,
+              &quot;needsClarification&quot;: true
+            },
+            &quot;dialogueState&quot;: {
+              &quot;version&quot;: 1,
+              &quot;turn&quot;: 1,
+              &quot;topicHistory&quot;: [],
+              &quot;topics&quot;: [],
+              &quot;prompted&quot;: {
+                &quot;company&quot;: true,
+                &quot;product&quot;: false,
+                &quot;query&quot;: false
+              },
+              &quot;ended&quot;: false,
+              &quot;waitingFor&quot;: &quot;company&quot;,
+              &quot;product&quot;: &quot;U8&quot;
+            },
+            &quot;policy&quot;: {
+              &quot;action&quot;: &quot;ask_company&quot;,
+              &quot;reason&quot;: &quot;company_not_recorded&quot;,
+              &quot;answer&quot;: &quot;方便告诉我一下贵公司的名称吗？&quot;,
+              &quot;waitingFor&quot;: &quot;company&quot;
+            },
+            &quot;sources&quot;: [],
+            &quot;trace&quot;: [
+              {
+                &quot;step&quot;: &quot;context.prepare&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 1126,
+                &quot;detail&quot;: &quot;turns=0; truncated=false&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.understand&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 1123,
+                &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;llm\&quot;,\&quot;usage\&quot;:{\&quot;promptTokens\&quot;:253,\&quot;completionTokens\&quot;:54,\&quot;totalTokens\&quot;:307},\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;query\&quot;,\&quot;topicAction\&quot;:\&quot;clarify\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.3,\&quot;needsClarification\&quot;:true}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.state&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 1,
+                &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;clarify\&quot;,\&quot;slotUpdates\&quot;:[\&quot;product\&quot;],\&quot;reason\&quot;:\&quot;clarify: none -&gt; none; slots=product\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:1,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;prompted\&quot;:{\&quot;company\&quot;:true,\&quot;product\&quot;:false,\&quot;query\&quot;:false},\&quot;ended\&quot;:false,\&quot;waitingFor\&quot;:\&quot;company\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_topic\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.policy&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;ask_company\&quot;,\&quot;reason\&quot;:\&quot;company_not_recorded\&quot;,\&quot;answer\&quot;:\&quot;方便告诉我一下贵公司的名称吗？\&quot;,\&quot;waitingFor\&quot;:\&quot;company\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;answer&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;policy=ask_company; no_retrieval&quot;
+              }
+            ]
+          }
+        },
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:37.863Z&quot;
+      },
+      {
+        &quot;id&quot;: &quot;f9ac77d4-83d8-42c5-86c5-2b4d67491508&quot;,
+        &quot;sessionId&quot;: &quot;c7d6906e-339f-4f42-81d6-1e84edb798f3&quot;,
+        &quot;role&quot;: &quot;user&quot;,
+        &quot;content&quot;: &quot;测试公司&quot;,
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:38.180Z&quot;
+      },
+      {
+        &quot;id&quot;: &quot;7f86c2b9-34e9-4e6b-827b-080a94c1daf1&quot;,
+        &quot;sessionId&quot;: &quot;c7d6906e-339f-4f42-81d6-1e84edb798f3&quot;,
+        &quot;role&quot;: &quot;assistant&quot;,
+        &quot;content&quot;: &quot;请问您具体遇到了什么问题？&quot;,
+        &quot;result&quot;: {
+          &quot;channel&quot;: &quot;agent&quot;,
+          &quot;agentId&quot;: &quot;builtin.phone-support&quot;,
+          &quot;runId&quot;: &quot;3fa4e125-5323-41e7-907e-051257d45c72&quot;,
+          &quot;status&quot;: &quot;success&quot;,
+          &quot;question&quot;: &quot;测试公司&quot;,
+          &quot;answer&quot;: &quot;请问您具体遇到了什么问题？&quot;,
+          &quot;phone&quot;: {
+            &quot;slots&quot;: {
+              &quot;company_name&quot;: &quot;测试公司&quot;,
+              &quot;product&quot;: &quot;U8&quot;
+            },
+            &quot;state&quot;: &quot;collecting&quot;,
+            &quot;rewrittenQuery&quot;: &quot;&quot;,
+            &quot;intent&quot;: &quot;clarify&quot;,
+            &quot;dialogueUnderstanding&quot;: {
+              &quot;intent&quot;: &quot;clarify&quot;,
+              &quot;topicAction&quot;: &quot;start&quot;,
+              &quot;targetTopic&quot;: null,
+              &quot;resolvedReferences&quot;: [],
+              &quot;confidence&quot;: 0.98,
+              &quot;needsClarification&quot;: false
+            },
+            &quot;dialogueState&quot;: {
+              &quot;version&quot;: 1,
+              &quot;turn&quot;: 2,
+              &quot;company_name&quot;: &quot;测试公司&quot;,
+              &quot;product&quot;: &quot;U8&quot;,
+              &quot;topicHistory&quot;: [],
+              &quot;topics&quot;: [],
+              &quot;waitingFor&quot;: &quot;query&quot;,
+              &quot;prompted&quot;: {
+                &quot;company&quot;: true,
+                &quot;product&quot;: false,
+                &quot;query&quot;: true
+              },
+              &quot;ended&quot;: false
+            },
+            &quot;policy&quot;: {
+              &quot;action&quot;: &quot;ask_query&quot;,
+              &quot;reason&quot;: &quot;business_question_missing&quot;,
+              &quot;answer&quot;: &quot;请问您具体遇到了什么问题？&quot;,
+              &quot;waitingFor&quot;: &quot;query&quot;
+            },
+            &quot;sources&quot;: [],
+            &quot;trace&quot;: [
+              {
+                &quot;step&quot;: &quot;context.prepare&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 3,
+                &quot;detail&quot;: &quot;turns=1; truncated=false&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.understand&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 1,
+                &quot;detail&quot;: &quot;{\&quot;model\&quot;:\&quot;qwen3.5-flash\&quot;,\&quot;source\&quot;:\&quot;rule\&quot;,\&quot;result\&quot;:{\&quot;intent\&quot;:\&quot;clarify\&quot;,\&quot;topicAction\&quot;:\&quot;start\&quot;,\&quot;targetTopic\&quot;:null,\&quot;resolvedReferences\&quot;:[],\&quot;confidence\&quot;:0.98,\&quot;needsClarification\&quot;:false}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.state&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;transition\&quot;:{\&quot;action\&quot;:\&quot;start\&quot;,\&quot;slotUpdates\&quot;:[\&quot;company_name\&quot;],\&quot;completedSlot\&quot;:\&quot;company\&quot;,\&quot;reason\&quot;:\&quot;start: none -&gt; none; slots=company_name\&quot;},\&quot;state\&quot;:{\&quot;version\&quot;:1,\&quot;turn\&quot;:2,\&quot;company_name\&quot;:\&quot;测试公司\&quot;,\&quot;product\&quot;:\&quot;U8\&quot;,\&quot;topicHistory\&quot;:[],\&quot;topics\&quot;:[],\&quot;waitingFor\&quot;:\&quot;query\&quot;,\&quot;prompted\&quot;:{\&quot;company\&quot;:true,\&quot;product\&quot;:false,\&quot;query\&quot;:true},\&quot;ended\&quot;:false}}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.rewrite&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;query\&quot;:\&quot;\&quot;,\&quot;shouldRetrieve\&quot;:false,\&quot;reason\&quot;:\&quot;missing_topic\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;dialogue.policy&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;{\&quot;action\&quot;:\&quot;ask_query\&quot;,\&quot;reason\&quot;:\&quot;business_question_missing\&quot;,\&quot;answer\&quot;:\&quot;请问您具体遇到了什么问题？\&quot;,\&quot;waitingFor\&quot;:\&quot;query\&quot;}&quot;
+              },
+              {
+                &quot;step&quot;: &quot;answer&quot;,
+                &quot;status&quot;: &quot;succeeded&quot;,
+                &quot;durationMs&quot;: 0,
+                &quot;detail&quot;: &quot;policy=ask_query; no_retrieval&quot;
+              }
+            ]
+          }
+        },
+        &quot;createdAt&quot;: &quot;2026-10-13T08:16:38.180Z&quot;
+      }
+    ]
+  }
+}</pre></details><h4>完整对话截图</h4><img class="shot" src="data:image/png;base64,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" alt="FULL-04 完整对话截图"><p><strong>结论：</strong><span class="badge PASS">PASS</span> 实际对话理解结果与预期一致。</p></article></section></main></body></html>

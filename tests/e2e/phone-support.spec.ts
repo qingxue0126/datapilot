@@ -270,10 +270,14 @@ function responseMetadata(result: Record<string, unknown> | undefined) {
     status: result.status,
     phone: phone && {
       state: phone.state,
+      slots: phone.slots,
       currentTopic: phone.currentTopic,
       rewrittenQuery: phone.rewrittenQuery,
       intent: phone.intent,
       dialogueUnderstanding: phone.dialogueUnderstanding,
+      dialogueState: phone.dialogueState,
+      policy: phone.policy,
+      sources: phone.sources,
       trace: phone.trace,
     },
   };

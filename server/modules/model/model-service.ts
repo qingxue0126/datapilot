@@ -1,6 +1,6 @@
 import { ModelProviderRegistry } from "../../infrastructure/llm/model-provider.js";
 import type { RequestContext } from "../../shared/types/context.js";
-import { type ChatMessage, type ModelConfigInput, type ModelTask, type RuntimeModelConfig } from "../../shared/types/model.js";
+import { type ChatMessage, type ModelConfigInput, type ModelTask, type ModelTokenUsage, type RuntimeModelConfig } from "../../shared/types/model.js";
 import type { ResourceAccess } from "../auth/index.js";
 import type { ModelRouter } from "./model-router.js";
 import type { ModelStore } from "./model-store.js";
@@ -9,7 +9,7 @@ import { isChatCapableModel, isRerankModel, isTextEmbeddingModel } from "./model
 export type StructuredOptions = { context: RequestContext; task: ModelTask; preferredModelId?: string };
 export interface StructuredModelClient { structured<T>(messages: ChatMessage[], options: StructuredOptions): Promise<T>; }
 export interface StreamingModelClient extends StructuredModelClient {
-  text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal }): Promise<string>;
+  text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal; onUsage?: (usage: ModelTokenUsage | undefined, latencyMs: number, modelId: string) => void }): Promise<string>;
 }
 
 export class ModelService implements StructuredModelClient {
@@ -81,7 +81,7 @@ export class ModelService implements StructuredModelClient {
     });
   }
 
-  async text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal; temperature?: number; maxTokens?: number; disableThinking?: boolean }) {
+  async text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal; temperature?: number; maxTokens?: number; disableThinking?: boolean; onUsage?: (usage: ModelTokenUsage | undefined, latencyMs: number, modelId: string) => void }) {
     const resolved = this.router.getModel(options.context, options.task, options.preferredModelId);
     const candidates = [resolved.primary, resolved.fallback].filter(Boolean) as RuntimeModelConfig[];
     let lastError: unknown;
@@ -93,6 +93,7 @@ export class ModelService implements StructuredModelClient {
         try {
           const result = await this.providers.get(model.provider).chat(model, { messages, temperature: options.temperature ?? resolved.route.temperature,
             timeout: resolved.route.timeout, maxTokens: Math.min(options.maxTokens ?? 4000, model.contextWindow), onToken, signal: options.signal, disableThinking: options.disableThinking });
+          options.onUsage?.(result.usage, result.latencyMs, model.modelId);
           return result.content;
         } catch (error) {
           lastError = error;

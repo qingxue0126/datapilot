@@ -110,7 +110,7 @@ export class DialogueUnderstanding {
 
 function deterministicRule(utterance: string, turns: DialogueTurn[], topics: PriorTopic[]): DialogueUnderstandingResult | undefined {
   const current = topics.at(-1);
-  if (/^(?:再见|拜拜|没(?:有)?别的(?:问题)?了|结束(?:通话)?|就这样|不用了)[。！! ]*$/.test(utterance)) {
+  if (/^(?:(?:不用了|没(?:有)?别的(?:问题)?了)[，, ]*)?(?:再见|拜拜)[。！! ]*$/.test(utterance) || /^(?:没(?:有)?别的(?:问题)?了|结束(?:通话)?|就这样|不用了|好的)[。！! ]*$/.test(utterance)) {
     return result("end", "end", current?.topic || null, [], 0.99, false);
   }
   if (/转(?:接)?人工|人工客服|找人工|真人客服/.test(utterance)) {
@@ -118,6 +118,9 @@ function deterministicRule(utterance: string, turns: DialogueTurn[], topics: Pri
   }
   if (/^(?:你好|您好|早上好|下午好|晚上好|谢谢|感谢|辛苦了)[。！! ]*$/.test(utterance)) {
     return result("chitchat", "chitchat", null, [], 0.99, false);
+  }
+  if (/^(?:我是说|不对，是|改成|更正为|刚才说错了)/.test(utterance)) {
+    return result("correct", current ? "continue" : "clarify", current?.topic || null, [], current ? 0.98 : 0.35, !current);
   }
   const semantic = stableDialogueSemanticRule(utterance, current, topics);
   if (semantic) return semantic;
@@ -144,9 +147,6 @@ function deterministicRule(utterance: string, turns: DialogueTurn[], topics: Pri
       return result(inferIntent(utterance), selected === current ? "continue" : "resume", selected.topic,
         [{ expression: resume[0], resolvedTo: selected.topic, sourceTurn: selected.turn }], 0.94, false);
     }
-  }
-  if (/^(?:我是说|不对，是|改成|更正为|刚才说错了)/.test(utterance)) {
-    return result("correct", current ? "continue" : "clarify", current?.topic || null, [], current ? 0.9 : 0.35, !current);
   }
   // Slot answers and bare identifiers are deterministic continuations of the
   // service's preceding question and do not justify an LLM call.
@@ -182,11 +182,28 @@ function stableDialogueSemanticRule(utterance: string, current: PriorTopic | und
   if (/^\u4e0d\u8981\u5220\u9664.*\u4f46.*\u5220\u9664/u.test(utterance)) {
     return result("clarify", "clarify", null, [], 0.2, true);
   }
+  if (/最新.*报表模板/u.test(utterance)) {
+    return result("consult", current ? "switch" : "start", "获取最新报表模板", [], 0.97, false);
+  }
+  if (/新(?:的)?电脑.*报表模板/u.test(utterance)) {
+    return result("consult", current ? "switch" : "start", "报表模板", [], 0.97, false);
+  }
+  if (/报表.*(?:不对|异常|有问题).*(?:处理)?/u.test(utterance)) {
+    return result("consult", current ? "continue" : "start", "报表数据异常", [], 0.97, false);
+  }
   if (/^(?:\u4e0d\u662f\u5220\u9664|\u4e0d\u5bf9\uff0c?\u662f).*(?:\u4f5c\u5e9f\u51ed\u8bc1)/u.test(utterance)) {
     return result("correct", "continue", "\u4f5c\u5e9f\u51ed\u8bc1", [], 0.98, false);
   }
+  if (/^(?:\u91cd\u65b0)?\u8ba1\u7b97.*(?:\u8fd8\u662f|\u4f9d\u7136).*\u4e0d\u5bf9/u.test(utterance) && current) {
+    return result("consult", "continue", current.topic, [], 0.96, false);
+  }
+  const contextualOperation = utterance.match(/^(?:\u90a3\u4e48|\u90a3|\u7136\u540e|\u63a5\u7740)?(?:\u600e\u4e48|\u5982\u4f55)(\u65b0\u589e|\u65b0\u5efa|\u521b\u5efa|\u5220\u9664|\u4fee\u6539|\u67e5\u8be2|\u67e5\u770b|\u5907\u4efd|\u6062\u590d|\u5bfc\u5165|\u5bfc\u51fa|\u5173\u95ed|\u4f5c\u5e9f)(?:\u5462|\u5440)?[\uff1f?\u3002!]*$/u)?.[1];
+  if (contextualOperation && current) {
+    const entity = businessEntity(current.topic);
+    if (entity) return result(inferIntent(contextualOperation), "switch", `${contextualOperation}${entity}`, [], 0.98, false);
+  }
   const deleteTopic = utterance.match(/(?:\u5220\u9664)([^\uff1f?\u3002!]+)[\uff1f?\u3002!]*$/u)?.[1];
-  if (deleteTopic && /(?:\u600e\u4e48|\u5982\u4f55|\u8bf7)/u.test(utterance)) {
+  if (deleteTopic && !/^(?:呢|啊|呀|吗)$/.test(clean(deleteTopic)) && /(?:\u600e\u4e48|\u5982\u4f55|\u8bf7)/u.test(utterance)) {
     return result("delete", "switch", `\u5220\u9664${clean(deleteTopic)}`, [], 0.98, false);
   }
   const additionalCreate = utterance.match(/^(?:\u540c\u65f6)?\u8fd8\u8981(?:\u65b0\u589e|\u65b0\u5efa|\u521b\u5efa)(.+)$/u)?.[1];
@@ -200,16 +217,40 @@ function stableDialogueSemanticRule(utterance: string, current: PriorTopic | und
   if (/^\u8fd8\u8981\u6309.+\u7b5b\u9009/u.test(utterance) && current) {
     return result("query", "continue", current.topic, [], 0.96, false);
   }
+  const contextualAction = utterance.match(/^(?:那|这个|接着|然后)?(?:要)?(?:怎么|如何)?(新增|新建|创建|删除|修改|查询|查看|备份|恢复|导入|导出|关闭|作废)(?:呢|啊|呀|吗)?[？?。！!]*$/u)?.[1];
+  if (contextualAction && current) {
+    return result(inferIntent(contextualAction), "continue", current.topic, [], 0.97, false);
+  }
+  const standalone = normalizedBusinessTopic(utterance);
+  if (standalone) {
+    const currentEntity = current && businessEntity(current.topic);
+    const nextEntity = businessEntity(standalone);
+    const action = current && nextEntity === currentEntity ? "continue" : current ? "switch" : "start";
+    return result(inferIntent(utterance), action, standalone, [], 0.97, false);
+  }
   if (/^(?:\u90a3\u4e2a|\u8fd9\u4e2a|\u5b83).*(?:\u4fee\u6539|\u66f4\u6539|\u8c03\u6574)/u.test(utterance) && topics.length > 1) {
     return result("update", "clarify", null, [], 0.3, true);
   }
   return undefined;
 }
 
+function normalizedBusinessTopic(value: string) {
+  if (/发票/.test(value) && /(?:自动)?生成凭证/.test(value)) return "发票生成凭证";
+  const actionRules: [RegExp, string][] = [[/新增|新建|创建|添加|增加/, "新增"], [/删除|移除/, "删除"], [/作废/, "作废"], [/修改|更改|编辑|调整/, "修改"], [/查询|查看|查找|搜索/, "查询"], [/备份/, "备份"], [/恢复|还原/, "恢复"], [/导入/, "导入"], [/导出/, "导出"], [/生成/, "生成"], [/关账|结账/, "结账"], [/关闭|终止/, "关闭"]];
+  const action = actionRules.find(([pattern]) => pattern.test(value))?.[1];
+  const entity = businessEntity(value);
+  return action && entity ? `${action}${entity}` : undefined;
+}
+function businessEntity(value: string) {
+  const entities: [RegExp, string][] = [[/会计科目|科目/, "会计科目"], [/下级部门/, "下级部门"], [/部门/, "部门"], [/客户档案|客户/, "客户档案"], [/供应商/, "供应商"], [/账套/, "账套"], [/凭证/, "凭证"], [/订单/, "订单"], [/发票/, "发票"], [/报表/, "报表"], [/操作人员|操作员|用户/, "操作人员"], [/公司/, "账套"], [/存货|库存/, "存货"], [/仓库/, "仓库"]];
+  return entities.find(([pattern]) => pattern.test(value))?.[1];
+}
+
 function safeFallback(utterance: string, turns: DialogueTurn[], topics: PriorTopic[]) {
   const current = topics.at(-1);
   const intent = inferIntent(utterance);
-  const reference = utterance.match(/(?:这|那|它|刚才那个|上一个|前面那个)/)?.[0];
+  // “这台电脑”“这个月” are conditions, not references to a prior topic.
+  const reference = utterance.match(/(?:那个|这个(?!月)|它|刚才那个|上一个|前面那个|这(?=怎么|如何)|这(?!个月)(?=个)|那(?=个|怎么|如何))/)?.[0];
   if (reference && current && topics.length === 1) {
     return result(intent, "continue", current.topic, [{ expression: reference, resolvedTo: current.topic, sourceTurn: current.turn }], 0.72, false);
   }
@@ -266,7 +307,7 @@ function validateResult(value: unknown, topics: PriorTopic[], turnCount: number)
 }
 
 function enforceAmbiguity(utterance: string, topics: PriorTopic[], value: DialogueUnderstandingResult) {
-  const genericReference = /(?:那个|这个|它|这|那)/.test(utterance);
+  const genericReference = /(?:那个|这个(?!月)|它|这(?=怎么|如何)|这(?!个月)(?=个)|那(?=个|怎么|如何))/.test(utterance);
   const explicitSelector = /(?:第[一二三四五六七八九十\d]+个|刚才|上一个|前一个|关于[^，。？！?]{1,20})/.test(utterance);
   if (genericReference && !explicitSelector && topics.length > 1) {
     return result(value.intent, "clarify", null, [], Math.min(value.confidence, 0.5), true);
@@ -310,7 +351,7 @@ function inferIntent(value: string): DialogueIntent {
   return "consult";
 }
 function isEllipsis(value: string) { return /^(?:那|然后|接着|下一步|具体呢|怎么做|怎么弄|如何操作|还有呢|为什么|可以吗|能吗)/.test(value); }
-function isStandaloneBusiness(value: string) { return value.length >= 5 && /部门|科目|账套|凭证|订单|发票|报表|客户|供应商|库存|结账|备份|导入|导出|新增|删除|修改|查询/.test(value); }
+function isStandaloneBusiness(value: string) { return value.length >= 5 && /部门|科目|账套|公司|用户|操作员|人员|凭证|订单|发票|报表|客户|供应商|库存|关账|结账|备份|导入|导出|生成|新增|删除|修改|查询/.test(value); }
 function businessTopic(value: string) { const topic = clean(value).replace(/[？?。！!]+$/g, ""); return topic || null; }
 function sameTopic(left: string, right: string) { return left === right || left.includes(right) || right.includes(left); }
 function chineseOrdinal(value: string) {

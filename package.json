@@ -16,6 +16,7 @@
     "test:server": "node scripts/run-tests.mjs unit integration api --exclude-rendered",
     "test:e2e:phone": "playwright test -c playwright.phone.config.ts",
     "test:e2e:phone:dialogue": "playwright test -c playwright.phone.config.ts tests/e2e/phone-support.spec.ts tests/e2e/phone-dialogue.spec.ts",
+    "test:e2e:phone:full": "node scripts/run-phone-full-e2e.mjs",
     "mock:erp:reset": "tsx scripts/mock-erp/reset.ts",
     "test:erp-mock": "tsx tests/integration/erp-mock/run-evaluation.ts",
     "report:erp-mock": "tsx tests/integration/erp-mock/generate-report.ts",
