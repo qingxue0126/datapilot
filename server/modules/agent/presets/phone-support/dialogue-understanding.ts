@@ -2,24 +2,26 @@ import type { RequestContext } from "../../../../shared/types/context.js";
 import type { ModelTokenUsage } from "../../../../shared/types/model.js";
 import type { ModelService } from "../../../model/index.js";
 
-// 对话理解首选模型：负责识别用户意图、话题动作和指代关系，不直接生成客服答案。
-export const DIALOGUE_MODEL = "deepseek-v4-flash";
+/** Compatibility label used by reports. The concrete model is selected by DataPilot's intent route. */
+export const DIALOGUE_MODEL = "route:intent";
+export const DIALOGUE_FALLBACK_MODEL = "route:intent:fallback";
 
-// 首选模型因额度不足返回 402 时使用的备用模型。
-export const DIALOGUE_FALLBACK_MODEL = "qwen3.5-flash";
-type DialogueModel = typeof DIALOGUE_MODEL | typeof DIALOGUE_FALLBACK_MODEL;
-
-export const dialogueIntents = ["consult", "create", "delete", "update", "query", "confirm", "deny", "correct", "clarify", "end", "transfer", "chitchat"] as const;
+export const dialogueIntents = ["consult", "create", "delete", "update", "query", "confirm", "deny", "correct", "clarify", "end", "transfer", "chitchat", "troubleshoot"] as const;
 export type DialogueIntent = typeof dialogueIntents[number];
 export const topicActions = ["start", "continue", "switch", "resume", "extend", "chitchat", "end", "clarify"] as const;
 export type TopicAction = typeof topicActions[number];
+export const contextDependencies = ["independent", "dependent", "ambiguous", "none"] as const;
+export type ContextDependency = typeof contextDependencies[number];
 
-export type ResolvedReference = {
-  expression: string;
-  resolvedTo: string;
-  sourceTurn: number;
+export type ResolvedReference = { expression: string; resolvedTo: string; sourceTurn: number };
+export type DialogueSemanticFrame = {
+  action: string | null;
+  entities: string[];
+  timeExpressions: string[];
+  conditions: string[];
+  symptoms: string[];
+  negations: string[];
 };
-
 export type DialogueUnderstandingResult = {
   intent: DialogueIntent;
   topicAction: TopicAction;
@@ -27,22 +29,20 @@ export type DialogueUnderstandingResult = {
   resolvedReferences: ResolvedReference[];
   confidence: number;
   needsClarification: boolean;
+  contextDependency: ContextDependency;
+  semanticFrame: DialogueSemanticFrame;
 };
-
 export type DialogueUnderstandingDiagnostics = {
-  source: "rule" | "llm" | "safe_fallback";
-  model: DialogueModel;
+  source: "rule" | "structural" | "llm" | "safe_fallback";
+  route: "intent";
+  model?: string;
   durationMs: number;
+  modelLatencyMs?: number;
   usage?: ModelTokenUsage;
   degradationReason?: string;
 };
-
-export type DialogueUnderstandingResponse = {
-  result: DialogueUnderstandingResult;
-  diagnostics: DialogueUnderstandingDiagnostics;
-};
-
-export type PriorTopic = { topic: string; turn: number };
+export type DialogueUnderstandingResponse = { result: DialogueUnderstandingResult; diagnostics: DialogueUnderstandingDiagnostics };
+export type PriorTopic = { topic: string; turn: number; originalQuery?: string; resolvedQuery?: string };
 type DialogueTurn = { question: string; answer: string };
 
 export class DialogueUnderstanding {
@@ -52,362 +52,252 @@ export class DialogueUnderstanding {
     utterance: string;
     turns: DialogueTurn[];
     priorTopics?: PriorTopic[];
+    waitingFor?: "company" | "product" | "query" | "clarification";
     signal?: AbortSignal;
   }): Promise<DialogueUnderstandingResponse> {
     const started = Date.now();
     const utterance = clean(input.utterance).slice(0, 1000);
-    const topics = uniqueTopics(input.priorTopics || [], input.turns);
-    const rule = deterministicRule(utterance, input.turns, topics);
-    if (rule) return { result: rule, diagnostics: { source: "rule", model: DIALOGUE_MODEL, durationMs: Date.now() - started } };
+    const topics = uniqueTopics(input.priorTopics || []);
+    const rule = deterministicRule(utterance, input.turns, topics, input.waitingFor);
+    if (rule) return { result: rule, diagnostics: { source: "rule", route: "intent", model: DIALOGUE_MODEL, durationMs: Date.now() - started } };
+    const structural = structuralReference(utterance, topics);
+    if (structural) return { result: structural, diagnostics: { source: "structural", route: "intent", model: DIALOGUE_MODEL, durationMs: Date.now() - started } };
 
+    let usage: ModelTokenUsage | undefined;
+    let model: string | undefined;
+    let modelLatencyMs: number | undefined;
     try {
-      const response = await this.callModel(context, DIALOGUE_MODEL, utterance, input, topics);
-      const result = enforceAmbiguity(utterance, topics, validateResult(parseJson(response.content), topics, input.turns.length));
+      const content = await this.models.text(prompt(utterance, input.turns, topics), {
+        context,
+        task: "intent",
+        temperature: 0,
+        maxTokens: 520,
+        disableThinking: true,
+        signal: input.signal,
+        onToken: () => undefined,
+        onUsage: (value, latency, modelId) => { usage = value; modelLatencyMs = latency; model = modelId; },
+      });
+      const result = enforceSafety(utterance, topics, validateResult(parseJson(content), topics, input.turns.length));
+      return { result, diagnostics: { source: "llm", route: "intent", model, durationMs: Date.now() - started, modelLatencyMs, usage } };
+    } catch (error) {
       return {
-        result,
-        diagnostics: { source: "llm", model: DIALOGUE_MODEL, durationMs: Date.now() - started, usage: response.usage },
+        result: safeFallback(utterance, input.turns, topics),
+        diagnostics: { source: "safe_fallback", route: "intent", model, durationMs: Date.now() - started, modelLatencyMs, usage, degradationReason: safeError(error) },
       };
-    } catch (primaryError) {
-      // 只有额度不足时才切换备用模型，其他错误直接走安全降级，避免无意义地重复请求。
-      if (!isQuotaExceededError(primaryError)) {
-        return this.safeFallbackResponse(utterance, input, topics, DIALOGUE_MODEL, started, primaryError);
-      }
-
-      try {
-        const response = await this.callModel(context, DIALOGUE_FALLBACK_MODEL, utterance, input, topics);
-        const result = enforceAmbiguity(utterance, topics, validateResult(parseJson(response.content), topics, input.turns.length));
-        return {
-          result,
-          diagnostics: { source: "llm", model: DIALOGUE_FALLBACK_MODEL, durationMs: Date.now() - started, usage: response.usage },
-        };
-      } catch (fallbackError) {
-        return this.safeFallbackResponse(
-          utterance,
-          input,
-          topics,
-          DIALOGUE_FALLBACK_MODEL,
-          started,
-          new Error(`首选模型失败：${safeError(primaryError)}；备用模型失败：${safeError(fallbackError)}`),
-        );
-      }
     }
   }
-
-  private async callModel(context: RequestContext, model: DialogueModel, utterance: string, input: { turns: DialogueTurn[]; signal?: AbortSignal }, topics: PriorTopic[]) {
-    const modelId = this.resolveExactModel(context, model);
-    return this.models.chat(context, modelId, prompt(utterance, input.turns, topics), {
-      temperature: 0,
-      maxTokens: 360,
-      structured: true,
-      disableThinking: true,
-      signal: input.signal,
-    });
-  }
-
-  private safeFallbackResponse(utterance: string, input: { turns: DialogueTurn[] }, topics: PriorTopic[], model: DialogueModel, started: number, error: unknown) {
-    return {
-      result: safeFallback(utterance, input.turns, topics),
-      diagnostics: {
-        source: "safe_fallback" as const,
-        model,
-        durationMs: Date.now() - started,
-        degradationReason: safeError(error),
-      },
-    };
-  }
-
-  private resolveExactModel(context: RequestContext, model: DialogueModel) {
-    const existing = this.models.list(context).find((item) => item.enabled && item.modelId === model);
-    if (existing) return existing.id;
-    const isDeepSeek = model === DIALOGUE_MODEL;
-    const apiKey = (isDeepSeek ? process.env.DEEPSEEK_API_KEY : process.env.DASHSCOPE_API_KEY)?.trim();
-    if (!apiKey) throw new Error(`${model} is not configured`);
-    return this.models.create(context, {
-      name: model,
-      modelType: "llm",
-      provider: isDeepSeek ? "deepseek" : "qwen",
-      modelId: model,
-      baseUrl: isDeepSeek
-        ? process.env.DEEPSEEK_BASE_URL?.trim() || "https://api.deepseek.com/v1"
-        : process.env.DASHSCOPE_BASE_URL?.trim() || "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      apiKey,
-      contextWindow: 8192,
-      timeout: 20_000,
-      maxRetries: 0,
-      temperature: 0,
-      supportsTools: false,
-      supportsStructuredOutput: true,
-      supportsVision: false,
-      enabled: true,
-      permission: "private",
-      capabilities: ["chat", "structured_output", "multilingual"],
-    }).id;
-  }
 }
 
-function isQuotaExceededError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return /\b402\b|insufficient\s+(?:balance|quota)|quota\s+(?:exceeded|insufficient)|余额不足|额度不足/i.test(message);
-}
-
-function deterministicRule(utterance: string, turns: DialogueTurn[], topics: PriorTopic[]): DialogueUnderstandingResult | undefined {
-  const current = topics.at(-1);
-  if (/^(?:(?:不用了|没(?:有)?别的(?:问题)?了)[，, ]*)?(?:再见|拜拜)[。！! ]*$/.test(utterance) || /^(?:没(?:有)?别的(?:问题)?了|结束(?:通话)?|就这样|不用了|好的)[。！! ]*$/.test(utterance)) {
-    return result("end", "end", current?.topic || null, [], 0.99, false);
-  }
-  if (/转(?:接)?人工|人工客服|找人工|真人客服/.test(utterance)) {
-    return result("transfer", "end", current?.topic || null, [], 0.99, false);
-  }
-  if (/^(?:你好|您好|早上好|下午好|晚上好|谢谢|感谢|辛苦了)[。！! ]*$/.test(utterance)) {
-    return result("chitchat", "chitchat", null, [], 0.99, false);
-  }
-  if (/^(?:我是说|不对，是|改成|更正为|刚才说错了)/.test(utterance)) {
-    return result("correct", current ? "continue" : "clarify", current?.topic || null, [], current ? 0.98 : 0.35, !current);
-  }
-  const semantic = stableDialogueSemanticRule(utterance, current, topics);
-  if (semantic) return semantic;
-  if (/^(?:是|对|对的|没错|可以|好的|好|嗯|确认)[。！! ]*$/.test(utterance)) {
-    return result("confirm", current ? "continue" : "clarify", current?.topic || null, [], current ? 0.97 : 0.45, !current);
-  }
-  if (/^(?:不|不是|不对|不要|否|没有|算了)[。！! ]*$/.test(utterance)) {
-    return result("deny", current ? "continue" : "clarify", current?.topic || null, [], current ? 0.95 : 0.4, !current);
-  }
+/** Resolves syntax-level references only; it contains no product or business normalization rules. */
+function structuralReference(utterance: string, topics: PriorTopic[]): DialogueUnderstandingResult | undefined {
   const ordinal = utterance.match(/第([一二三四五六七八九十\d]+)个/);
-  if (ordinal) {
-    const index = chineseOrdinal(ordinal[1]) - 1;
-    const selected = topics[index];
-    if (!selected) return result("clarify", "clarify", null, [], 0.25, true);
-    return result(inferIntent(utterance), selected === current ? "continue" : "resume", selected.topic,
-      [{ expression: ordinal[0], resolvedTo: selected.topic, sourceTurn: selected.turn }], 0.96, false);
+  if (!ordinal) {
+    const current = topics.at(-1);
+    if (!current || !/^(?:下一步)?(?:再)?(?:具体|详细)?(?:怎么做|如何操作|怎么操作|说一下|说说)[呢吗？?。！!]*$/.test(utterance.trim())) return undefined;
+    const resolved = `${(current.resolvedQuery || current.topic).replace(/[？?。！!]+$/g, "")}，${utterance}`;
+    return { ...baseResult("consult", "continue", resolved, 0.99, false, "dependent"), resolvedReferences: [{ expression: utterance, resolvedTo: current.topic, sourceTurn: current.turn }] };
   }
-  const resume = utterance.match(/(?:回到|继续说|再说说|刚才提到的)(.+?)(?:的问题|那个|吧|呢|怎么|如何|$)/);
-  if (resume && topics.length) {
-    const keyword = clean(resume[1]);
-    const candidates = topics.filter((item) => item.topic.includes(keyword) || keyword.includes(item.topic));
-    if (candidates.length === 1) {
-      const selected = candidates[0];
-      return result(inferIntent(utterance), selected === current ? "continue" : "resume", selected.topic,
-        [{ expression: resume[0], resolvedTo: selected.topic, sourceTurn: selected.turn }], 0.94, false);
-    }
-  }
-  // 槽位答案和单独出现的标识符可以根据客服上一轮问题确定，
-  // 因此无需调用 LLM，直接作为确定性的对话延续处理。
-  const lastAnswer = turns.at(-1)?.answer || "";
-  if (/(?:公司名称|贵公司|哪一款产品|哪款产品|什么产品)/.test(lastAnswer) && utterance.length <= 80) {
-    return result("clarify", current ? "continue" : "start", current?.topic || null, [], 0.98, false);
-  }
-  return undefined;
-}
-
-/**
- * 高置信度的对话表达需要在不同 LLM Provider 下保持一致。
- * 这些规则覆盖电话客服领域中可以安全确定的状态转换、纠正和歧义场景；
- * 开放式表达仍然交由配置的模型处理。
- */
-function stableDialogueSemanticRule(utterance: string, current: PriorTopic | undefined, topics: PriorTopic[]): DialogueUnderstandingResult | undefined {
-  if (/^(?:\u600e\u4e48\u5f04|\u600e\u4e48\u529e|\u5982\u4f55\u5904\u7406)[\uff1f?]?$/u.test(utterance)) {
-    return result("consult", "clarify", null, [], 0.3, true);
-  }
-  if (/^(?:\u5177\u4f53\u600e\u4e48\u505a|\u5177\u4f53\u5982\u4f55\u505a|\u4e0b\u4e00\u6b65\u600e\u4e48\u505a)[\uff1f?]?$/u.test(utterance) && current) {
-    return result("consult", "continue", current.topic, [], 0.98, false);
-  }
-  if (/^(?:\u6211\u7684\u610f\u601d\u662f)?\u65b0\u589e\u4e0b\u7ea7\u90e8\u95e8/u.test(utterance) && current) {
-    return result("clarify", "continue", current.topic, [], 0.98, false);
-  }
-  if (/^\u5982\u679c.*\u540c\u540d\u90e8\u95e8/u.test(utterance) && current) {
-    return result("consult", "continue", current.topic, [], 0.98, false);
-  }
-  if (/\u65b0\u589e\u540e.*\u5206\u914d\u6743\u9650/u.test(utterance) && current?.topic.includes("\u90e8\u95e8")) {
-    return result("consult", "extend", "\u90e8\u95e8\u6743\u9650", [], 0.98, false);
-  }
-  if (/^\u4e0d\u8981\u5220\u9664.*\u4f46.*\u5220\u9664/u.test(utterance)) {
-    return result("clarify", "clarify", null, [], 0.2, true);
-  }
-  if (/最新.*报表模板/u.test(utterance)) {
-    return result("consult", current ? "switch" : "start", "获取最新报表模板", [], 0.97, false);
-  }
-  if (/新(?:的)?电脑.*报表模板/u.test(utterance)) {
-    return result("consult", current ? "switch" : "start", "报表模板", [], 0.97, false);
-  }
-  if (/报表.*(?:不对|异常|有问题).*(?:处理)?/u.test(utterance)) {
-    return result("consult", current ? "continue" : "start", "报表数据异常", [], 0.97, false);
-  }
-  if (/^(?:\u4e0d\u662f\u5220\u9664|\u4e0d\u5bf9\uff0c?\u662f).*(?:\u4f5c\u5e9f\u51ed\u8bc1)/u.test(utterance)) {
-    return result("correct", "continue", "\u4f5c\u5e9f\u51ed\u8bc1", [], 0.98, false);
-  }
-  if (/^(?:\u91cd\u65b0)?\u8ba1\u7b97.*(?:\u8fd8\u662f|\u4f9d\u7136).*\u4e0d\u5bf9/u.test(utterance) && current) {
-    return result("consult", "continue", current.topic, [], 0.96, false);
-  }
-  const contextualOperation = utterance.match(/^(?:\u90a3\u4e48|\u90a3|\u7136\u540e|\u63a5\u7740)?(?:\u600e\u4e48|\u5982\u4f55)(\u65b0\u589e|\u65b0\u5efa|\u521b\u5efa|\u5220\u9664|\u4fee\u6539|\u67e5\u8be2|\u67e5\u770b|\u5907\u4efd|\u6062\u590d|\u5bfc\u5165|\u5bfc\u51fa|\u5173\u95ed|\u4f5c\u5e9f)(?:\u5462|\u5440)?[\uff1f?\u3002!]*$/u)?.[1];
-  if (contextualOperation && current) {
-    const entity = businessEntity(current.topic);
-    if (entity) return result(inferIntent(contextualOperation), "switch", `${contextualOperation}${entity}`, [], 0.98, false);
-  }
-  const deleteTopic = utterance.match(/(?:\u5220\u9664)([^\uff1f?\u3002!]+)[\uff1f?\u3002!]*$/u)?.[1];
-  if (deleteTopic && !/^(?:呢|啊|呀|吗)$/.test(clean(deleteTopic)) && /(?:\u600e\u4e48|\u5982\u4f55|\u8bf7)/u.test(utterance)) {
-    return result("delete", "switch", `\u5220\u9664${clean(deleteTopic)}`, [], 0.98, false);
-  }
-  const additionalCreate = utterance.match(/^(?:\u540c\u65f6)?\u8fd8\u8981(?:\u65b0\u589e|\u65b0\u5efa|\u521b\u5efa)(.+)$/u)?.[1];
-  if (additionalCreate) {
-    return result("create", "switch", `\u65b0\u589e${clean(additionalCreate)}`, [], 0.98, false);
-  }
-  const nextTopic = utterance.match(/(?:\u63a5\u7740|\u7136\u540e)(?:\u95ee)?(.+)$/u)?.[1];
-  if (/\u5148\u5230\u8fd9\u91cc|\u5148\u8fd9\u6837|\u5230\u6b64\u4e3a\u6b62/u.test(utterance) && nextTopic) {
-    return result("query", "switch", clean(nextTopic), [], 0.98, false);
-  }
-  if (/^\u8fd8\u8981\u6309.+\u7b5b\u9009/u.test(utterance) && current) {
-    return result("query", "continue", current.topic, [], 0.96, false);
-  }
-  const contextualAction = utterance.match(/^(?:那|这个|接着|然后)?(?:要)?(?:怎么|如何)?(新增|新建|创建|删除|修改|查询|查看|备份|恢复|导入|导出|关闭|作废)(?:呢|啊|呀|吗)?[？?。！!]*$/u)?.[1];
-  if (contextualAction && current) {
-    return result(inferIntent(contextualAction), "continue", current.topic, [], 0.97, false);
-  }
-  const standalone = normalizedBusinessTopic(utterance);
-  if (standalone) {
-    const currentEntity = current && businessEntity(current.topic);
-    const nextEntity = businessEntity(standalone);
-    const action = current && nextEntity === currentEntity ? "continue" : current ? "switch" : "start";
-    return result(inferIntent(utterance), action, standalone, [], 0.97, false);
-  }
-  if (/^(?:\u90a3\u4e2a|\u8fd9\u4e2a|\u5b83).*(?:\u4fee\u6539|\u66f4\u6539|\u8c03\u6574)/u.test(utterance) && topics.length > 1) {
-    return result("update", "clarify", null, [], 0.3, true);
-  }
-  return undefined;
-}
-
-function normalizedBusinessTopic(value: string) {
-  if (/发票/.test(value) && /(?:自动)?生成凭证/.test(value)) return "发票生成凭证";
-  const actionRules: [RegExp, string][] = [[/新增|新建|创建|添加|增加/, "新增"], [/删除|移除/, "删除"], [/作废/, "作废"], [/修改|更改|编辑|调整/, "修改"], [/查询|查看|查找|搜索/, "查询"], [/备份/, "备份"], [/恢复|还原/, "恢复"], [/导入/, "导入"], [/导出/, "导出"], [/生成/, "生成"], [/关账|结账/, "结账"], [/关闭|终止/, "关闭"]];
-  const action = actionRules.find(([pattern]) => pattern.test(value))?.[1];
-  const entity = businessEntity(value);
-  return action && entity ? `${action}${entity}` : undefined;
-}
-function businessEntity(value: string) {
-  const entities: [RegExp, string][] = [[/会计科目|科目/, "会计科目"], [/下级部门/, "下级部门"], [/部门/, "部门"], [/客户档案|客户/, "客户档案"], [/供应商/, "供应商"], [/账套/, "账套"], [/凭证/, "凭证"], [/订单/, "订单"], [/发票/, "发票"], [/报表/, "报表"], [/操作人员|操作员|用户/, "操作人员"], [/公司/, "账套"], [/存货|库存/, "存货"], [/仓库/, "仓库"]];
-  return entities.find(([pattern]) => pattern.test(value))?.[1];
-}
-
-function safeFallback(utterance: string, turns: DialogueTurn[], topics: PriorTopic[]) {
+  const index = chineseOrdinal(ordinal[1]) - 1;
+  const selected = topics[index];
+  if (!selected) return baseResult("clarify", "clarify", null, 0.3, true, "ambiguous");
   const current = topics.at(-1);
-  const intent = inferIntent(utterance);
-  // “这台电脑”“这个月”表示条件，不是对历史话题的指代。
-  const reference = utterance.match(/(?:那个|这个(?!月)|它|刚才那个|上一个|前面那个|这(?=怎么|如何)|这(?!个月)(?=个)|那(?=个|怎么|如何))/)?.[0];
-  if (reference && current && topics.length === 1) {
-    return result(intent, "continue", current.topic, [{ expression: reference, resolvedTo: current.topic, sourceTurn: current.turn }], 0.72, false);
+  return {
+    ...baseResult("consult", selected === current ? "continue" : "resume", selected.resolvedQuery || selected.topic, 0.99, false, "dependent"),
+    resolvedReferences: [{ expression: ordinal[0], resolvedTo: selected.topic, sourceTurn: selected.turn }],
+  };
+}
+
+function deterministicRule(utterance: string, turns: DialogueTurn[], topics: PriorTopic[], waitingFor?: string): DialogueUnderstandingResult | undefined {
+  const current = topics.at(-1);
+  if (/^(?:再见|拜拜|结束(?:通话)?|就这样|没(?:有)?别的(?:问题)?了)[。！! ]*$/.test(utterance)) return baseResult("end", "end", current?.topic || null, 0.99, false, "none");
+  if (/转(?:接)?人工|人工客服|找人工|真人客服/.test(utterance)) return baseResult("transfer", "end", current?.topic || null, 0.99, false, "none");
+  if (/^(?:你好|您好|早上好|下午好|晚上好|谢谢|感谢|辛苦了)[。！! ]*$/.test(utterance)) return baseResult("chitchat", "chitchat", null, 0.99, false, "none");
+
+  // “好的/不用了”只有结合上一轮客服行为才是确定的，不能全局硬编码为结束。
+  if (/^(?:好的|好|嗯|可以|不用了|算了)[。！! ]*$/.test(utterance)) {
+    const lastAnswer = turns.at(-1)?.answer || "";
+    const offeredMore = /(?:还有|还需要|其他).*(?:问题|帮助|了解)|随时告诉/.test(lastAnswer);
+    const askingForInformation = Boolean(waitingFor) || /(?:请问|告诉我|补充|具体|哪一款|公司名称|贵公司)/.test(lastAnswer);
+    if (offeredMore || (/不用了|算了/.test(utterance) && !askingForInformation)) return baseResult("end", "end", current?.topic || null, 0.98, false, "none");
+    if (askingForInformation) return baseResult(/不用了|算了/.test(utterance) ? "deny" : "confirm", current ? "continue" : "clarify", current?.topic || null, current ? 0.9 : 0.4, !current, current ? "dependent" : "ambiguous");
+    if (current && lastAnswer) return baseResult("end", "end", current.topic, 0.9, false, "none");
+    return baseResult("confirm", current ? "continue" : "clarify", current?.topic || null, current ? 0.88 : 0.35, !current, current ? "dependent" : "ambiguous");
   }
-  if (reference && topics.length > 1) return result(intent, "clarify", null, [], 0.25, true);
-  if (reference || isEllipsis(utterance)) {
-    return result(intent, current ? "continue" : "clarify", current?.topic || null, [], current ? 0.55 : 0.2, true);
-  }
-  if (!turns.length) return result(intent, "start", businessTopic(utterance), [], 0.7, false);
-  // 完整且独立的业务短语可以安全标记为话题切换，但模型失败仍会记录在
-  // diagnostics 中，不会被静默隐藏。
-  if (isStandaloneBusiness(utterance)) return result(intent, "switch", businessTopic(utterance), [], 0.65, false);
-  return result(intent, "clarify", null, [], 0.2, true);
+
+  // A direct answer to a requested slot is state handling, not business semantic normalization.
+  if ((waitingFor === "company" || waitingFor === "product") && isLikelySlotValue(utterance)) return baseResult("clarify", current ? "continue" : "start", current?.topic || null, 0.98, false, current ? "dependent" : "none");
+  if (isExplicitCompanyName(utterance)) return baseResult("clarify", current ? "continue" : "start", current?.topic || null, 0.98, false, current ? "dependent" : "none");
+  return undefined;
+}
+
+function isExplicitCompanyName(value: string) {
+  const text = value.trim();
+  if (/怎么|如何|为何|为什么|新增|创建|删除|修改|查询|设置|操作|报错|异常|问题/.test(text)) return false;
+  return /^[\p{L}\d（）()·&\-]{2,50}(?:公司|集团|企业)$/u.test(text);
 }
 
 function prompt(utterance: string, turns: DialogueTurn[], topics: PriorTopic[]) {
-  const context = turns.slice(-8).map((turn, index) => `T${turns.length - Math.min(8, turns.length) + index + 1} 用户:${truncate(turn.question, 300)}\n客服:${truncate(turn.answer, 300)}`).join("\n");
-  const topicList = topics.map((item, index) => `${index + 1}. ${truncate(item.topic, 160)} (turn ${item.turn})`).join("\n") || "无";
+  const context = turns.slice(-8).map((turn, index) => `T${turns.length - Math.min(8, turns.length) + index + 1} 用户:${truncate(turn.question, 350)}\n客服:${truncate(turn.answer, 350)}`).join("\n") || "无";
+  const topicList = topics.map((item, index) => `${index + 1}. ${truncate(item.topic, 180)}；原始问题=${truncate(item.originalQuery || "", 220)}；上下文补全=${truncate(item.resolvedQuery || "", 220)}；turn=${item.turn}`).join("\n") || "无";
   return [
     { role: "system" as const, content: [
-      "你只负责企业软件电话客服的对话理解，不回答问题，不维护会话状态。",
+      "你只负责企业软件电话客服的对话理解，不回答业务问题，也不维护会话状态。",
       `intent 只能是: ${dialogueIntents.join(", ")}`,
       `topicAction 只能是: ${topicActions.join(", ")}`,
-      "continue=当前话题延续；switch=新话题；resume=恢复更早话题；extend=与当前话题有关的延伸；chitchat=闲聊；end=结束或转人工；clarify=不能安全判断。",
-      "指代只能解析到对话中明确出现的候选；多个候选或信息不足必须 needsClarification=true，禁止猜测。",
-      "targetTopic 使用简短、完整的业务话题；无话题时为 null。resolvedReferences 必须是数组，元素含 expression、resolvedTo、sourceTurn。",
-      "confidence 为 0 到 1。只输出一个 JSON 对象，字段必须且只能为 intent,topicAction,targetTopic,resolvedReferences,confidence,needsClarification。",
+      `contextDependency 只能是: ${contextDependencies.join(", ")}`,
+      "independent=单独看当前话语就能完整检索；dependent=存在指代、省略、追问或补充，必须借助历史；ambiguous=无法安全消解；none=非业务输入。",
+      "targetTopic 必须是可独立理解的完整业务问题。independent 时尽量逐字保留当前用户原话；dependent 时只补齐历史中明确存在的对象/动作，绝不改写用户原意。",
+      "必须保留时间、范围、条件、业务实体、操作、异常现象、错误码和否定信息。禁止把‘这个月的报表不对’改成泛化的‘如何处理报表数据异常’。",
+      "独立新问题用 start/switch；当前话题追问用 continue；回到更早话题用 resume；关联但不同的子问题用 extend。多候选、矛盾或信息不足必须 clarify 且 needsClarification=true。",
+      "用户说‘第一个/第二个’时，严格按上方已出现话题的编号选择；编号存在时这是可安全消解的 resume/continue，不得标为歧义，编号不存在才澄清。",
+      "semanticFrame.action 是原话中的核心业务操作，没有则为 null；其余字段均为字符串数组，只抽取用户明确表达的内容，不推断。",
+      "resolvedReferences 只能指向已出现话题；元素为 expression,resolvedTo,sourceTurn。",
+      "只输出 JSON，字段必须且只能为 intent,topicAction,targetTopic,resolvedReferences,confidence,needsClarification,contextDependency,semanticFrame。",
     ].join("\n") },
-    { role: "user" as const, content: `历史:\n${context || "无"}\n\n已出现话题:\n${topicList}\n\n当前用户话语:\n${utterance}` },
+    { role: "user" as const, content: `历史:\n${context}\n\n已出现话题:\n${topicList}\n\n当前用户原话:\n${utterance}` },
   ];
 }
 
 function validateResult(value: unknown, topics: PriorTopic[], turnCount: number): DialogueUnderstandingResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid structured output");
   const row = value as Record<string, unknown>;
-  const expectedKeys = ["confidence", "intent", "needsClarification", "resolvedReferences", "targetTopic", "topicAction"];
-  if (Object.keys(row).sort().join(",") !== expectedKeys.join(",")) throw new Error("unexpected structured output fields");
+  const expected = ["confidence", "contextDependency", "intent", "needsClarification", "resolvedReferences", "semanticFrame", "targetTopic", "topicAction"];
+  if (Object.keys(row).sort().join(",") !== expected.join(",")) throw new Error("unexpected structured output fields");
   if (!dialogueIntents.includes(row.intent as DialogueIntent)) throw new Error("invalid intent");
   if (!topicActions.includes(row.topicAction as TopicAction)) throw new Error("invalid topicAction");
+  if (!contextDependencies.includes(row.contextDependency as ContextDependency)) throw new Error("invalid contextDependency");
   if (typeof row.confidence !== "number" || row.confidence < 0 || row.confidence > 1) throw new Error("invalid confidence");
   if (typeof row.needsClarification !== "boolean") throw new Error("invalid needsClarification");
-  const targetTopic = row.targetTopic === null ? null : clean(row.targetTopic);
+  const targetTopic = row.targetTopic === null ? null : clean(row.targetTopic).slice(0, 500);
   if (row.targetTopic !== null && !targetTopic) throw new Error("invalid targetTopic");
   if (!Array.isArray(row.resolvedReferences)) throw new Error("invalid resolvedReferences");
-  const resolvedReferences = row.resolvedReferences.map((item) => validateReference(item, topics, turnCount));
-  if (resolvedReferences.length && !targetTopic) throw new Error("resolved reference without target topic");
-  return {
-    intent: row.intent as DialogueIntent,
-    topicAction: row.topicAction as TopicAction,
-    targetTopic,
-    resolvedReferences,
-    confidence: Math.round(row.confidence * 1000) / 1000,
-    needsClarification: row.needsClarification,
-  };
+  const references = row.resolvedReferences.map((item) => {
+    if (!item || typeof item !== "object") throw new Error("invalid reference");
+    const reference = item as Record<string, unknown>;
+    const expression = clean(reference.expression); const resolvedTo = clean(reference.resolvedTo); const sourceTurn = Number(reference.sourceTurn);
+    if (!expression || !resolvedTo || !Number.isInteger(sourceTurn) || sourceTurn < 1 || sourceTurn > turnCount) throw new Error("invalid reference fields");
+    if (!topics.some((topic) => sameTopic(topic.topic, resolvedTo))) throw new Error("ungrounded reference");
+    return { expression, resolvedTo, sourceTurn };
+  });
+  const semanticFrame = validateFrame(row.semanticFrame);
+  return { intent: row.intent as DialogueIntent, topicAction: row.topicAction as TopicAction, targetTopic, resolvedReferences: references, confidence: row.confidence, needsClarification: row.needsClarification, contextDependency: row.contextDependency as ContextDependency, semanticFrame };
 }
 
-function enforceAmbiguity(utterance: string, topics: PriorTopic[], value: DialogueUnderstandingResult) {
-  const genericReference = /(?:那个|这个(?!月)|它|这(?=怎么|如何)|这(?!个月)(?=个)|那(?=个|怎么|如何))/.test(utterance);
-  const explicitSelector = /(?:第[一二三四五六七八九十\d]+个|刚才|上一个|前一个|关于[^，。？！?]{1,20})/.test(utterance);
-  if (genericReference && !explicitSelector && topics.length > 1) {
-    return result(value.intent, "clarify", null, [], Math.min(value.confidence, 0.5), true);
-  }
-  return value;
-}
-
-function validateReference(value: unknown, topics: PriorTopic[], turnCount: number): ResolvedReference {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid reference");
+function validateFrame(value: unknown): DialogueSemanticFrame {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid semanticFrame");
   const row = value as Record<string, unknown>;
-  const expression = clean(row.expression);
-  const resolvedTo = clean(row.resolvedTo);
-  const sourceTurn = Number(row.sourceTurn);
-  if (!expression || !resolvedTo || !Number.isInteger(sourceTurn) || sourceTurn < 1 || sourceTurn > turnCount) throw new Error("invalid reference fields");
-  if (topics.length && !topics.some((topic) => topic.turn === sourceTurn && sameTopic(topic.topic, resolvedTo))) throw new Error("reference is not grounded in topic history");
-  return { expression, resolvedTo, sourceTurn };
+  const action = row.action === null || row.action === undefined ? null : clean(row.action).slice(0, 80);
+  if (row.action !== null && row.action !== undefined && !action) throw new Error("invalid semanticFrame.action");
+  const array = (name: string) => {
+    if (row[name] === undefined) return [];
+    if (!Array.isArray(row[name])) throw new Error(`invalid semanticFrame.${name}`);
+    return [...new Set(row[name].map((item) => clean(item).slice(0, 120)).filter(Boolean))];
+  };
+  return { action, entities: array("entities"), timeExpressions: array("timeExpressions"), conditions: array("conditions"), symptoms: array("symptoms"), negations: array("negations") };
 }
 
-function uniqueTopics(prior: PriorTopic[], turns: DialogueTurn[]) {
-  const result: PriorTopic[] = [];
-  for (const item of prior) {
-    const topic = clean(item.topic);
-    if (!topic || !Number.isInteger(item.turn) || item.turn < 1 || item.turn > turns.length) continue;
-    const existing = result.findIndex((candidate) => sameTopic(candidate.topic, topic));
-    if (existing >= 0) result.splice(existing, 1);
-    result.push({ topic, turn: item.turn });
+function enforceSafety(utterance: string, topics: PriorTopic[], result: DialogueUnderstandingResult): DialogueUnderstandingResult {
+  if (result.contextDependency === "ambiguous" || result.needsClarification || result.confidence < 0.55) return { ...result, topicAction: "clarify" as const, targetTopic: null, resolvedReferences: [], needsClarification: true, contextDependency: "ambiguous" as const };
+  if (["resume", "continue"].includes(result.topicAction) && result.contextDependency === "dependent" && !topics.length) return { ...result, topicAction: "clarify" as const, targetTopic: null, resolvedReferences: [], needsClarification: true, contextDependency: "ambiguous" as const };
+  if (result.contextDependency === "independent" && result.targetTopic && losesCriticalInformation(utterance, result.targetTopic)) return { ...result, topicAction: "clarify" as const, targetTopic: null, resolvedReferences: [], needsClarification: true, contextDependency: "ambiguous" as const };
+  const explicitFrame = extractFrame(utterance);
+  const current = topics.at(-1);
+  if (current && /^(?:如果|要是|假如|已经)/.test(utterance) && result.contextDependency === "dependent") {
+    return {
+      ...result,
+      intent: inferIntent(utterance),
+      topicAction: "continue",
+      targetTopic: `${(current.resolvedQuery || current.topic).replace(/[？?。！!]+$/g, "")}，${utterance}`,
+      contextDependency: "dependent",
+      semanticFrame: mergeFrame(result.semanticFrame, explicitFrame),
+    };
   }
+  if (/(?:先到这里|先不说|先放一边).*(?:接着|然后|再)(?:问|咨询)/.test(utterance) && explicitFrame.entities.length) {
+    const nextQuestion = utterance.match(/(?:接着|然后|再)(?:问|咨询)?[：:]?\s*(.+)$/)?.[1] || utterance;
+    return {
+      ...result,
+      intent: inferIntent(nextQuestion),
+      topicAction: "switch",
+      targetTopic: nextQuestion,
+      resolvedReferences: [],
+      contextDependency: "independent",
+      semanticFrame: extractFrame(nextQuestion),
+    };
+  }
+  const hasReference = /(?:那个|这个(?!月)|它|刚才|上一个|前面|第[一二三四五六七八九十\d]+个|那(?:怎么|如何)|这(?:怎么|如何))/.test(utterance);
+  const hasDependencyCue = hasReference || /^(?:如果|要是|假如|已经|还要|新增后|删除后|修改后|查询后|操作后)|(?:后|以后)(?:怎么|如何)/.test(utterance);
+  if (result.contextDependency === "dependent" && result.intent !== "correct" && explicitFrame.entities.length && !hasDependencyCue) {
+    return {
+      ...result,
+      topicAction: topics.length ? "switch" : "start",
+      targetTopic: utterance,
+      resolvedReferences: [],
+      contextDependency: "independent",
+      semanticFrame: mergeFrame(result.semanticFrame, explicitFrame),
+    };
+  }
+  const explicitIntent = inferIntent(utterance);
+  const explicitBusiness = isSelfContainedBusiness(utterance, extractFrame(utterance));
+  if ((result.intent === "end" || result.topicAction === "end") && explicitBusiness) {
+    return { ...result, intent: explicitIntent, topicAction: topics.length ? "switch" : "start", targetTopic: result.targetTopic || utterance, contextDependency: "independent", needsClarification: false };
+  }
+  if (!["correct", "clarify", "confirm", "deny", "end", "transfer", "chitchat"].includes(result.intent) && /新增|新建|创建|添加|删除|移除|修改|更改|编辑|调整|查询|查找|查看|搜索|筛选|分配|授权/.test(utterance)) return { ...result, intent: explicitIntent };
   return result;
 }
 
-function result(intent: DialogueIntent, topicAction: TopicAction, targetTopic: string | null, resolvedReferences: ResolvedReference[], confidence: number, needsClarification: boolean): DialogueUnderstandingResult {
-  return { intent, topicAction, targetTopic, resolvedReferences, confidence, needsClarification };
+function mergeFrame(left: DialogueSemanticFrame, right: DialogueSemanticFrame): DialogueSemanticFrame {
+  return {
+    action: right.action || left.action,
+    entities: unique([...left.entities, ...right.entities]),
+    timeExpressions: unique([...left.timeExpressions, ...right.timeExpressions]),
+    conditions: unique([...left.conditions, ...right.conditions]),
+    symptoms: unique([...left.symptoms, ...right.symptoms]),
+    negations: unique([...left.negations, ...right.negations]),
+  };
+}
+
+function safeFallback(utterance: string, turns: DialogueTurn[], topics: PriorTopic[]): DialogueUnderstandingResult {
+  const current = topics.at(-1);
+  const frame = extractFrame(utterance);
+  const reference = /(?:那个|这个(?!月)|它|刚才|上一个|前面|那(?:怎么|如何)|这(?:怎么|如何))/.test(utterance);
+  const ellipsis = /^(?:那|然后|接着|这个|那个)?(?:再)?(?:怎么|如何|具体|下一步|还有|能否|可以).{0,12}[？?。！!]*$/.test(utterance) && !frame.entities.length && !frame.action;
+  if (reference || ellipsis) return { ...baseResult(inferIntent(utterance), "clarify", null, 0.2, true, "ambiguous"), semanticFrame: frame };
+  if (isSelfContainedBusiness(utterance, frame)) return { ...baseResult(inferIntent(utterance), turns.length && current ? "switch" : "start", utterance, 0.62, false, "independent"), semanticFrame: frame };
+  return { ...baseResult(inferIntent(utterance), "clarify", null, 0.2, true, "ambiguous"), semanticFrame: frame };
+}
+
+function baseResult(intent: DialogueIntent, topicAction: TopicAction, targetTopic: string | null, confidence: number, needsClarification: boolean, contextDependency: ContextDependency): DialogueUnderstandingResult {
+  return { intent, topicAction, targetTopic, resolvedReferences: [], confidence, needsClarification, contextDependency, semanticFrame: emptyFrame() };
+}
+function emptyFrame(): DialogueSemanticFrame { return { action: null, entities: [], timeExpressions: [], conditions: [], symptoms: [], negations: [] }; }
+function extractFrame(value: string): DialogueSemanticFrame {
+  const actions = value.match(/新增|新建|创建|添加|删除|移除|作废|修改|更改|编辑|调整|查询|查找|查看|搜索|筛选|备份|恢复|还原|导入|导出|生成|关账|结账|关闭|启用|停用|分配|授权/g) || [];
+  const entities = value.match(/报表模板|客户档案|操作人员|下级部门|会计科目|账套|公司|部门|科目|客户|供应商|凭证|订单|发票|报表|库存|存货|仓库|操作员|用户|权限|模板/g) || [];
+  const timeExpressions = value.match(/(?:今天|昨天|本月|这个月|上个月|本年|今年|去年|第\d+期|\d{4}年|\d{1,2}月|\d{1,2}[日号])/g) || [];
+  const conditions = value.match(/(?:如果|当|只有|需要|必须|按|在|没有)[^，。！？!?]{1,30}/g) || [];
+  const symptoms = value.match(/(?:报错|错误|异常|不对|失败|无法|不能|没反应|打不开|未设置)[^，。！？!?]{0,30}|\b[A-Z]?[0-9]{2,}[A-Z0-9_-]*\b/gi) || [];
+  const negations = value.match(/(?:不要|不能|无法|没有|未|不对|不是|并非)[^，。！？!?]{0,20}/g) || [];
+  return { action: actions[0] || null, entities: unique(entities), timeExpressions: unique(timeExpressions), conditions: unique(conditions), symptoms: unique(symptoms), negations: unique(negations) };
 }
 function inferIntent(value: string): DialogueIntent {
-  if (/新增|新建|创建|添加|增加/.test(value)) return "create";
-  if (/删除|移除|停用|作废/.test(value)) return "delete";
-  if (/修改|更改|编辑|调整|改成/.test(value)) return "update";
-  if (/查询|查找|查看|多少|哪些|状态/.test(value)) return "query";
-  if (/不对|说错|更正|我是说/.test(value)) return "correct";
-  if (/什么意思|没听懂|请说明/.test(value)) return "clarify";
+  if (/故障|报错|错误|异常|不对|失败|无法|不能|没反应|打不开/.test(value)) return "troubleshoot";
+  const actions = [...value.matchAll(/新增|新建|创建|添加|删除|移除|修改|更改|编辑|调整|查询|查找|查看|搜索|筛选|分配|授权/g)].map((item) => item[0]);
+  const action = actions.at(-1) || "";
+  if (/删除|移除/.test(action)) return "delete";
+  if (/新增|新建|创建|添加/.test(action)) return "create";
+  if (/修改|更改|编辑|调整/.test(action)) return "update";
+  if (/查询|查找|查看|搜索|筛选/.test(action)) return "query";
   return "consult";
 }
-function isEllipsis(value: string) { return /^(?:那|然后|接着|下一步|具体呢|怎么做|怎么弄|如何操作|还有呢|为什么|可以吗|能吗)/.test(value); }
-function isStandaloneBusiness(value: string) { return value.length >= 5 && /部门|科目|账套|公司|用户|操作员|人员|凭证|订单|发票|报表|客户|供应商|库存|关账|结账|备份|导入|导出|生成|新增|删除|修改|查询/.test(value); }
-function businessTopic(value: string) { const topic = clean(value).replace(/[？?。！!]+$/g, ""); return topic || null; }
+function isSelfContainedBusiness(value: string, frame: DialogueSemanticFrame) { return value.length >= 4 && Boolean(frame.entities.length || frame.symptoms.length || /怎么|如何|为什么|能否|是否|可以吗|报错|异常|问题/.test(value)); }
+function isLikelySlotValue(value: string) { return value.length <= 80 && !/[？?]/.test(value) && !/怎么|如何|为什么|报错|异常|问题/.test(value); }
+function losesCriticalInformation(source: string, target: string) { return criticalUnits(source).some((unit) => !target.toLowerCase().includes(unit.toLowerCase())); }
+function criticalUnits(value: string) { return unique([...(value.match(/(?:这个月|本月|上个月|今天|昨天|今年|去年|按行|按[^，。！？!?]{1,12}|不要|不能|无法|没有|不是|报错|异常|不对|失败|\b[A-Z]?[0-9]{2,}[A-Z0-9_-]*\b)/gi) || [])]); }
+function unique(values: string[]) { return [...new Set(values.map((item) => clean(item)).filter(Boolean))]; }
+function uniqueTopics(topics: PriorTopic[]) { const seen = new Set<string>(); return topics.filter((item) => { const key = item.topic.trim(); if (!key || seen.has(key)) return false; seen.add(key); return true; }); }
 function sameTopic(left: string, right: string) { return left === right || left.includes(right) || right.includes(left); }
-function chineseOrdinal(value: string) {
-  if (/^\d+$/.test(value)) return Number(value);
-  const digits: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
-  if (value === "十") return 10;
-  if (value.startsWith("十")) return 10 + (digits[value[1]] || 0);
-  if (value.endsWith("十")) return (digits[value[0]] || 0) * 10;
-  return digits[value] || 0;
-}
+function chineseOrdinal(value: string) { if (/^\d+$/.test(value)) return Number(value); const digits: Record<string, number> = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 }; if (value === "十") return 10; if (value.startsWith("十")) return 10 + (digits[value[1]] || 0); if (value.endsWith("十")) return (digits[value[0]] || 0) * 10; return digits[value] || 0; }
 function parseJson(value: string) { return JSON.parse(value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "")) as unknown; }
-function truncate(value: string, length: number) { return clean(value).slice(0, length); }
+function truncate(value: string, length: number) { return value.length > length ? `${value.slice(0, length)}…` : value; }
 function clean(value: unknown) { return String(value ?? "").replace(/\s+/g, " ").trim(); }
-function safeError(error: unknown) {
-  return (error instanceof Error ? error.message : "unknown model error")
-    .replace(/(?:sk-|Bearer\s+)[A-Za-z0-9_.-]+/gi, "<redacted>")
-    .slice(0, 300);
-}
+function safeError(error: unknown) { return (error instanceof Error ? error.message : "未知错误").replace(/(?:sk-|Bearer\s+)[A-Za-z0-9_.-]+/gi, "<redacted>").slice(0, 500); }

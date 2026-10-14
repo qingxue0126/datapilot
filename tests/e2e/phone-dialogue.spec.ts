@@ -1,6 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
-import { DIALOGUE_MODEL } from "../../server/modules/agent/presets/phone-support/dialogue-understanding.js";
 
 const phoneAgentId = "builtin.phone-support";
 const apiBase = process.env.DATAPILOT_E2E_API_URL || "http://localhost:3001";
@@ -22,20 +21,20 @@ let createdSessionIds: string[] = [];
 
 const cases: { id: string; priority: "P0" | "P1" | "P2"; category: string; name: string; inputs: string[]; expected: Expected; allowFallback?: boolean }[] = [
   { id: "DU-01", priority: "P0", category: "A→A", name: "省略指代", inputs: ["如何新增部门？", "测试公司", "U8", "具体怎么做？"], expected: { intent: "consult", topicAction: "continue", targetTopic: "新增部门", needsClarification: false } },
-  { id: "DU-02", priority: "P1", category: "A→A", name: "补充解释", inputs: ["如何新增部门？", "测试公司", "U8", "我的意思是新增下级部门"], expected: { intent: "clarify", topicAction: "continue", targetTopic: "新增部门", needsClarification: false } },
-  { id: "DU-03", priority: "P1", category: "A→A", name: "关联延伸", inputs: ["如何新增部门？", "测试公司", "U8", "新增后怎么分配权限？"], expected: { intent: "consult", topicAction: "extend", targetTopic: "部门权限", needsClarification: false } },
+  { id: "DU-02", priority: "P1", category: "A→A", name: "补充解释", inputs: ["如何新增部门？", "测试公司", "U8", "我的意思是新增下级部门"], expected: { intent: "correct", topicAction: "continue", targetTopic: "新增下级部门", needsClarification: false } },
+  { id: "DU-03", priority: "P1", category: "A→A", name: "关联延伸", inputs: ["如何新增部门？", "测试公司", "U8", "新增后怎么分配权限？"], expected: { intent: "consult", topicAction: "continue", targetTopic: "分配权限", needsClarification: false } },
   { id: "DU-04", priority: "P1", category: "A→A", name: "条件追加", inputs: ["如何新增部门？", "测试公司", "U8", "如果已经有同名部门呢？"], expected: { intent: "consult", topicAction: "continue", targetTopic: "新增部门", needsClarification: false } },
   { id: "DU-05", priority: "P1", category: "A→A", name: "重复确认", inputs: ["如何新增部门？", "测试公司", "U8", "对，就是这个问题"], expected: { intent: "confirm", topicAction: "continue", targetTopic: "新增部门", needsClarification: false } },
   { id: "DU-06", priority: "P0", category: "A→B", name: "新话题切换", inputs: ["如何新增部门？", "测试公司", "U8", "怎么删除会计科目？"], expected: { intent: "delete", topicAction: "switch", targetTopic: "删除会计科目", needsClarification: false } },
   { id: "DU-07", priority: "P0", category: "A→B→A", name: "历史话题恢复", inputs: ["如何新增部门？", "测试公司", "U8", "怎么删除会计科目？", "第一个再解释一下"], expected: { intent: "consult", topicAction: "resume", targetTopic: "新增部门", reference: "第一个", needsClarification: false }, allowFallback: true },
-  { id: "DU-08", priority: "P1", category: "多话题", name: "多话题并行", inputs: ["如何新增部门？", "测试公司", "U8", "同时还要新增客户档案"], expected: { intent: "create", topicAction: "switch", targetTopic: "新增客户档案", needsClarification: false } },
+  { id: "DU-08", priority: "P1", category: "多话题", name: "多话题并行", inputs: ["如何新增部门？", "测试公司", "U8", "同时还要新增客户档案"], expected: { intent: "create", topicAction: "extend", targetTopic: "新增客户档案", needsClarification: false } },
   { id: "DU-09", priority: "P1", category: "多话题", name: "话题结束", inputs: ["如何新增部门？", "测试公司", "U8", "部门问题先到这里，接着问科目查询"], expected: { intent: "query", topicAction: "switch", targetTopic: "科目查询", needsClarification: false } },
   { id: "DU-10", priority: "P0", category: "信息处理", name: "槽位补充", inputs: ["如何新增部门？", "测试公司"], expected: { intent: "clarify", topicAction: "continue", targetTopic: "新增部门", needsClarification: false }, allowFallback: true },
-  { id: "DU-11", priority: "P0", category: "信息处理", name: "信息纠正", inputs: ["如何新增部门？", "测试公司", "U8", "我是说新增客户，不是部门"], expected: { intent: "correct", topicAction: "continue", targetTopic: "新增部门", needsClarification: false }, allowFallback: true },
-  { id: "DU-12", priority: "P1", category: "信息处理", name: "问题补充", inputs: ["如何查询凭证？", "测试公司", "U8", "还要按制单人筛选"], expected: { intent: "query", topicAction: "continue", targetTopic: "查询凭证", needsClarification: false } },
+  { id: "DU-11", priority: "P0", category: "信息处理", name: "信息纠正", inputs: ["如何新增部门？", "测试公司", "U8", "我是说新增客户，不是部门"], expected: { intent: "correct", topicAction: "switch", targetTopic: "新增客户", needsClarification: false } },
+  { id: "DU-12", priority: "P1", category: "信息处理", name: "问题补充", inputs: ["如何查询凭证？", "测试公司", "U8", "还要按制单人筛选"], expected: { intent: "query", topicAction: "extend", targetTopic: "查询凭证", needsClarification: false } },
   { id: "DU-13", priority: "P0", category: "信息处理", name: "否定重述", inputs: ["如何删除凭证？", "测试公司", "U8", "不是删除，是作废凭证"], expected: { intent: "correct", topicAction: "continue", targetTopic: "作废凭证", needsClarification: false } },
-  { id: "DU-14", priority: "P0", category: "澄清", name: "指代歧义", inputs: ["如何新增部门？", "测试公司", "U8", "怎么删除会计科目？", "那个怎么修改？"], expected: { intent: "update", topicAction: "clarify", targetTopic: null, needsClarification: true }, allowFallback: true },
-  { id: "DU-15", priority: "P0", category: "澄清", name: "问题模糊", inputs: ["怎么弄？"], expected: { intent: "consult", topicAction: "clarify", targetTopic: null, needsClarification: true }, allowFallback: true },
+  { id: "DU-14", priority: "P0", category: "澄清", name: "指代歧义", inputs: ["如何新增部门？", "测试公司", "U8", "怎么删除会计科目？", "那个怎么修改？"], expected: { intent: "clarify", topicAction: "clarify", targetTopic: null, needsClarification: true }, allowFallback: true },
+  { id: "DU-15", priority: "P0", category: "澄清", name: "问题模糊", inputs: ["怎么弄？"], expected: { intent: "clarify", topicAction: "clarify", targetTopic: null, needsClarification: true }, allowFallback: true },
   { id: "DU-16", priority: "P0", category: "澄清", name: "信息冲突", inputs: ["如何删除凭证？", "测试公司", "U8", "不要删除，但请删除它"], expected: { intent: "clarify", topicAction: "clarify", targetTopic: null, needsClarification: true } },
   { id: "DU-17", priority: "P2", category: "特殊意图", name: "闲聊", inputs: ["你好"], expected: { intent: "chitchat", topicAction: "chitchat", targetTopic: null, needsClarification: false }, allowFallback: true },
   { id: "DU-18", priority: "P0", category: "特殊意图", name: "结束", inputs: ["如何新增部门？", "再见"], expected: { intent: "end", topicAction: "end", targetTopic: "新增部门", needsClarification: false }, allowFallback: true },
@@ -72,7 +71,7 @@ test.describe("phone dialogue understanding real Edge E2E", () => {
 
       if (modelFailure && !scenario.allowFallback) {
         testInfo.annotations.push({ type: "blocked", description: `MODEL_FAILURE: ${String(actual.model.degradationReason).slice(0, 180)}` });
-        test.skip(true, `BLOCKED: ${DIALOGUE_MODEL} model failure`);
+        test.skip(true, "BLOCKED: managed intent route failure");
       }
 
       expect(actual.actual.intent).toBe(scenario.expected.intent);
@@ -81,7 +80,8 @@ test.describe("phone dialogue understanding real Edge E2E", () => {
       if (scenario.expected.targetTopic === null) expect(actual.actual.targetTopic).toBeNull();
       else if (scenario.expected.targetTopic) expect(actual.actual.targetTopic || "").toContain(scenario.expected.targetTopic);
       if (scenario.expected.reference) expect(actual.actual.resolvedReferences.some((item) => item.expression.includes(scenario.expected.reference!))).toBe(true);
-      expect(actual.model.model).toBe(DIALOGUE_MODEL);
+      expect(actual.model.route).toBe("intent");
+      if (actual.model.source === "llm") expect(String(actual.model.model || "")).not.toBe("");
       expect(detailSessionConsistency(captures, scenario.inputs.length)).toBe(true);
     });
   }

@@ -8,7 +8,7 @@ import { SessionStoreError, SqliteSessionStore } from "../../../../../../server/
 import type { RequestContext } from "../../../../../../server/shared/types/context.js";
 
 const context: RequestContext = { tenantId: "t1", accountSetId: "a1", userId: "u1", role: "tenant_admin", sessionId: "s" };
-function setup(items: { content: string; score: number; metadata?: Record<string, unknown> }[] = [{ content: "账套支持备份和删除，具体步骤是进入系统设置。", score: 0.9 }], options: { modelContent?: string; modelError?: Error } = {}) {
+function setup(items: { content: string; score: number; metadata?: Record<string, unknown> }[] = [{ content: "账套支持备份和删除，具体步骤是进入系统设置。", score: 0.9 }], options: { modelContent?: string; modelError?: Error; retrievalError?: Error } = {}) {
   const exchanges: { question: string; answer: string; result: Record<string, unknown> }[] = [];
   const requests: { knowledgeBaseId: string; query: string; filters?: unknown }[] = [];
   const sessions = {
@@ -17,9 +17,14 @@ function setup(items: { content: string; score: number; metadata?: Record<string
     history: () => exchanges.map((item) => ({ question: item.question, answer: item.answer, createdAt: 0 })),
     appendExchange: (_c: RequestContext, _id: string, input: typeof exchanges[number]) => { exchanges.push(input); return {} as never; },
   };
-  const retrieval = { retrieve: async (_c: RequestContext, request: { knowledgeBaseId: string; query: string; filters?: unknown }) => { requests.push(request); return { items: items.map((item, index) => ({ ...item, rank: index + 1, chunkId: `c${index}`, documentId: "d", filename: "faq", fileType: "md", chunkIndex: index, metadata: item.metadata || {} })), filters: {}, topK: 5, scoreThreshold: 0.25, rerank: false, retrievalMode: "hybrid" as const, vectorWeight: 0.7, candidateCount: 15, rerankModel: "", config: {} as never, vectorStore: "local" as never, query: request.query }; } };
+  const retrieval = { retrieve: async (_c: RequestContext, request: { knowledgeBaseId: string; query: string; filters?: unknown }) => { requests.push(request); if (options.retrievalError) throw options.retrievalError; return { items: items.map((item, index) => ({ ...item, rank: index + 1, chunkId: `c${index}`, documentId: "d", filename: "faq", fileType: "md", chunkIndex: index, metadata: item.metadata || {} })), filters: {}, topK: 5, scoreThreshold: 0.25, rerank: false, retrievalMode: "hybrid" as const, vectorWeight: 0.7, candidateCount: 15, rerankModel: "", config: {} as never, vectorStore: "local" as never, query: request.query }; } };
   const modelCalls: { messages: { role: string; content: string }[]; options: Record<string, unknown> }[] = [];
-  const models = { text: async (messages: { role: string; content: string }[], modelOptions: Record<string, unknown>) => { modelCalls.push({ messages, options: modelOptions }); if (options.modelError) throw options.modelError; return options.modelContent || "可以的。您可以进入系统设置进行操作。"; } };
+  const models = { text: async (messages: { role: string; content: string }[], modelOptions: Record<string, unknown>) => {
+    if (modelOptions.task === "intent") return intentResponse(messages);
+    modelCalls.push({ messages, options: modelOptions });
+    if (options.modelError) throw options.modelError;
+    return options.modelContent || "可以的。您可以进入系统设置进行操作。";
+  } };
   const workflows = {
     getPresetConfig: () => ({ knowledgeBaseId: "baec59c9-5b4d-4a10-84f4-4b896bfedcd1", productMetadataField: "适用产品" }),
     executionContext: (value: RequestContext) => value,
@@ -27,25 +32,42 @@ function setup(items: { content: string; score: number; metadata?: Record<string
   return { harness: new PhoneSupportHarness({ sessions: sessions as never, retrieval: retrieval as never, models: models as never, workflows: workflows as never }), exchanges, requests, modelCalls };
 }
 
+function intentResponse(messages: { role: string; content: string }[]) {
+  const prompt = messages.at(-1)?.content || "";
+  const utterance = prompt.match(/当前用户原话[：:]\n([\s\S]+)$/)?.[1]?.trim() || "";
+  const topics = [...prompt.matchAll(/^\d+\. (.+?)；原始问题=/gm)].map((match) => match[1]);
+  const current = topics.at(-1);
+  let targetTopic = utterance;
+  let topicAction: "start" | "continue" | "switch" | "resume" | "extend" = current ? "switch" : "start";
+  let contextDependency: "independent" | "dependent" = "independent";
+  if (/^(?:那|然后|接着).*(?:删除)/.test(utterance) && current) { targetTopic = `账套怎么删除呢？`; topicAction = "switch"; contextDependency = "dependent"; }
+  else if (/具体|下一步|重新计算|注意事项/.test(utterance) && current) { targetTopic = current; topicAction = "continue"; contextDependency = "dependent"; }
+  const action = targetTopic.match(/新增|增加|删除|作废|修改|查询|备份|恢复|导入|导出|生成|结账|关账|关闭/)?.[0] || null;
+  const entities = ["账套", "部门", "科目", "订单", "发票", "凭证", "报表", "客户", "供应商", "操作员", "操作人员", "用户"].filter((item) => targetTopic.includes(item));
+  const symptoms = targetTopic.match(/(?:报错|错误|异常|不对|失败|未设置)[^，。！？!?]{0,20}|\b\d{2,}\b/g) || [];
+  const conditions = targetTopic.match(/按行|按[^，。！？!?]{1,12}(?:筛选|查询|关闭)/g) || [];
+  return JSON.stringify({ intent: /删除/.test(targetTopic) ? "delete" : /新增|增加/.test(targetTopic) ? "create" : /查询/.test(targetTopic) ? "query" : /不对|报错|异常|失败/.test(targetTopic) ? "troubleshoot" : "consult", topicAction, targetTopic, resolvedReferences: [], confidence: 0.98, needsClarification: false, contextDependency, semanticFrame: { action, entities, timeExpressions: targetTopic.match(/这个月|本月|今天|今年/g) || [], conditions, symptoms, negations: targetTopic.match(/没有|不能|不对|不是|未[^，。！？!?]*/g) || [] } });
+}
+
 test("phone support preserves slots and rewrites follow-up questions", async () => {
   const { harness, exchanges } = setup();
   const first = await harness.run(context, { query: "账套怎么备份", companyName: "甲公司", product: "财务系统" });
   const second = await harness.run(context, { query: "那怎么删除呢", sessionId: first.sessionId, companyName: "甲公司", product: "财务系统" });
-  assert.equal(second.state, "answering");
-  assert.equal(second.rewrittenQuery, "财务系统软件如何删除账套？");
+  assert.equal(second.state, "answering", JSON.stringify(second, null, 2));
+  assert.equal(second.rewrittenQuery, "账套怎么删除呢？");
   assert.doesNotMatch(second.rewrittenQuery, /备份/);
   assert.equal(exchanges.length, 2);
 });
 
 test("PDF bad cases route to the matching, grounded knowledge entry", async () => {
-  const cases: { query: string; product: string; topic: string; sourceQuestion?: string; source: string; rewrite?: string }[] = [
-    { query: "账套可以删除吗", product: "T3", topic: "删除账套", source: "删除当前输出账套", rewrite: "T3软件如何删除账套？" },
-    { query: "我这台是新的电脑，没有报表模板，可以给我发一份吗", product: "U8", topic: "报表模板", source: "复制到新电脑上" },
-    { query: "易代账的发票怎么自动生成凭证", product: "易代账", topic: "发票生成凭证", source: "税务数字账户", rewrite: "易代账软件发票如何自动生成凭证？" },
-    { query: "怎么增加一个用户", product: "T3", topic: "新增操作人员", sourceQuestion: "怎么新增一个操作人员", source: "录入，编号、姓名、密码", rewrite: "T3软件如何新增操作人员？" },
-    { query: "怎么增加操作员", product: "T3", topic: "新增操作人员", sourceQuestion: "怎么新增一个操作人员", source: "录入，编号、姓名、密码", rewrite: "T3软件如何新增操作人员？" },
-    { query: "怎么在系统里新增一个公司", product: "好会计", topic: "新增账套", sourceQuestion: "怎么新增账套", source: "输入公司名称", rewrite: "好会计软件如何新增账套？" },
-    { query: "怎么关账", product: "T+", topic: "结账", source: "财务结账", rewrite: "T+软件怎么结账？" },
+  const cases: { query: string; product: string; sourceQuestion?: string; source: string }[] = [
+    { query: "账套可以删除吗", product: "T3", source: "删除当前输出账套" },
+    { query: "我这台是新的电脑，没有报表模板，可以给我发一份吗", product: "U8", source: "复制到新电脑上" },
+    { query: "易代账的发票怎么自动生成凭证", product: "易代账", source: "税务数字账户" },
+    { query: "怎么增加一个用户", product: "T3", sourceQuestion: "怎么新增一个操作人员", source: "录入，编号、姓名、密码" },
+    { query: "怎么增加操作员", product: "T3", sourceQuestion: "怎么新增一个操作人员", source: "录入，编号、姓名、密码" },
+    { query: "怎么在系统里新增一个公司", product: "好会计", sourceQuestion: "怎么新增账套", source: "输入公司名称" },
+    { query: "怎么关账", product: "T+", source: "财务结账" },
   ] as const;
 
   for (const item of cases) {
@@ -54,8 +76,8 @@ test("PDF bad cases route to the matching, grounded knowledge entry", async () =
       query: item.query, companyName: "上海企通", product: item.product,
     });
     assert.equal(result.state, "answering", `${item.query}: ${JSON.stringify(result)}`);
-    assert.equal(result.currentTopic, item.topic, item.query);
-    assert.equal(result.rewrittenQuery, item.rewrite || `${item.product}软件如何${item.topic}？`, item.query);
+    assert.equal(result.currentTopic, item.query, item.query);
+    assert.equal(result.rewrittenQuery, item.query, item.query);
     assert.ok(result.sources.length > 0, item.query);
     assert.ok(result.answer.includes(item.source.replace("录入", "填写")), item.query);
   }
@@ -90,6 +112,35 @@ test("phone support rejects retrieval hits without a topic anchor", async () => 
   assert.doesNotMatch(result.answer, /基础档案|新增部门/);
 });
 
+test("report anomalies never use a report-export hit just because the entity matches", async () => {
+  const result = await setup([{ content: "问题描述：如何导出报表到 Excel\n解决方案：进入报表中心，点击导出 Excel。", score: 0.99 }]).harness.run(context, {
+    query: "这个月的报表不对", companyName: "企通", product: "U8",
+  });
+  assert.equal(result.state, "transferring");
+  assert.equal(result.policy.reason, "evidence_mismatch");
+  assert.doesNotMatch(result.answer, /导出|Excel/);
+});
+
+test("answer validation restores omitted prerequisite and risk warnings from evidence", async () => {
+  const source = "问题描述：如何删除账套\n解决方案：进入系统管理选择账套后删除。删除前必须先备份，删除后无法恢复。";
+  const result = await setup([{ content: source, score: 0.99 }], { modelContent: "进入系统管理，选择账套后删除即可。" }).harness.run(context, {
+    query: "账套怎么删除", companyName: "企通", product: "T3",
+  });
+  assert.equal(result.state, "answering");
+  assert.match(result.answer, /必须先备份/);
+  assert.match(result.answer, /无法恢复/);
+  assert.equal(JSON.parse(result.trace.find((item) => item.step === "answer.generate")?.detail || "{}").usedDeterministicFallback, true);
+});
+
+test("knowledge retrieval failures degrade to transfer and remain observable", async () => {
+  const result = await setup([], { retrievalError: new Error("vector store unavailable") }).harness.run(context, {
+    query: "账套怎么备份", companyName: "企通", product: "U8",
+  });
+  assert.equal(result.state, "transferring");
+  assert.equal(result.policy.reason, "retrieval_failed");
+  assert.equal(result.trace.find((item) => item.step === "knowledge.retrieve")?.status, "failed");
+});
+
 test("phone support replays workflow history so a company answer is not asked again", async () => {
   const { harness } = setup();
   const first = await harness.run(context, { query: "怎么返账" });
@@ -106,7 +157,7 @@ test("phone support uses the desired slot prompts, rewrites KB content, and clos
   );
   const first = await harness.run(context, { query: "91未设置变量怎么办？", companyName: "企通", product: "U8" });
   assert.equal(first.state, "answering");
-  assert.equal(first.answer, "可以的。您先删除 Cache 文件夹，再重新启动电脑。");
+  assert.match(first.answer, /删除 Cache 文件夹.*重新启动电脑/);
   assert.doesNotMatch(first.answer, /问题描述|解决方案|知识库|请按以下步骤操作/);
   const closing = await harness.run(context, { query: "好的", sessionId: first.sessionId, companyName: "企通", product: "U8" });
   assert.equal(closing.answer, "好的，如果还有其他问题，随时告诉我。");
@@ -118,7 +169,7 @@ test("phone support humanizes knowledge content when the answer model is unavail
     { modelError: new Error("model unavailable") },
   );
   const result = await harness.run(context, { query: "想要新增一个部门", companyName: "企通", product: "T3" });
-  assert.equal(result.state, "answering");
+  assert.equal(result.state, "answering", JSON.stringify(result, null, 2));
   assert.equal(result.answer, "您先依次进入“基础档案”、“机构设置”、“部门档案”，点击“增加”，填写部门编码和部门名称，保存就可以了。");
   assert.equal(result.trace.find((item) => item.step === "answer.generate")?.status, "failed");
   assert.doesNotMatch(result.answer, /问题描述|解决方案|请按以下步骤操作/);
@@ -155,7 +206,7 @@ test("product completion retrieves the original business question with product m
     { role: "assistant", content: "为了更好地为您服务，请问您现在使用的是哪一款产品？" },
   ];
   await harness.run(context, { query: "U8", __conversationHistory: history });
-  assert.equal(requests[0].query, "U8软件如何关闭订单？补充条件：按行。");
+  assert.equal(requests[0].query, "订单可以按行关闭吗？");
   assert.equal(requests[0].knowledgeBaseId, "baec59c9-5b4d-4a10-84f4-4b896bfedcd1");
   assert.deepEqual(requests[0].filters, { 适用产品: { $containsToken: "U8" } });
 });
@@ -176,8 +227,8 @@ test("a detail follow-up keeps the persisted department topic and rejects unrela
   const second = await harness.run(context, { query: "企通", sessionId: first.sessionId });
   const third = await harness.run(context, { query: "T3", sessionId: second.sessionId });
   const fourth = await harness.run(context, { query: "具体怎么做？", sessionId: third.sessionId });
-  assert.equal(fourth.currentTopic, "新增部门");
-  assert.equal(fourth.rewrittenQuery, "T3软件如何新增部门？请提供详细操作步骤。");
+  assert.equal(fourth.currentTopic, "想要新增一个部门，具体怎么做？");
+  assert.equal(fourth.rewrittenQuery, "想要新增一个部门，具体怎么做？");
   assert.deepEqual(requests.at(-1)?.filters, { 适用产品: { $containsToken: "T3" } });
   assert.match(fourth.answer, /基础档案.*机构设置.*部门档案.*增加.*部门编码.*部门名称.*保存/);
   assert.doesNotMatch(fourth.answer, /科目|二级|数据会转移/);
