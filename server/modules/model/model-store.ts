@@ -276,7 +276,7 @@ function routeFromRow(row: RouteRow): ModelRoute {
     timeout: Number(row.timeout), maxRetries: Number(row.max_retries), updatedAt: String(row.updated_at) };
 }
 function defaultRoute(task: ModelTask): ModelRoute {
-  return { task, primaryModelId: null, fallbackModelId: null, temperature: 0, timeout: 60_000, maxRetries: 2, updatedAt: "" };
+  return { task, primaryModelId: null, fallbackModelId: null, temperature: 0, timeout: 1_000, maxRetries: 2, updatedAt: "" };
 }
 function validateRoute(route: ModelRoute): ModelRoute {
   return { ...route, primaryModelId: route.primaryModelId || null, fallbackModelId: route.fallbackModelId || null,

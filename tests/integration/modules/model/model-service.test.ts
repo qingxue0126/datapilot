@@ -26,6 +26,97 @@ test("model service retries primary then uses task fallback", async () => {
   assert.deepEqual(calls, ["primary", "primary", "fallback"]);
 });
 
+test("answer failover switches immediately on 402 without retrying the primary", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 21));
+  const primary = store.create(context, config("deepseek-v4-flash"));
+  const fallback = store.create(context, config("qwen3.8-flash"));
+  store.saveRoute(context, "answer", { primaryModelId: primary.id, fallbackModelId: fallback.id, maxRetries: 3, timeout: 5_000 });
+  const calls: string[] = []; const attempts: { modelId: string; statusCode?: number; status: string }[] = [];
+  const provider: ModelProvider = {
+    async chat(model) {
+      calls.push(model.modelId);
+      if (model.id === primary.id) throw new Error("模型请求失败（402）：Insufficient Balance");
+      return { content: "备用模型回答", latencyMs: 9 };
+    },
+    async testConnection() { return { content: "OK", latencyMs: 1 }; },
+  };
+  const service = new ModelService(store, new ModelRouter(store), { get: () => provider } as unknown as ModelProviderRegistry);
+  const result = await service.text([{ role: "user", content: "test" }], {
+    context, task: "answer", onToken: () => undefined,
+    failover: { totalTimeoutMs: 2_000, noRetryStatusCodes: [402], onAttempt: (item) => attempts.push(item) },
+  });
+  assert.equal(result, "备用模型回答");
+  assert.deepEqual(calls, ["deepseek-v4-flash", "qwen3.8-flash"]);
+  assert.deepEqual(attempts.map(({ modelId, statusCode, status }) => ({ modelId, statusCode, status })), [
+    { modelId: "deepseek-v4-flash", statusCode: 402, status: "failed" },
+    { modelId: "qwen3.8-flash", statusCode: undefined, status: "succeeded" },
+  ]);
+});
+
+test("answer failover records both 402 failures", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 22));
+  const primary = store.create(context, config("deepseek-v4-flash"));
+  const fallback = store.create(context, config("qwen3.8-flash"));
+  store.saveRoute(context, "answer", { primaryModelId: primary.id, fallbackModelId: fallback.id, maxRetries: 2 });
+  const calls: string[] = []; const statusCodes: (number | undefined)[] = [];
+  const provider: ModelProvider = {
+    async chat(model) { calls.push(model.modelId); throw new Error("模型请求失败（402）：Insufficient Balance"); },
+    async testConnection() { return { content: "OK", latencyMs: 1 }; },
+  };
+  const service = new ModelService(store, new ModelRouter(store), { get: () => provider } as unknown as ModelProviderRegistry);
+  await assert.rejects(service.text([{ role: "user", content: "test" }], {
+    context, task: "answer", onToken: () => undefined,
+    failover: { totalTimeoutMs: 2_000, noRetryStatusCodes: [402], onAttempt: (item) => statusCodes.push(item.statusCode) },
+  }), /402/);
+  assert.deepEqual(calls, ["deepseek-v4-flash", "qwen3.8-flash"]);
+  assert.deepEqual(statusCodes, [402, 402]);
+});
+
+test("answer failover reserves total-time budget for fallback after a primary timeout", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 23));
+  const primary = store.create(context, config("deepseek-v4-flash"));
+  const fallback = store.create(context, config("qwen3.8-flash"));
+  store.saveRoute(context, "answer", { primaryModelId: primary.id, fallbackModelId: fallback.id, maxRetries: 0, timeout: 5_000 });
+  const calls: { model: string; timeout: number }[] = [];
+  const provider: ModelProvider = {
+    async chat(model, request) {
+      calls.push({ model: model.modelId, timeout: request.timeout });
+      if (model.id === primary.id) throw new Error(`模型请求超时（${request.timeout}ms）`);
+      return { content: "备用模型回答", latencyMs: 8 };
+    },
+    async testConnection() { return { content: "OK", latencyMs: 1 }; },
+  };
+  const service = new ModelService(store, new ModelRouter(store), { get: () => provider } as unknown as ModelProviderRegistry);
+  assert.equal(await service.text([{ role: "user", content: "test" }], {
+    context, task: "answer", onToken: () => undefined, failover: { totalTimeoutMs: 120, noRetryStatusCodes: [402] },
+  }), "备用模型回答");
+  assert.deepEqual(calls.map((item) => item.model), ["deepseek-v4-flash", "qwen3.8-flash"]);
+  assert.ok(calls[0].timeout <= 60, JSON.stringify(calls));
+  assert.ok(calls[1].timeout <= 120, JSON.stringify(calls));
+});
+
+test("answer failover applies the configured timeout to each model request", async () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 24));
+  const primary = store.create(context, config("deepseek-v4-flash"));
+  const fallback = store.create(context, config("qwen3.8-flash"));
+  store.saveRoute(context, "answer", { primaryModelId: primary.id, fallbackModelId: fallback.id, maxRetries: 0, timeout: 5_000 });
+  const timeouts: number[] = [];
+  const provider: ModelProvider = {
+    async chat(model, request) {
+      timeouts.push(request.timeout);
+      if (model.id === primary.id) throw new Error(`模型请求超时（${request.timeout}ms）`);
+      return { content: "备用模型回答", latencyMs: 8 };
+    },
+    async testConnection() { return { content: "OK", latencyMs: 1 }; },
+  };
+  const service = new ModelService(store, new ModelRouter(store), { get: () => provider } as unknown as ModelProviderRegistry);
+  assert.equal(await service.text([{ role: "user", content: "test" }], {
+    context, task: "answer", onToken: () => undefined,
+    failover: { totalTimeoutMs: 12_000, attemptTimeoutMs: 1_500, noRetryStatusCodes: [402] },
+  }), "备用模型回答");
+  assert.deepEqual(timeouts, [1_500, 1_500]);
+});
+
 test("streaming model service never retries after emitting a token", async () => {
   const store = new ModelStore(":memory:", Buffer.alloc(32, 20));
   const primary = store.create(context, config("primary-stream"));

@@ -32,7 +32,7 @@ test.describe.serial("phone full dialogue management E2E", () => {
     expect(JSON.stringify(last.phone.sources)).toContain("部门");
     expect(last.phone.trace.map((item) => item.step)).toEqual(expect.arrayContaining(["dialogue.understand", "dialogue.state", "dialogue.rewrite", "dialogue.policy", "knowledge.retrieve", "answer"]));
     expect(last.sse).toContain("event: done");
-    expect((last.sse.match(/event: delta/g) || []).length).toBeLessThanOrEqual(1);
+    expect((last.sse.match(/event: delta/g) || []).length).toBeGreaterThan(0);
     const detail = await getSession(page, last.sessionId);
     expect(detail.messages.filter((item) => item.role === "assistant")).toHaveLength(4);
     await artifact(testInfo, page, "FULL-01", "A→A / unseen natural language / RAG / SSE", turns, detail);

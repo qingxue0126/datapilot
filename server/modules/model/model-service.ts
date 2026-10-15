@@ -7,9 +7,24 @@ import type { ModelStore } from "./model-store.js";
 import { isChatCapableModel, isRerankModel, isTextEmbeddingModel } from "./model-types.js";
 
 export type StructuredOptions = { context: RequestContext; task: ModelTask; preferredModelId?: string };
+export type ModelAttemptDiagnostic = {
+  role: "primary" | "fallback";
+  modelId: string;
+  attempt: number;
+  status: "succeeded" | "failed";
+  statusCode?: number;
+  durationMs: number;
+  error?: string;
+};
+export type TextFailoverOptions = {
+  totalTimeoutMs?: number;
+  attemptTimeoutMs?: number;
+  noRetryStatusCodes?: number[];
+  onAttempt?: (diagnostic: ModelAttemptDiagnostic) => void;
+};
 export interface StructuredModelClient { structured<T>(messages: ChatMessage[], options: StructuredOptions): Promise<T>; }
 export interface StreamingModelClient extends StructuredModelClient {
-  text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal; onUsage?: (usage: ModelTokenUsage | undefined, latencyMs: number, modelId: string) => void }): Promise<string>;
+  text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal; onUsage?: (usage: ModelTokenUsage | undefined, latencyMs: number, modelId: string) => void; failover?: TextFailoverOptions }): Promise<string>;
 }
 
 export class ModelService implements StructuredModelClient {
@@ -81,25 +96,47 @@ export class ModelService implements StructuredModelClient {
     });
   }
 
-  async text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal; temperature?: number; maxTokens?: number; disableThinking?: boolean; onUsage?: (usage: ModelTokenUsage | undefined, latencyMs: number, modelId: string) => void }) {
+  async text(messages: ChatMessage[], options: StructuredOptions & { onToken: (token: string) => void; signal?: AbortSignal; temperature?: number; maxTokens?: number; disableThinking?: boolean; onUsage?: (usage: ModelTokenUsage | undefined, latencyMs: number, modelId: string) => void; failover?: TextFailoverOptions }) {
     const resolved = this.router.getModel(options.context, options.task, options.preferredModelId);
     const candidates = [resolved.primary, resolved.fallback].filter(Boolean) as RuntimeModelConfig[];
+    const startedAt = Date.now();
+    const deadline = options.failover?.totalTimeoutMs ? startedAt + options.failover.totalTimeoutMs : undefined;
+    const noRetryStatusCodes = new Set(options.failover?.noRetryStatusCodes || []);
     let lastError: unknown;
     let emitted = false;
     const onToken = (token: string) => { emitted = true; options.onToken(token); };
-    for (const model of candidates) {
+    for (let modelIndex = 0; modelIndex < candidates.length; modelIndex += 1) {
+      const model = candidates[modelIndex];
       const attempts = Math.max(1, resolved.route.maxRetries + 1);
       for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const attemptStarted = Date.now();
         try {
+          const remainingMs = deadline === undefined ? resolved.route.timeout : deadline - attemptStarted;
+          if (remainingMs <= 0) throw new Error(`模型调用总耗时超限（${options.failover?.totalTimeoutMs}ms）`);
+          const remainingAttemptSlots = (candidates.length - modelIndex - 1) * attempts + (attempts - attempt);
+          const budgetedAttemptTimeoutMs = deadline === undefined ? resolved.route.timeout : Math.max(1, Math.floor(remainingMs / remainingAttemptSlots));
+          const configuredAttemptTimeoutMs = options.failover?.attemptTimeoutMs;
+          const attemptTimeoutMs = configuredAttemptTimeoutMs === undefined
+            ? budgetedAttemptTimeoutMs
+            : Math.max(1, Math.min(configuredAttemptTimeoutMs, budgetedAttemptTimeoutMs));
           const result = await this.providers.get(model.provider).chat(model, { messages, temperature: options.temperature ?? resolved.route.temperature,
-            timeout: resolved.route.timeout, maxTokens: Math.min(options.maxTokens ?? 4000, model.contextWindow), onToken, signal: options.signal, disableThinking: options.disableThinking });
+            timeout: Math.min(resolved.route.timeout, attemptTimeoutMs), maxTokens: Math.min(options.maxTokens ?? 4000, model.contextWindow), onToken, signal: options.signal, disableThinking: options.disableThinking });
+          options.failover?.onAttempt?.({ role: modelIndex === 0 ? "primary" : "fallback", modelId: model.modelId, attempt: attempt + 1, status: "succeeded", durationMs: Date.now() - attemptStarted });
           options.onUsage?.(result.usage, result.latencyMs, model.modelId);
           return result.content;
         } catch (error) {
           lastError = error;
+          const statusCode = modelErrorStatus(error);
+          options.failover?.onAttempt?.({
+            role: modelIndex === 0 ? "primary" : "fallback", modelId: model.modelId, attempt: attempt + 1,
+            status: "failed", statusCode, durationMs: Date.now() - attemptStarted, error: safeMessage(error),
+          });
           if (emitted || options.signal?.aborted) throw error;
+          if (statusCode !== undefined && noRetryStatusCodes.has(statusCode)) break;
+          if (deadline !== undefined && Date.now() >= deadline) break;
         }
       }
+      if (deadline !== undefined && Date.now() >= deadline) break;
     }
     throw lastError instanceof Error ? lastError : new Error("模型调用失败");
   }
@@ -153,3 +190,8 @@ function isEmbeddingBatchLimitError(error: unknown) {
 
 function stripFence(value: string) { return value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""); }
 function safeMessage(error: unknown) { return (error instanceof Error ? error.message : "未知错误").slice(0, 500); }
+function modelErrorStatus(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/(?:HTTP|status|状态码)?\s*[（(:：]?\s*([1-5]\d{2})\s*[）)]?/i);
+  return match ? Number(match[1]) : undefined;
+}

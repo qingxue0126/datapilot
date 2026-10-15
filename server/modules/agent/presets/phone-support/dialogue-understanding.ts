@@ -93,6 +93,36 @@ function structuralReference(utterance: string, topics: PriorTopic[]): DialogueU
   const ordinal = utterance.match(/第([一二三四五六七八九十\d]+)个/);
   if (!ordinal) {
     const current = topics.at(-1);
+    const frame = extractFrame(utterance);
+    const explicitlyReferenced = topics.filter((topic) => {
+      const topicFrame = extractFrame(topic.resolvedQuery || topic.topic);
+      return topicFrame.entities.some((entity) => utterance.includes(entity))
+        && (!frame.action || !topicFrame.action || frame.action === topicFrame.action);
+    });
+    if (explicitlyReferenced.length === 1 && /刚才|前面|之前|提到|说的|第/.test(utterance)) {
+      const selected = explicitlyReferenced[0];
+      return {
+        ...baseResult(inferIntent(utterance), selected === current ? "continue" : "resume", selected.resolvedQuery || selected.topic, 0.99, false, "dependent"),
+        semanticFrame: frame,
+        resolvedReferences: [{ expression: utterance, resolvedTo: selected.topic, sourceTurn: selected.turn }],
+      };
+    }
+    const genericReference = /(?:那个|这个(?!月)|它|刚才|前面|之前)/.test(utterance);
+    if (genericReference && topics.length > 1 && !frame.entities.length) {
+      return { ...baseResult("clarify", "clarify", null, 0.99, true, "ambiguous"), semanticFrame: frame };
+    }
+    if (current && frame.action && !frame.entities.length && /^(?:那|那么|这个|那个|它)?(?:再)?(?:要)?(?:怎么|如何)/.test(utterance.trim())) {
+      const entity = extractFrame(current.resolvedQuery || current.topic).entities[0];
+      if (entity) {
+        const contextualQuestion = utterance.trim().replace(/^(?:那|那么|这个|那个|它)/, "");
+        const resolved = `${entity}${contextualQuestion}${/[？?。！!]$/.test(contextualQuestion) ? "" : "？"}`;
+        return {
+          ...baseResult(inferIntent(utterance), "continue", resolved, 0.99, false, "dependent"),
+          semanticFrame: { ...frame, entities: [entity] },
+          resolvedReferences: [{ expression: utterance, resolvedTo: current.topic, sourceTurn: current.turn }],
+        };
+      }
+    }
     if (!current || !/^(?:下一步)?(?:再)?(?:具体|详细)?(?:怎么做|如何操作|怎么操作|说一下|说说)[呢吗？?。！!]*$/.test(utterance.trim())) return undefined;
     const resolved = `${(current.resolvedQuery || current.topic).replace(/[？?。！!]+$/g, "")}，${utterance}`;
     return { ...baseResult("consult", "continue", resolved, 0.99, false, "dependent"), resolvedReferences: [{ expression: utterance, resolvedTo: current.topic, sourceTurn: current.turn }] };
@@ -110,6 +140,7 @@ function structuralReference(utterance: string, topics: PriorTopic[]): DialogueU
 function deterministicRule(utterance: string, turns: DialogueTurn[], topics: PriorTopic[], waitingFor?: string): DialogueUnderstandingResult | undefined {
   const current = topics.at(-1);
   if (/^(?:再见|拜拜|结束(?:通话)?|就这样|没(?:有)?别的(?:问题)?了)[。！! ]*$/.test(utterance)) return baseResult("end", "end", current?.topic || null, 0.99, false, "none");
+  if (/^(?:不用了|算了)[，,、 ]*(?:谢谢[，,、 ]*)?(?:再见|拜拜)[。！! ]*$/.test(utterance)) return baseResult("end", "end", current?.topic || null, 0.99, false, "none");
   if (/转(?:接)?人工|人工客服|找人工|真人客服/.test(utterance)) return baseResult("transfer", "end", current?.topic || null, 0.99, false, "none");
   if (/^(?:你好|您好|早上好|下午好|晚上好|谢谢|感谢|辛苦了)[。！! ]*$/.test(utterance)) return baseResult("chitchat", "chitchat", null, 0.99, false, "none");
 
@@ -261,9 +292,9 @@ function safeFallback(utterance: string, turns: DialogueTurn[], topics: PriorTop
   const frame = extractFrame(utterance);
   const reference = /(?:那个|这个(?!月)|它|刚才|上一个|前面|那(?:怎么|如何)|这(?:怎么|如何))/.test(utterance);
   const ellipsis = /^(?:那|然后|接着|这个|那个)?(?:再)?(?:怎么|如何|具体|下一步|还有|能否|可以).{0,12}[？?。！!]*$/.test(utterance) && !frame.entities.length && !frame.action;
-  if (reference || ellipsis) return { ...baseResult(inferIntent(utterance), "clarify", null, 0.2, true, "ambiguous"), semanticFrame: frame };
+  if (reference || ellipsis) return { ...baseResult("clarify", "clarify", null, 0.2, true, "ambiguous"), semanticFrame: frame };
   if (isSelfContainedBusiness(utterance, frame)) return { ...baseResult(inferIntent(utterance), turns.length && current ? "switch" : "start", utterance, 0.62, false, "independent"), semanticFrame: frame };
-  return { ...baseResult(inferIntent(utterance), "clarify", null, 0.2, true, "ambiguous"), semanticFrame: frame };
+  return { ...baseResult("clarify", "clarify", null, 0.2, true, "ambiguous"), semanticFrame: frame };
 }
 
 function baseResult(intent: DialogueIntent, topicAction: TopicAction, targetTopic: string | null, confidence: number, needsClarification: boolean, contextDependency: ContextDependency): DialogueUnderstandingResult {

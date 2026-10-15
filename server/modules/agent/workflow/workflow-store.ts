@@ -347,7 +347,7 @@ export class WorkflowStore {
     this.database.prepare("INSERT INTO workflows (id,agent_id,definition_json,version,created_at,updated_at) VALUES (?,?,?,?,?,?)")
       .run(randomUUID(), PHONE_SUPPORT_AGENT_ID, JSON.stringify(phoneInitialWorkflow()), 1, now, now);
     this.database.prepare("INSERT INTO preset_agent_configs (agent_id,tenant_id,config_json,updated_at) VALUES (?,?,?,?)")
-      .run(PHONE_SUPPORT_AGENT_ID, context.tenantId, JSON.stringify({ knowledgeBaseId: PHONE_SUPPORT_KNOWLEDGE_BASE_ID, productMetadataField: "适用产品", transferMessage: "当前问题暂未在知识库中找到可靠答案，我为您转接人工客服。", scoreThreshold: 0.2, topK: 3 }), now);
+      .run(PHONE_SUPPORT_AGENT_ID, context.tenantId, JSON.stringify({ knowledgeBaseId: PHONE_SUPPORT_KNOWLEDGE_BASE_ID, productMetadataField: "适用产品", transferMessage: "当前问题暂未在知识库中找到可靠答案，我为您转接人工客服。", scoreThreshold: 0.2, topK: 3, answerGenerationTimeoutMs: 12_000 }), now);
   }
 
   private assertNotPreset(id: string) { if (this.isPreset(id)) throw new WorkflowStoreError("预置智能体不可编辑、删除或修改工作流", 403); }

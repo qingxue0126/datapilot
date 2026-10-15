@@ -12,7 +12,7 @@ export type DialoguePolicyDecision = {
 
 export class DialoguePolicy {
   decide(understanding: DialogueUnderstandingResult, state: DialogueState, rewrite: QueryRewriteResult, transition: StateTransition): DialoguePolicyDecision {
-    if (understanding.intent === "transfer") return { action: "transfer", reason: "explicit_transfer", answer: "好的，我现在为您转接人工客服。" };
+    if (understanding.intent === "transfer") return { action: "transfer", reason: "explicit_transfer", answer: "好的，我已为您请求转接人工客服，请稍候等待坐席接入。" };
     if (understanding.intent === "end" || understanding.topicAction === "end") return { action: "end", reason: "explicit_end", answer: "好的，如果还有其他问题，随时告诉我。" };
     if (understanding.intent === "chitchat" || understanding.topicAction === "chitchat") return { action: "respond", reason: "chitchat", answer: "请问有什么企业软件问题可以帮您？" };
     const slotCompletion = Boolean(transition.completedSlot);

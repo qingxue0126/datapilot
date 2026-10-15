@@ -2,7 +2,7 @@ import type { RequestContext } from "../../../../shared/types/context.js";
 import type { SessionStore } from "../../../conversation/index.js";
 import { ContextManager } from "../../../conversation/index.js";
 import type { KnowledgeRetrievalService } from "../../../knowledge/index.js";
-import type { ModelService } from "../../../model/index.js";
+import type { ModelAttemptDiagnostic, ModelService } from "../../../model/index.js";
 import type { WorkflowStore } from "../../workflow/workflow-store.js";
 import { DialogueUnderstanding, type DialogueUnderstandingResult } from "./dialogue-understanding.js";
 import { DialoguePolicy, type DialoguePolicyDecision } from "./dialogue-policy.js";
@@ -15,6 +15,7 @@ export type PhoneSupportConfig = {
   scoreThreshold?: number;
   topK?: number;
   transferMessage?: string;
+  answerGenerationTimeoutMs?: number;
 };
 
 export type PhoneSupportResult = {
@@ -109,13 +110,13 @@ export class PhoneSupportHarness {
     if (policy.action !== "retrieve") {
       const answer = policy.answer || "请补充具体问题。";
       trace.push({ step: "answer", status: "succeeded", durationMs: 0, detail: `policy=${policy.action}; no_retrieval` });
-      return this.persist(context, sessionId, query, answer, tracked.state, policy.action === "transfer" ? "transferring" : "collecting", rewrittenQuery, [], understanding.result, policy, trace, execution.runId);
+      return this.persist(context, sessionId, query, answer, tracked.state, policy.action === "transfer" ? "transferring" : "collecting", rewrittenQuery, [], understanding.result, policy, trace, execution.runId, onToken);
     }
     if (!config.knowledgeBaseId) {
-      const answer = config.transferMessage || "当前客服知识库尚未配置，我为您转接人工客服。";
+      const answer = pendingTransferMessage(config.transferMessage, "当前客服知识库尚未配置，我已为您请求转接人工客服，请稍候等待坐席接入。");
       const transferPolicy = { action: "transfer", reason: "knowledge_base_not_configured", answer } as const;
       trace.push({ step: "answer", status: "succeeded", durationMs: 0, detail: transferPolicy.reason });
-      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, transferPolicy, trace, execution.runId);
+      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, transferPolicy, trace, execution.runId, onToken);
     }
 
     const retrievalStarted = Date.now();
@@ -130,23 +131,21 @@ export class PhoneSupportHarness {
         topK: Math.max(config.topK ?? 5, 10),
         scoreThreshold: config.scoreThreshold ?? 0.25,
         retrievalMode: "hybrid",
-        // The vector candidate set can place a related reverse-operation ahead
-        // of the exact hotline question (for example, “取消结账” before
-        // “怎么结账”).  The knowledge base's local keyword reranker keeps the
-        // final evidence aligned with the rewritten, product-specific question.
-        rerank: true,
+        // This override is local to the phone preset. Other knowledge bases and
+        // ordinary agents keep their own retrieval configuration unchanged.
+        rerank: false,
         filters: field ? { [field]: { $containsToken: slots.product! } } : {},
         access: { mode: "agent", allowedKnowledgeBaseIds: [config.knowledgeBaseId] },
       }), 20_000, signal);
       trace.push({ step: "knowledge.retrieve", status: "succeeded", durationMs: Date.now() - retrievalStarted, detail: JSON.stringify({ query: rewrittenQuery, hits: retrieval.items.length }) });
     } catch (error) {
       trace.push({ step: "knowledge.retrieve", status: "failed", durationMs: Date.now() - retrievalStarted, detail: safeError(error) });
-      const answer = config.transferMessage || "知识库暂时不可用，我为您转接人工客服。";
-      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "retrieval_failed", answer }, trace, execution.runId);
+      const answer = pendingTransferMessage(config.transferMessage, "知识库暂时不可用，我已为您请求转接人工客服，请稍候等待坐席接入。");
+      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "retrieval_failed", answer }, trace, execution.runId, onToken);
     }
     if (!retrieval.items.length) {
-      const answer = config.transferMessage || "这个问题我暂时无法从知识库确认答案，我为您转接人工客服。";
-      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "no_retrieval_hits", answer }, trace, execution.runId);
+      const answer = pendingTransferMessage(config.transferMessage, "这个问题我暂时无法从知识库确认答案，我已为您请求转接人工客服，请稍候等待坐席接入。");
+      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "no_retrieval_hits", answer }, trace, execution.runId, onToken);
     }
 
     const validationStarted = Date.now();
@@ -159,68 +158,75 @@ export class PhoneSupportHarness {
     const evidence = selected?.item;
     if (!evidence) {
       trace.push({ step: "knowledge.validate", status: "failed", durationMs: Date.now() - validationStarted, detail: JSON.stringify({ requirements, candidates: evidenceCandidates.slice(0, 5).map((item) => ({ chunkId: item.item.chunkId, ...item.validation })) }) });
-      const answer = config.transferMessage || "这个问题我暂时无法从知识库确认答案，我为您转接人工客服。";
-      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "evidence_mismatch", answer }, trace, execution.runId);
+      const answer = pendingTransferMessage(config.transferMessage, "这个问题我暂时无法从知识库确认答案，我已为您请求转接人工客服，请稍候等待坐席接入。");
+      return this.persist(context, sessionId, query, answer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "evidence_mismatch", answer }, trace, execution.runId, onToken);
     }
     trace.push({ step: "knowledge.validate", status: "succeeded", durationMs: Date.now() - validationStarted, detail: JSON.stringify({ evidence: evidence.chunkId, requirements, validation: selected?.validation }) });
 
     const answerStarted = Date.now();
-    const fallbackAnswer = humanizeKnowledgeAnswer(evidence.content, rewrittenQuery);
+    const fallbackAnswer = knowledgeOriginalFallback(evidence.content);
     let answer = fallbackAnswer;
     let answerUsage: { promptTokens?: number; completionTokens?: number; totalTokens?: number } | undefined;
     let answerModel = "";
     let answerModelLatencyMs = 0;
-    const modelContext = this.deps.workflows.executionContext(context, "builtin.phone-support", "llm");
+    const modelAttempts: ModelAttemptDiagnostic[] = [];
+    let usedCodeFallback = false;
     const modelMessages = [
       { role: "system" as const, content: [
-        "你是企业软件电话热线客服，正在和客户通话。请把唯一依据改写成专业、简洁、自然的口语，不能原样朗读。",
-        "只能改变措辞和语序。回答中的结论、菜单、步骤、条件、限制必须全部来自唯一依据，严禁推测、补充常识、扩展步骤或合并其他问题的答案。",
-        "先直接回答，再用一到两句话说明操作。菜单路径要改成“进入……，找到……”的说法；不要使用书面报告或说明书语气。",
+        "你是企业软件电话热线客服，正在和客户通话。请在准确回答客户问题的前提下，把唯一依据中的解决方案整理成专业、简洁、自然的口语。",
+        "最大程度保留解决方案原文。默认保留其中全部内容及原有顺序，不要概括、压缩、合并或随意删除；原文已经清楚自然时可以直接沿用，只做必要的口语化衔接和语序调整。",
+        "回答中的结论、菜单路径、操作步骤、前置条件、适用条件、限制、例外、警告和风险提示必须完整保留且只能来自唯一依据，严禁推测、补充常识、扩展步骤或合并其他问题的答案。",
+        "只有问题描述、标题、模板引导语、与客户当前问题明确无关的内容和完全重复的句子可以删除。若简洁与信息完整发生冲突，优先保证信息完整。",
+        "直接回答客户问题。菜单路径可以用“进入……，找到……”的口语说法；不要使用书面报告或说明书语气。",
         "本次通话的开场白已完成首次问候。当前及后续回复都不要使用“您好”“你好”或其他寒暄作为开头，也不要在客户公司名称后补寒暄。",
         "禁止说“问题描述”“解决方案”“知识库”“检索结果”“根据资料”“请按以下步骤操作”。",
         "不得补充资料中没有的信息。资料不足时只回答：这个问题我暂时无法确认，我为您转接人工客服。",
-        "证据里的每个必要步骤、前置条件、限制、警告和风险提示都必须保留，不能为了简短而省略。",
+        "不能因为内容较长、追求简短或认为某一步显而易见而省略原文内容。",
         "只输出本次通话中客服要说的话，不要输出标题、列表或分析过程。",
       ].join("\n") },
       { role: "user" as const, content: `客户公司：${slots.company_name}\n使用产品：${slots.product}\n客户问题：${rewrittenQuery}\n唯一依据：\n${evidence.content}` },
     ];
-    const generateAnswer = () => withTimeout(this.deps.models.text(modelMessages, {
-      context: modelContext,
-      task: "answer",
-      temperature: 0,
-      maxTokens: 420,
-      disableThinking: true,
-      signal,
-      onToken: () => undefined,
-      onUsage: (usage, latencyMs, modelId) => { answerUsage = usage; answerModelLatencyMs = latencyMs; answerModel = modelId; },
-    }), 20_000, signal);
+    const generateAnswer = () => {
+      const modelContext = this.deps.workflows.executionContext(context, "builtin.phone-support", "llm");
+      return withTimeout(this.deps.models.text(modelMessages, {
+        context: modelContext,
+        task: "answer",
+        temperature: 0,
+        maxTokens: 1200,
+        disableThinking: true,
+        signal,
+        onToken: () => undefined,
+        onUsage: (usage, latencyMs, modelId) => { answerUsage = usage; answerModelLatencyMs = latencyMs; answerModel = modelId; },
+        failover: {
+          totalTimeoutMs: boundedAnswerTimeout(config.answerGenerationTimeoutMs),
+          attemptTimeoutMs: 1_500,
+          noRetryStatusCodes: [402],
+          onAttempt: (diagnostic) => modelAttempts.push(diagnostic),
+        },
+      }), boundedAnswerTimeout(config.answerGenerationTimeoutMs) + 100, signal);
+    };
     try {
       const content = await generateAnswer();
       const generated = cleanGeneratedAnswer(content);
-      const validation = validateAnswer(generated, evidence.content, requirements);
-      answer = validation.valid ? generated : fallbackAnswer;
-      trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: JSON.stringify({ route: "answer", model: answerModel || "managed", modelLatencyMs: answerModelLatencyMs, usage: answerUsage, evidence: evidence.chunkId, validation, usedDeterministicFallback: !validation.valid }) });
+      usedCodeFallback = !generated;
+      answer = generated || fallbackAnswer;
+      trace.push({ step: "answer.generate", status: "succeeded", durationMs: Date.now() - answerStarted, detail: JSON.stringify({ route: "answer", model: answerModel || modelAttempts.find((item) => item.status === "succeeded")?.modelId || "managed", modelLatencyMs: answerModelLatencyMs, usage: answerUsage, attempts: modelAttempts, evidence: evidence.chunkId, answerValidation: "disabled", usedDeterministicFallback: usedCodeFallback, degradationReason: usedCodeFallback ? "empty_model_answer" : undefined }) });
     } catch (error) {
-      trace.push({ step: "answer.generate", status: "failed", durationMs: Date.now() - answerStarted, detail: safeError(error) });
+      usedCodeFallback = true;
+      const degradationReason = answerDegradationReason(modelAttempts, error);
+      trace.push({ step: "answer.generate", status: "failed", durationMs: Date.now() - answerStarted, detail: JSON.stringify({ route: "answer", attempts: modelAttempts, evidence: evidence.chunkId, degradationReason, error: safeError(error), usedDeterministicFallback: true }) });
       answer = fallbackAnswer;
     }
     answer = stripOpeningGreeting(answer, slots.company_name);
-    const finalValidation = validateAnswer(answer, evidence.content, requirements, true);
-    if (!finalValidation.valid) {
-      const transferAnswer = config.transferMessage || "现有资料不足以形成可靠且完整的答复，我为您转接人工客服。";
-      trace.push({ step: "answer.validate", status: "failed", durationMs: 0, detail: JSON.stringify(finalValidation) });
-      return this.persist(context, sessionId, query, transferAnswer, tracked.state, "transferring", rewrittenQuery, [], understanding.result, { action: "transfer", reason: "answer_validation_failed", answer: transferAnswer }, trace, execution.runId);
-    }
-    trace.push({ step: "answer.validate", status: "succeeded", durationMs: 0, detail: JSON.stringify(finalValidation) });
-    onToken?.(answer);
     trace.push({ step: "answer", status: "succeeded", durationMs: Date.now() - answerStarted, detail: `grounded=${evidence.chunkId}` });
-    return this.persist(context, sessionId, query, answer, tracked.state, "answering", rewrittenQuery, [evidence], understanding.result, policy, trace, execution.runId);
+    return this.persist(context, sessionId, query, answer, tracked.state, "answering", rewrittenQuery, [evidence], understanding.result, policy, trace, execution.runId, onToken);
   }
 
-  private persist(context: RequestContext, sessionId: string, question: string, answer: string, dialogueState: DialogueState, state: PhoneSupportResult["state"], rewrittenQuery: string, sources: unknown[], dialogueUnderstanding: DialogueUnderstandingResult, policy: DialoguePolicyDecision, trace: PhoneSupportResult["trace"], runId?: string) {
+  private persist(context: RequestContext, sessionId: string, question: string, answer: string, dialogueState: DialogueState, state: PhoneSupportResult["state"], rewrittenQuery: string, sources: unknown[], dialogueUnderstanding: DialogueUnderstandingResult, policy: DialoguePolicyDecision, trace: PhoneSupportResult["trace"], runId?: string, onToken?: (delta: string) => void) {
     const intent = dialogueUnderstanding.intent;
     const slots = this.stateTracker.toSlots(dialogueState);
     this.deps.sessions.appendExchange(context, sessionId, { question, answer, result: { channel: "agent", agentId: "builtin.phone-support", runId, status: "success", question, answer, phone: { slots, state, currentTopic: dialogueState.currentTopic, rewrittenQuery, intent, dialogueUnderstanding, dialogueState, policy, sources, trace } } });
+    emitValidatedSentences(answer, onToken);
     return { answer, sessionId, state, slots, currentTopic: dialogueState.currentTopic, rewrittenQuery, sources, intent, dialogueUnderstanding, dialogueState, policy, trace };
   }
 
@@ -296,12 +302,16 @@ type EvidenceRequirements = { product?: string; entities: string[]; actions: str
 type EvidenceValidation = { valid: boolean; score: number; checks: Record<string, boolean>; missing: string[] };
 function evidenceRequirements(query: string, state: DialogueState, product?: string): EvidenceRequirements {
   const topic = [...state.topics].reverse().find((item) => item.status === "active") || [...state.topics].reverse().find((item) => item.topic === state.currentTopic);
-  const entityValues = [...(topic?.slots.entities || []), detectKnownEntities(query)].flat().map((item) => normalizeEntity(item)).filter(Boolean) as string[];
-  const actionValues = [normalizeAction(topic?.slots.action), normalizeAction(detectKnownAction(query) || query)].filter(Boolean) as string[];
+  const negations = uniqueText([...(topic?.slots.negations || []), ...extractNegations(query)]);
+  const exclusions = negations.filter((item) => /不是|并非|不要/.test(item));
+  const excludedEntities = uniqueText(exclusions.flatMap((item) => detectKnownEntities(item)).map((item) => normalizeEntity(item)).filter(Boolean) as string[]);
+  const excludedActions = uniqueText(exclusions.map((item) => normalizeAction(detectKnownAction(item))).filter(Boolean) as string[]);
+  const entityValues = [...(topic?.slots.entities || []), detectKnownEntities(query)].flat().map((item) => normalizeEntity(item)).filter((item): item is string => Boolean(item) && !excludedEntities.includes(item!));
+  const correctedAction = correctedPositiveAction(query);
+  const actionValues = [correctedAction, normalizeAction(topic?.slots.action), normalizeAction(detectKnownAction(query) || query)].filter((item): item is string => Boolean(item) && !excludedActions.includes(item!));
   const symptoms = uniqueText([...(topic?.slots.symptoms || []), ...extractSymptoms(query)]);
   const constraints = uniqueText([...(topic?.slots.conditions || []), ...extractCriticalConstraints(query)]);
   const timeExpressions = uniqueText([...(topic?.slots.timeExpressions || []), ...extractTimes(query)]);
-  const negations = uniqueText([...(topic?.slots.negations || []), ...extractNegations(query)]);
   return { product, entities: uniqueText(entityValues), actions: uniqueText(actionValues), symptoms, constraints, timeExpressions, negations };
 }
 function validateEvidence(content: string, metadata: unknown, metadataField: string, requirements: EvidenceRequirements, productFilterApplied: boolean): EvidenceValidation {
@@ -312,7 +322,9 @@ function validateEvidence(content: string, metadata: unknown, metadataField: str
   const symptoms = requirements.symptoms.every((item) => symptomMatches(normalized, item));
   const materialConstraints = requirements.constraints.filter(isMaterialConstraint);
   const constraints = materialConstraints.every((item) => constraintMatches(normalized, item));
-  const checks = { product, entities, actions, symptoms, constraints };
+  const timeExpressions = timeScopeMatches(normalized, requirements.timeExpressions);
+  const negations = requirements.negations.every((item) => negationConsistent(normalizeText(solutionText(content)), item));
+  const checks = { product, entities, actions, symptoms, constraints, timeExpressions, negations };
   const missing = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
   const score = Object.values(checks).filter(Boolean).length + (entities ? requirements.entities.length * 0.1 : 0) + (symptoms ? requirements.symptoms.length * 0.15 : 0);
   return { valid: missing.length === 0 && Boolean(requirements.entities.length || requirements.actions.length || requirements.symptoms.length), score, checks, missing };
@@ -330,6 +342,10 @@ function normalizeEntity(value: string) {
   return ["供应商", "账套", "公司", "凭证", "订单", "发票", "报表", "仓库", "权限"].find((item) => value.includes(item));
 }
 function detectKnownAction(value: string) { return value.match(/新增|新建|创建|添加|增加|删除|移除|作废|修改|更改|编辑|调整|查询|查找|查看|搜索|筛选|备份|恢复|还原|导入|导出|生成|关账|结账|关闭|终止|启用|停用|分配|授权/)?.[0]; }
+function correctedPositiveAction(value: string) {
+  const matches = [...value.matchAll(/(?:而是|改成|更正为|实际是|是)\s*(新增|新建|创建|添加|增加|删除|移除|作废|修改|更改|编辑|调整|查询|查找|查看|搜索|筛选|备份|恢复|还原|导入|导出|生成|关账|结账|关闭|终止|启用|停用|分配|授权)/g)];
+  return normalizeAction(matches.at(-1)?.[1]);
+}
 function normalizeAction(value?: string) {
   if (!value) return undefined;
   if (/新增|新建|创建|添加|增加|建(?:一个|个|立)/.test(value)) return "新增";
@@ -369,57 +385,31 @@ function constraintMatches(content: string, constraint: string) {
   if (/不能|不要|没有/.test(constraint)) return /不能|不要|没有|不支持|未/.test(content);
   const anchors = significantWords(constraint); return anchors.length === 0 || anchors.some((item) => content.includes(item));
 }
+function timeScopeMatches(content: string, required: string[]) {
+  if (!required.length) return true;
+  const evidenceTimes = extractTimes(content);
+  if (!evidenceTimes.length) return true;
+  const groups = (value: string) => /本月|这个月/.test(value) ? "current_month" : /上个月/.test(value) ? "previous_month" : /本年|今年/.test(value) ? "current_year" : /去年/.test(value) ? "previous_year" : value;
+  return required.every((item) => evidenceTimes.some((candidate) => groups(candidate) === groups(item)));
+}
+function negationConsistent(content: string, negation: string) {
+  const excluded = negation.match(/(?:不是|并非)\s*([^，。！？!?]{1,20})/)?.[1];
+  if (excluded) {
+    const anchors = [normalizeEntity(excluded), normalizeAction(excluded), ...significantWords(excluded)].filter(Boolean) as string[];
+    return !anchors.some((item) => entityMatches(content, item) || actionMatches(content, item));
+  }
+  const forbidden = negation.match(/不要\s*([^，。！？!?]{1,20})/)?.[1];
+  if (forbidden) return !significantWords(forbidden).some((item) => content.includes(item));
+  return true;
+}
 function cleanGeneratedAnswer(value: string) {
   const text = String(value || "").trim();
   if (!text) return "";
-  const solution = text.match(/(?:\u89e3\u51b3\u65b9\u6848|\u5904\u7406\u65b9\u6cd5)\s*[：:]\s*([\s\S]+)/);
+  const solution = text.match(/(?:\u89e3\u51b3\u65b9\u6848|\u5904\u7406\u65b9\u6cd5|\u7b54\u6848)\s*[：:]\s*([\s\S]+)/);
   return (solution?.[1] || text)
     .replace(/^(?:\u56de\u7b54|\u7b54\u590d)\s*[：:]\s*/, "")
     .replace(/^根据(?:提供的)?(?:知识库|资料|检索结果)(?:内容)?[，,：:]?\s*/, "")
     .replace(/^请按以下步骤操作[：:]?\s*/, "")
-    .trim();
-}
-function humanizeKnowledgeAnswer(value: string, query = "") {
-  const problem = String(value || "").match(/(?:问题描述|问题)[：:]\s*([^\r\n]+)/)?.[1]?.trim();
-  let answer = cleanGeneratedAnswer(value)
-    .replace(/[\r\n]+/g, "；")
-    .replace(/请按以下步骤操作[：:]?\s*/g, "")
-    .replace(/录入/g, "填写")
-    .replace(/重启电脑/g, "重新启动电脑")
-    .trim();
-  const shortPath = answer.match(/^([^，,。；-]+)-([^，,。；-]+?)进行([^，,。；]+?)(?:就可以了)?[。]?$/);
-  if (shortPath) {
-    const topic = conversationalTopic(problem || query);
-    return `${topic ? `${topic}的话，` : ""}您进入“${shortPath[1]}”，找到“${shortPath[2]}”，在那里进行${shortPath[3]}就可以了。`;
-  }
-  const path = answer.match(/^([^，,。；]{2,100}(?:\s*[-—→>]\s*[^，,。；]{2,50})+)[，,]\s*([\s\S]+)$/);
-  if (path) {
-    const menus = path[1].split(/\s*[-—→>]\s*/).filter(Boolean);
-    const menuText = menus.map((menu) => `“${menu}”`).join("、");
-    answer = `您先依次进入${menuText}，${path[2]}`;
-  } else if (/^请/.test(answer)) {
-    answer = answer.replace(/^请/, "您可以先");
-  } else if (/^打开/.test(answer)) {
-    answer = `您先${answer}`;
-  }
-  answer = answer
-    .replace(/点击(增加|新增|保存|关闭|删除|确定|提交|修改|编辑)(?:按钮)?/g, "点击“$1”")
-    .replace(/后保存/g, "，保存")
-    .replace(/，然后保存[。；]?$/, "，保存就可以了。")
-    .replace(/，保存[。；]?$/, "，保存就可以了。")
-    .replace(/；+/g, "。您也可以")
-    .replace(/[。；]?$/, "。");
-  if (!/^(可以|不可以|不能|目前|这个问题|您)/.test(answer)) answer = `可以的。${answer}`;
-  else if (/^可以的[，,]/.test(answer)) answer = answer.replace(/^可以的[，,]\s*/, "可以的。");
-  return answer;
-}
-function conversationalTopic(value: string) {
-  return String(value || "")
-    .replace(/[？?。]/g, "")
-    .replace(/^(?:需要|想要|请问|如何|怎么)/, "")
-    .replace(/[，,].*$/, "")
-    .replace(/^加科目$/, "增加会计科目")
-    .replace(/怎么操作$/, "")
     .trim();
 }
 function stripOpeningGreeting(value: string, companyName?: string) {
@@ -428,12 +418,40 @@ function stripOpeningGreeting(value: string, companyName?: string) {
   if (company) answer = answer.replace(new RegExp(`^${escapeRegExp(company)}\\s*(?:您好|你好)[，,、：:！!。\\s]*`), "");
   return answer.replace(/^(?:您好|你好|哈喽|早上好|下午好|晚上好)[，,、：:！!。\s]*/, "");
 }
+function knowledgeOriginalFallback(value: string) {
+  return solutionText(String(value || "")).trim();
+}
+function boundedAnswerTimeout(value?: number) {
+  const timeout = Number(value);
+  return Number.isFinite(timeout) ? Math.min(30_000, Math.max(1_000, Math.round(timeout))) : 12_000;
+}
+function answerDegradationReason(attempts: ModelAttemptDiagnostic[], error: unknown) {
+  const failed = attempts.filter((item) => item.status === "failed");
+  if (failed.some((item) => item.role === "primary") && failed.some((item) => item.role === "fallback") && failed.every((item) => item.statusCode === 402)) return "both_models_402";
+  if (failed.some((item) => item.statusCode === 402)) return "model_402";
+  const message = safeError(error);
+  if (/超时|timeout|timed out/i.test(message)) return "model_timeout";
+  if (failed.some((item) => item.statusCode !== undefined && item.statusCode >= 500)) return "model_5xx";
+  if (/network|fetch|socket|connect|ECONN|ENOTFOUND/i.test(message)) return "model_network_error";
+  return "model_failure";
+}
+function emitValidatedSentences(answer: string, onToken?: (delta: string) => void) {
+  if (!onToken || !answer) return;
+  const sentences = answer.match(/[^。！？!?；;]+[。！？!?；;]+|[^。！？!?；;]+$/g) || [answer];
+  for (const sentence of sentences) onToken(sentence);
+}
+function pendingTransferMessage(configured: string | undefined, fallback: string) {
+  const message = String(configured || "").trim();
+  if (!message || /转接成功|已接通|已转接(?:给|至)/.test(message)) return fallback;
+  return message;
+}
 function escapeRegExp(value: string) { return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 export function validateAnswer(answer: string, evidence: string, requirements: EvidenceRequirements, deterministic = false) {
-  const candidate = normalizeText(answer);
+  const validationAnswer = answer;
+  const candidate = normalizeText(validationAnswer);
   const source = normalizeText(solutionText(evidence));
   const missing: string[] = [];
-  if (!candidate || /问题描述|解决方案|知识库|检索结果|请按以下步骤操作/.test(answer)) missing.push("invalid_format");
+  if (!candidate || (!deterministic && /问题描述|解决方案|知识库|检索结果|请按以下步骤操作/.test(validationAnswer))) missing.push("invalid_format");
   if (candidate.length > source.length * 2 + 40) missing.push("over_expanded");
   const requiredFacts = criticalEvidenceFacts(source);
   const missingFacts = requiredFacts.filter((fact) => !factMatches(candidate, fact));
@@ -451,7 +469,7 @@ export function validateAnswer(answer: string, evidence: string, requirements: E
 }
 function solutionText(value: string) {
   const text = String(value || "");
-  return text.match(/(?:解决方案|处理方法)[：:]\s*([\s\S]+)/)?.[1] || text.replace(/(?:问题描述|问题)[：:][^\r\n]*(?:\r?\n|$)/, "");
+  return text.match(/(?:解决方案|处理方法|答案)[：:]\s*([\s\S]+)/)?.[1] || text.replace(/(?:问题描述|问题)[：:][^\r\n]*(?:\r?\n|$)/, "");
 }
 function criticalEvidenceFacts(value: string) {
   const normalized = value.replace(/请按以下步骤操作[：:]?/g, "");

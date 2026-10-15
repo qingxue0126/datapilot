@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DataPilot 预置电话客服增量优化测试报告</title>
+  <style>
+    body{margin:0;background:#f4f7fb;color:#172033;font:14px/1.6 "Microsoft YaHei",sans-serif}.page{max-width:1120px;margin:auto;padding:32px}.hero{padding:28px;border-radius:16px;background:linear-gradient(135deg,#172554,#2563eb);color:white}.hero h1{margin:0 0 8px}.card{margin-top:18px;padding:20px;border:1px solid #dfe7f3;border-radius:14px;background:white}table{width:100%;border-collapse:collapse}th,td{padding:10px;border-bottom:1px solid #e5eaf2;text-align:left;vertical-align:top}th{background:#f8fafc}.pass{color:#166534;font-weight:700}.warn{color:#92400e}.metric{font-size:22px;font-weight:700}.muted{color:#64748b}code{background:#eef2ff;padding:2px 5px;border-radius:4px}@media print{body{background:white}.page{padding:0}.card{break-inside:avoid}}
+  </style>
+</head>
+<body><main class="page">
+  <section class="hero"><h1>DataPilot `builtin.phone-support` 增量优化测试报告</h1><div>真实知识库 · 统一 intent / answer 模型路由 · Microsoft Edge · 2026-10-14</div></section>
+
+  <section class="card"><h2>结论</h2><p class="pass">PASS：全量服务端 280/280；真实 Edge E2E 最终覆盖 37/37；0 个未解决 FAIL，0 BLOCKED。</p><p>本次只增量修改电话客服预置及其测试。模型路由、API 契约、RBAC、权限、普通 Agent 与知识库全局检索配置未改动。</p></section>
+
+  <section class="card"><h2>修改前后性能（共同的 34 个 Edge 场景）</h2>
+    <table><thead><tr><th>指标</th><th>修改前</th><th>修改后</th><th>变化</th></tr></thead><tbody>
+      <tr><td>准确率</td><td>34/34（100%）</td><td>34/34（100%）；扩展套件 37/37</td><td>保持准确率并扩大覆盖</td></tr>
+      <tr><td>LLM 调用次数</td><td>79</td><td>79</td><td>真实库当前条目未触发严格 QA 快速路径；无额外调用</td></tr>
+      <tr><td>Token</td><td>供应商未返回</td><td>供应商未返回</td><td class="warn">不可可靠比较，未估算或伪造</td></tr>
+      <tr><td>LLM P50 / P95</td><td>1286 / 1696 ms</td><td>1050 / 1479 ms</td><td>-18.4% / -12.8%</td></tr>
+      <tr><td>单轮 Trace P50 / P95</td><td>1206 / 2924 ms</td><td>1059 / 2200 ms</td><td>-12.2% / -24.8%</td></tr>
+      <tr><td>检索 P50 / P95</td><td>25 / 33 ms</td><td>25 / 37 ms</td><td>0 / +4 ms（外部服务波动）</td></tr>
+      <tr><td>检索次数</td><td>40</td><td>40</td><td>不变</td></tr>
+    </tbody></table>
+    <p class="muted">修改前采用当天最近的历史基线 phone-full-20261014-1418.html（提交 6a47c44 + 当时工作区修改）；修改后指标来自最终代码报告 phone-full-20261014-1754.html（提交 d6189aa + 本次修改）的 34 个完成场景。两者使用同一 Edge 配置与相同带 Trace 场景，但不是隔离环境下的同提交 A/B，因此延迟变化仅作方向性参考。P50/P95 从各轮持久化 Trace 重新计算。</p>
+  </section>
+
+  <section class="card"><h2>QA 快速路径专项</h2><table><tbody>
+    <tr><th>可靠完整 QA 对</th><td>修改前：1 次 <code>route:answer</code>；修改后：0 次，使用经完整性校验的口语模板</td></tr>
+    <tr><th>普通文档 / 不完整答案</th><td>继续使用 <code>route:answer</code>，生成结果不合格则可靠证据兜底，否则请求转人工</td></tr>
+    <tr><th>SSE/TTS</th><td>模型生成期间 0 个未校验 delta；最终校验通过后按句输出，拼接结果与持久化答案完全一致</td></tr>
+  </tbody></table></section>
+
+  <section class="card"><h2>覆盖矩阵</h2><table><thead><tr><th>能力</th><th>结果</th></tr></thead><tbody>
+    <tr><td>首轮完整问题、公司/产品槽位补充、上下文追问、A→B→A 恢复</td><td class="pass">PASS</td></tr>
+    <tr><td>“账套怎么备份”→“那么怎么删除呢”</td><td class="pass">PASS：删除 Query 不含“备份”，命中删除账套证据</td></tr>
+    <tr><td>“这个月的报表不对”</td><td class="pass">PASS：未命中“导出 Excel”；冲突月份证据也会拒绝</td></tr>
+    <tr><td>产品元数据过滤、混合检索、Rerank 关闭</td><td class="pass">PASS：仅电话预置请求覆盖，不影响全局</td></tr>
+    <tr><td>错误证据拒答、QA 步骤/前置条件/风险完整性</td><td class="pass">PASS</td></tr>
+    <tr><td>模型异常、检索异常、Session 重启/刷新恢复、SSE</td><td class="pass">PASS</td></tr>
+    <tr><td>转人工语义</td><td class="pass">PASS：只记录“已请求，等待坐席接入”，不声明交接成功</td></tr>
+  </tbody></table></section>
+
+  <section class="card"><h2>修改文件</h2><table><tbody>
+    <tr><th>核心实现</th><td><code>server/modules/agent/presets/phone-support/phone-support.ts</code>、<code>dialogue-policy.ts</code></td></tr>
+    <tr><th>自动化测试</th><td><code>tests/integration/modules/agent/presets/phone-support/phone-support.test.ts</code>、<code>tests/e2e/phone-full.spec.ts</code></td></tr>
+    <tr><th>测试执行与报告</th><td><code>scripts/run-phone-full-e2e.mjs</code>、<code>tests/e2e/phone-dialogue-reporter.ts</code></td></tr>
+  </tbody></table></section>
+
+  <section class="card"><h2>执行记录</h2><table><tbody>
+    <tr><th>定向电话客服测试</th><td>26/26 PASS</td></tr>
+    <tr><th>服务端 unit / integration / API</th><td>280/280 PASS</td></tr>
+    <tr><th>TypeScript</th><td>PASS</td></tr>
+    <tr><th>Playwright Microsoft Edge</th><td>完整套件 37/37 PASS（phone-full-20261014-1736.html）；最终代码复跑 34 个已执行用例 PASS，页面导航曾出现 1 次 ERR_NETWORK_IO_SUSPENDED，随后真实知识库专项 3/3 重跑 PASS</td></tr>
+    <tr><th>BLOCKED</th><td>0</td></tr>
+  </tbody></table></section>
+</main></body></html>

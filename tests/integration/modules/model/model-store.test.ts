@@ -82,3 +82,10 @@ test("model routes validate ownership and clear references when a model is delet
   store.delete(owner, fallback.id);
   assert.equal(store.listRoutes(owner).find((item) => item.task === "text2sql")?.fallbackModelId, null);
 });
+
+test("model routes default every single request to a one-second timeout", () => {
+  const store = new ModelStore(":memory:", Buffer.alloc(32, 13));
+  const routes = store.listRoutes(owner);
+  assert.ok(routes.length > 0);
+  assert.ok(routes.every((route) => route.timeout === 1_000));
+});

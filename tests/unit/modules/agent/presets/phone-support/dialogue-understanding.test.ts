@@ -35,7 +35,7 @@ function fakeModels(content: string | Error) {
 test("deterministic rules only handle clear control intents and pure chitchat", async () => {
   const { models, calls } = fakeModels(new Error("unused"));
   const understanding = new DialogueUnderstanding(models as never);
-  for (const utterance of ["再见", "请转人工客服", "你好"]) {
+  for (const utterance of ["再见", "不用了，再见", "请转人工客服", "你好"]) {
     const response = await understanding.understand(context, { utterance, turns, priorTopics: topics });
     assert.equal(response.diagnostics.source, "rule");
   }
@@ -78,6 +78,25 @@ test("a grounded dependent follow-up may resolve to the active entity", async ()
   assert.equal(response.result.resolvedReferences[0].resolvedTo, "账套怎么备份？");
 });
 
+test("structural rules resolve topic resume, action ellipsis, and ambiguous references without an LLM", async () => {
+  const { models, calls } = fakeModels(new Error("unused"));
+  const understanding = new DialogueUnderstanding(models as never);
+  const multiple = [topics[0], { topic: "怎么查询会计科目？", originalQuery: "怎么查询会计科目？", resolvedQuery: "怎么查询会计科目？", turn: 4 }];
+
+  const resumed = await understanding.understand(context, { utterance: "刚才提到的账套备份怎么具体操作？", turns, priorTopics: multiple });
+  assert.equal(resumed.result.topicAction, "resume");
+  assert.equal(resumed.result.targetTopic, "账套怎么备份？");
+
+  const ambiguous = await understanding.understand(context, { utterance: "那个怎么修改？", turns, priorTopics: multiple });
+  assert.equal(ambiguous.result.intent, "clarify");
+  assert.equal(ambiguous.result.needsClarification, true);
+
+  const actionChange = await understanding.understand(context, { utterance: "那么怎么删除呢？", turns, priorTopics: topics });
+  assert.equal(actionChange.result.intent, "delete");
+  assert.match(actionChange.result.targetTopic || "", /账套.*删除/);
+  assert.equal(calls.length, 0);
+});
+
 test("invalid references and model failures degrade without guessing", async () => {
   const invalid = output({ topicAction: "resume", contextDependency: "dependent", targetTopic: "不存在的话题", resolvedReferences: [{ expression: "那个", resolvedTo: "不存在的话题", sourceTurn: 1 }] });
   const first = await new DialogueUnderstanding(fakeModels(invalid).models as never).understand(context, { utterance: "那个呢？", turns, priorTopics: topics });
@@ -85,6 +104,7 @@ test("invalid references and model failures degrade without guessing", async () 
   assert.equal(first.diagnostics.source, "safe_fallback");
 
   const failure = await new DialogueUnderstanding(fakeModels(new Error("Bearer secret upstream failed")).models as never).understand(context, { utterance: "怎么弄？", turns, priorTopics: topics });
+  assert.equal(failure.result.intent, "clarify");
   assert.equal(failure.result.needsClarification, true);
   assert.doesNotMatch(failure.diagnostics.degradationReason || "", /Bearer secret/);
 });
