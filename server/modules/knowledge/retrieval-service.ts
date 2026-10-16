@@ -83,7 +83,11 @@ export class KnowledgeRetrievalService {
       : candidateCount;
 
     this.validateFilterSchema(accessContext, knowledgeBaseId, filters);
-    const queryEmbedding = await this.embeddings.embed(context, config.embeddingModel, query);
+    // An agent-bound retrieval has already resolved the knowledge-base owner
+    // context above. Use it for every model required by retrieval as well, so
+    // a team member can use the agent without being granted its private
+    // embedding/rerank model directly.
+    const queryEmbedding = await this.embeddings.embed(accessContext, config.embeddingModel, query);
     const vectorContext = this.store.retrievalContext(accessContext, knowledgeBaseId);
     let matches = await this.vectors.search(vectorContext, knowledgeBaseId, queryEmbedding, {
       limit: vectorCandidateCount,
@@ -94,7 +98,7 @@ export class KnowledgeRetrievalService {
     if (retrievalMode === "hybrid") matches = this.hybridMatches(accessContext, knowledgeBaseId, query, filters, matches, vectorWeight, candidateCount);
     matches = matches.filter((item) => item.score >= scoreThreshold);
     if (rerank && this.reranker && rerankModel && rerankModel !== "local-keyword-reranker-v1") {
-      const ranked = await this.reranker.rerank(context, rerankModel, query, matches.map((item) => item.content), rerankTopK);
+      const ranked = await this.reranker.rerank(accessContext, rerankModel, query, matches.map((item) => item.content), rerankTopK);
       matches = ranked.results.map((result) => ({ ...matches[result.index], score: result.score })).filter((item): item is VectorSearchResult => Boolean(item));
     } else if (rerank) {
       matches = matches

@@ -63,6 +63,13 @@ test("business understanding uses the managed intent route and preserves the ori
   assert.deepEqual(response.diagnostics.usage, { promptTokens: 80, completionTokens: 25, totalTokens: 105 });
   assert.equal(calls[0].options.task, "intent");
   assert.equal(calls[0].options.disableThinking, true);
+  const failover = calls[0].options.failover as Record<string, unknown>;
+  assert.equal(failover.totalTimeoutMs, 5000);
+  assert.equal(failover.attemptTimeoutMs, 1500);
+  assert.equal(failover.overrideRouteTimeout, true);
+  assert.equal(failover.maxAttemptsPerModel, 1);
+  assert.deepEqual(failover.noRetryStatusCodes, [402]);
+  assert.equal(typeof failover.onAttempt, "function");
 });
 
 test("a grounded dependent follow-up may resolve to the active entity", async () => {

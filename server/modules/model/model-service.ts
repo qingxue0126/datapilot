@@ -19,6 +19,10 @@ export type ModelAttemptDiagnostic = {
 export type TextFailoverOptions = {
   totalTimeoutMs?: number;
   attemptTimeoutMs?: number;
+  /** Let a caller-owned failover policy override a smaller route timeout. */
+  overrideRouteTimeout?: boolean;
+  /** Maximum attempts for each candidate model before moving to the next one. */
+  maxAttemptsPerModel?: number;
   noRetryStatusCodes?: number[];
   onAttempt?: (diagnostic: ModelAttemptDiagnostic) => void;
 };
@@ -107,7 +111,9 @@ export class ModelService implements StructuredModelClient {
     const onToken = (token: string) => { emitted = true; options.onToken(token); };
     for (let modelIndex = 0; modelIndex < candidates.length; modelIndex += 1) {
       const model = candidates[modelIndex];
-      const attempts = Math.max(1, resolved.route.maxRetries + 1);
+      const attempts = options.failover?.maxAttemptsPerModel === undefined
+        ? Math.max(1, resolved.route.maxRetries + 1)
+        : Math.max(1, Math.floor(options.failover.maxAttemptsPerModel));
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const attemptStarted = Date.now();
         try {
@@ -119,8 +125,11 @@ export class ModelService implements StructuredModelClient {
           const attemptTimeoutMs = configuredAttemptTimeoutMs === undefined
             ? budgetedAttemptTimeoutMs
             : Math.max(1, Math.min(configuredAttemptTimeoutMs, budgetedAttemptTimeoutMs));
+          const requestTimeout = options.failover?.overrideRouteTimeout
+            ? attemptTimeoutMs
+            : Math.min(resolved.route.timeout, attemptTimeoutMs);
           const result = await this.providers.get(model.provider).chat(model, { messages, temperature: options.temperature ?? resolved.route.temperature,
-            timeout: Math.min(resolved.route.timeout, attemptTimeoutMs), maxTokens: Math.min(options.maxTokens ?? 4000, model.contextWindow), onToken, signal: options.signal, disableThinking: options.disableThinking });
+            timeout: requestTimeout, maxTokens: Math.min(options.maxTokens ?? 4000, model.contextWindow), onToken, signal: options.signal, disableThinking: options.disableThinking });
           options.failover?.onAttempt?.({ role: modelIndex === 0 ? "primary" : "fallback", modelId: model.modelId, attempt: attempt + 1, status: "succeeded", durationMs: Date.now() - attemptStarted });
           options.onUsage?.(result.usage, result.latencyMs, model.modelId);
           return result.content;

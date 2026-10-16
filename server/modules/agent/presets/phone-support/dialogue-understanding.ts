@@ -1,10 +1,12 @@
 import type { RequestContext } from "../../../../shared/types/context.js";
 import type { ModelTokenUsage } from "../../../../shared/types/model.js";
-import type { ModelService } from "../../../model/index.js";
+import type { ModelAttemptDiagnostic, ModelService } from "../../../model/index.js";
 
 /** Compatibility label used by reports. The concrete model is selected by DataPilot's intent route. */
 export const DIALOGUE_MODEL = "route:intent";
 export const DIALOGUE_FALLBACK_MODEL = "route:intent:fallback";
+const INTENT_TOTAL_TIMEOUT_MS = 5_000;
+const INTENT_ATTEMPT_TIMEOUT_MS = 1_500;
 
 export const dialogueIntents = ["consult", "create", "delete", "update", "query", "confirm", "deny", "correct", "clarify", "end", "transfer", "chitchat", "troubleshoot"] as const;
 export type DialogueIntent = typeof dialogueIntents[number];
@@ -39,6 +41,7 @@ export type DialogueUnderstandingDiagnostics = {
   durationMs: number;
   modelLatencyMs?: number;
   usage?: ModelTokenUsage;
+  attempts?: ModelAttemptDiagnostic[];
   degradationReason?: string;
 };
 export type DialogueUnderstandingResponse = { result: DialogueUnderstandingResult; diagnostics: DialogueUnderstandingDiagnostics };
@@ -66,6 +69,7 @@ export class DialogueUnderstanding {
     let usage: ModelTokenUsage | undefined;
     let model: string | undefined;
     let modelLatencyMs: number | undefined;
+    const attempts: ModelAttemptDiagnostic[] = [];
     try {
       const content = await this.models.text(prompt(utterance, input.turns, topics), {
         context,
@@ -76,13 +80,23 @@ export class DialogueUnderstanding {
         signal: input.signal,
         onToken: () => undefined,
         onUsage: (value, latency, modelId) => { usage = value; modelLatencyMs = latency; model = modelId; },
+        failover: {
+          totalTimeoutMs: INTENT_TOTAL_TIMEOUT_MS,
+          attemptTimeoutMs: INTENT_ATTEMPT_TIMEOUT_MS,
+          overrideRouteTimeout: true,
+          // Intent classification should move to the backup immediately. This
+          // also bounds retries for transient/network/5xx failures.
+          maxAttemptsPerModel: 1,
+          noRetryStatusCodes: [402],
+          onAttempt: (diagnostic) => attempts.push(diagnostic),
+        },
       });
       const result = enforceSafety(utterance, topics, validateResult(parseJson(content), topics, input.turns.length));
-      return { result, diagnostics: { source: "llm", route: "intent", model, durationMs: Date.now() - started, modelLatencyMs, usage } };
+      return { result, diagnostics: { source: "llm", route: "intent", model, durationMs: Date.now() - started, modelLatencyMs, usage, attempts } };
     } catch (error) {
       return {
         result: safeFallback(utterance, input.turns, topics),
-        diagnostics: { source: "safe_fallback", route: "intent", model, durationMs: Date.now() - started, modelLatencyMs, usage, degradationReason: safeError(error) },
+        diagnostics: { source: "safe_fallback", route: "intent", model, durationMs: Date.now() - started, modelLatencyMs, usage, attempts, degradationReason: safeError(error) },
       };
     }
   }

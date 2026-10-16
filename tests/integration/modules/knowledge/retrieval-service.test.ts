@@ -59,9 +59,14 @@ test("agent-bound access retrieves a private knowledge base without granting arb
   const { store, knowledgeBase, records } = fixture();
   const vectors = new LocalVectorStore(":memory:");
   const teammate: RequestContext = { ...context, accountSetId: "books-b", userId: "bob", role: "finance_viewer", sessionId: "session-b" };
+  const embeddingContexts: RequestContext[] = [];
+  const embeddings = {
+    async embed(embeddingContext: RequestContext) { embeddingContexts.push(embeddingContext); return [1, 0]; },
+    async embedBatch(embeddingContext: RequestContext, _modelId: string, texts: string[]) { embeddingContexts.push(embeddingContext); return texts.map(() => [1, 0]); },
+  };
   try {
     vectors.upsert(context, records);
-    const service = new KnowledgeRetrievalService(store, vectors, new TestEmbeddingProvider());
+    const service = new KnowledgeRetrievalService(store, vectors, embeddings);
     await assert.rejects(
       service.retrieve(teammate, { knowledgeBaseId: knowledgeBase.id, query: "product", topK: 10, scoreThreshold: -1 }),
       /知识库不存在|无权访问/,
@@ -74,6 +79,7 @@ test("agent-bound access retrieves a private knowledge base without granting arb
       access: { mode: "agent", allowedKnowledgeBaseIds: [knowledgeBase.id] },
     });
     assert.deepEqual(result.items.map((item) => item.chunkId), ["t3", "t30"]);
+    assert.deepEqual(embeddingContexts, [{ ...teammate, userId: context.userId, accountSetId: context.accountSetId }]);
     await assert.rejects(
       service.retrieve(teammate, {
         knowledgeBaseId: knowledgeBase.id,

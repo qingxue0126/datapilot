@@ -267,6 +267,11 @@ test("phone support grounds DeepSeek rewriting in only the best retrieval hit", 
   assert.doesNotMatch(modelCalls[0].messages[0].content, /不能原样朗读|一到两句话/);
   assert.match(modelCalls[0].messages[1].content, /基础设置-科目期初/);
   assert.doesNotMatch(modelCalls[0].messages[1].content, /只能停用/);
+  const retrievalTrace = JSON.parse(result.trace.find((item) => item.step === "knowledge.retrieve")?.detail || "{}");
+  assert.deepEqual(retrievalTrace.items, [
+    { rank: 1, chunkId: "c0", question: "需要增加会计科目，怎么操作", score: 0.95, metadata: {} },
+    { rank: 2, chunkId: "c1", question: "会计科目可以删除吗", score: 0.7, metadata: {} },
+  ]);
 });
 
 test("disabled answer validation accepts an over-expanded model answer", async () => {

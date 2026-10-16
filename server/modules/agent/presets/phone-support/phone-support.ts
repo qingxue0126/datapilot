@@ -137,7 +137,22 @@ export class PhoneSupportHarness {
         filters: field ? { [field]: { $containsToken: slots.product! } } : {},
         access: { mode: "agent", allowedKnowledgeBaseIds: [config.knowledgeBaseId] },
       }), 20_000, signal);
-      trace.push({ step: "knowledge.retrieve", status: "succeeded", durationMs: Date.now() - retrievalStarted, detail: JSON.stringify({ query: rewrittenQuery, hits: retrieval.items.length }) });
+      trace.push({
+        step: "knowledge.retrieve",
+        status: "succeeded",
+        durationMs: Date.now() - retrievalStarted,
+        detail: JSON.stringify({
+          query: rewrittenQuery,
+          hits: retrieval.items.length,
+          items: retrieval.items.map((item) => ({
+            rank: item.rank,
+            chunkId: item.chunkId,
+            question: knowledgeQuestion(item.content),
+            score: item.score,
+            metadata: item.metadata,
+          })),
+        }),
+      });
     } catch (error) {
       trace.push({ step: "knowledge.retrieve", status: "failed", durationMs: Date.now() - retrievalStarted, detail: safeError(error) });
       const answer = pendingTransferMessage(config.transferMessage, "知识库暂时不可用，我已为您请求转接人工客服，请稍候等待坐席接入。");
@@ -200,6 +215,7 @@ export class PhoneSupportHarness {
         failover: {
           totalTimeoutMs: boundedAnswerTimeout(config.answerGenerationTimeoutMs),
           attemptTimeoutMs: 1_500,
+          overrideRouteTimeout: true,
           noRetryStatusCodes: [402],
           onAttempt: (diagnostic) => modelAttempts.push(diagnostic),
         },
@@ -470,6 +486,10 @@ export function validateAnswer(answer: string, evidence: string, requirements: E
 function solutionText(value: string) {
   const text = String(value || "");
   return text.match(/(?:解决方案|处理方法|答案)[：:]\s*([\s\S]+)/)?.[1] || text.replace(/(?:问题描述|问题)[：:][^\r\n]*(?:\r?\n|$)/, "");
+}
+function knowledgeQuestion(value: string) {
+  const text = String(value || "");
+  return text.match(/(?:^|\r?\n)\s*(?:#{1,6}\s*)?(?:问题描述|问题|question)\s*[：:]\s*([^\r\n]+)/i)?.[1]?.trim() || "";
 }
 function criticalEvidenceFacts(value: string) {
   const normalized = value.replace(/请按以下步骤操作[：:]?/g, "");
